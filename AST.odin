@@ -24,8 +24,8 @@ SumType :: struct {
     payloads:  Multi(Type), // Always a struct type
 }
 
-Ident :: struct {
-    segments: #soa[]IdentAndPos,
+IdentNode :: struct {
+    segments: #soa[]Ident,
 }
 
 /*
@@ -52,7 +52,7 @@ Bool :: distinct bool
 
 MarkedUnit :: struct {
     value:   ^Unit,
-    markers: []IdentAndPos,
+    markers: []TextAndPos,
 }
 
 Tuple :: struct {
@@ -105,8 +105,8 @@ UnitWithoutPos :: union {
     CallWithBrackets,
     CallWithSquareBrackets,
     CallWithFrontedSquareBrackets,
-    JoinedUnits,
-    Ident,
+    HierarchyJoinedUnits,
+    IdentNode,
     Number,
     String,
     Char,
@@ -116,16 +116,25 @@ UnitWithoutPos :: union {
 }
 
 Unit :: struct {
-    pos:   Pos,
-    value: UnitWithoutPos,
+    pos:         Pos,
+    first_unit:  UnitWithoutPos,
+    extra_units: []ExtraUnit,
 }
 
-ParsingValue :: struct {
-    enclosed_in_brackets: bool,
-    value:                Unit,
+ExtraUnit :: struct {
+    pos:         Pos,
+    join_method: LeftToRightUnitJoinMethod,
+    unit:        UnitWithoutPos,
 }
 
-UnitJoinMethod :: enum {
+// TODO: Maybe all unit join methods should be left to right?
+
+LeftToRightUnitJoinMethod :: enum {
+    Equals, // =
+    Tilde, // ~
+}
+
+HierarchyUnitJoinMethod :: enum {
     // Prioraty 0
     BooleanAnd,
     BooleanOr,
@@ -160,7 +169,7 @@ UnitJoinMethod :: enum {
 
 // Operations with higher prioraty (prioraty 5 is the highest prioraty) are executed first
 // See https://en.wikipedia.org/wiki/Order_of_operations#Programming_languages
-get_prioraty :: proc(join_method: UnitJoinMethod) -> uint {
+get_prioraty :: proc(join_method: HierarchyUnitJoinMethod) -> uint {
     switch join_method {
     case .BooleanAnd, .BooleanOr:
         return 0
@@ -183,8 +192,8 @@ get_prioraty :: proc(join_method: UnitJoinMethod) -> uint {
     panic("Unreachable")
 }
 
-JoinedUnits :: struct {
-    join_method: UnitJoinMethod,
+HierarchyJoinedUnits :: struct {
+    join_method: HierarchyUnitJoinMethod,
     unit0:       ^Unit,
     unit1:       ^Unit,
 }
@@ -205,7 +214,7 @@ VariableDestType :: enum {
 }
 
 VariableDest :: struct {
-    name: IdentAndPos,
+    name: Ident,
     type: VariableDestType,
 
     // The unit in square brackets
@@ -267,9 +276,15 @@ IdentAndIndex :: struct {
 }
 */
 
-IdentAndPos :: struct {
-    ident: string,
-    pos:   Pos,
+TextAndPos :: struct {
+    text: string,
+    pos:  Pos,
+}
+
+Ident :: struct {
+    ident:             string,
+    pos:               Pos,
+    has_dollar_at_end: bool,
 }
 
 ConditionControlledLoop :: struct {
@@ -282,12 +297,12 @@ ConditionControlledLoop :: struct {
 }
 
 ForInLoop :: struct {
-    label:     IdentAndPos,
+    label:     TextAndPos,
     // At most there can be 3 variables:
     // - The iteration the for loop is on
     // - The key of the thing being iterated over
     // - The value of the thing being iterated over
-    variables: [3]IdentAndPos,
+    variables: [3]TextAndPos,
     iterator:  Iterator,
     body:      []Statement,
 }
@@ -311,7 +326,7 @@ MatchStatement :: struct {
 ReturnStatement :: distinct []Unit
 YieldStatement :: distinct []Unit
 ContinueStatement :: struct {
-    label: IdentAndPos,
+    label: TextAndPos,
 }
 UnreachableStatement :: struct {}
 
@@ -332,13 +347,8 @@ Statement :: struct {
 }
 
 FunctionArg :: struct {
-    name:       IdentAndPos,
+    name:       TextAndPos,
     value_type: Unit,
-    arg_type:   enum {
-        Normal,
-        Mutable,
-        RemovedFromStack,
-    },
 }
 
 FunctionDefinition :: struct {
@@ -421,7 +431,7 @@ debug_call :: proc(funcs: []FunctionDefinition, c: Call) {
 debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
     debug("value at character index %d", unit.pos)
     debug_nesting += 1
-    switch v in unit.value {
+    switch v in unit.first_unit {
     case StructUnit:
         panic("TODO")
     case SumUnit:
@@ -460,14 +470,14 @@ debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
     case CallWithFrontedSquareBrackets:
         debug("call with fronted square brackets")
         debug_call(funcs, Call(v))
-    case JoinedUnits:
+    case HierarchyJoinedUnits:
         debug("joined units")
         debug_nesting += 1
         debug("join method: %v", v.join_method)
         debug_unit(funcs, v.unit0^)
         debug_unit(funcs, v.unit1^)
         debug_nesting -= 1
-    case Ident:
+    case IdentNode:
         debug("ident")
         debug_nesting += 1
         for segment in v.segments {

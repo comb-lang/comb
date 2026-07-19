@@ -216,7 +216,7 @@ is_builtin :: proc(name: string) -> bool {
 add_unnamed_variable :: proc(
     s: ^CheckerState,
     variable_type: Type,
-    variable_is_mut: bool,
+    variable_is_mut: bool, // TODO: rename `mut` -> `re`
     loc := #caller_location,
 ) -> VariableRef {
     when debug_checker {
@@ -234,8 +234,7 @@ add_unnamed_variable :: proc(
 add_variable :: proc(
     s: ^CheckerState,
     variable_type: Type,
-    variable_is_mut: bool,
-    variable: IdentAndPos,
+    variable: Ident, // if `variable.has_dollar_at_end`, then the variable is created as mutable
     loc := #caller_location,
 ) -> (
     VariableRef,
@@ -245,7 +244,7 @@ add_variable :: proc(
         print_call(loc, "add_variable")
     }
     // TODO: Add a warning for unused variables
-    expect_snake_case(s, "variable names", variable)
+    expect_snake_case(s, "variable names", TextAndPos{variable.ident, variable.pos})
     if is_builtin(variable.ident) {
         diagnostic(s, variable.pos, builtins_err, variable.ident)
         return VariableRef{}, false
@@ -254,7 +253,7 @@ add_variable :: proc(
         diagnostic(s, variable.pos, "Redeclaration of variable `%s`", variable.ident)
         return VariableRef{}, false
     }
-    var_ref := add_unnamed_variable(s, variable_type, variable_is_mut)
+    var_ref := add_unnamed_variable(s, variable_type, variable.has_dollar_at_end)
     if variable.ident != "" {
         s.variables_map[variable.ident] = var_ref
     }

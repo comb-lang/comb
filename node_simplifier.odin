@@ -18,7 +18,7 @@ create_not :: proc(value: CheckedValue) -> CheckedValue {
 }
 
 create_joined_values :: proc(
-    method: UnitJoinMethod,
+    method: HierarchyUnitJoinMethod,
     val0: CheckedValue,
     val1: CheckedValue,
 ) -> CheckedValue {

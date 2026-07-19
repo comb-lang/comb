@@ -9,6 +9,10 @@ import "core:strings"
 
 FileRef :: ^CompilerFile
 
+plain_ident_base :: "n identifier with one segment and no `$` sign at the end"
+plain_ident_capitalised :: "A" + plain_ident_base
+plain_ident_normal :: "a" + plain_ident_base
+
 get_file_index :: proc(files: Multi(CompilerFile), ref: FileRef, loc := #caller_location) -> int {
     return mem.ptr_sub(ref, &files.d[0])
 }
@@ -41,13 +45,13 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
         fix_resizable_multi(out.positions)
     }
     for {
-        field: IdentAndPos = ---
+        field: TextAndPos = ---
         get_next_token(s, true)
         wrong_token :: proc(s: ^ParserState) -> (StructUnit, bool) {
             clear_dynamic(&s.last_token_descriptions_of_other_possible_tokens)
             append_dynamic_elems(
                 &s.last_token_descriptions_of_other_possible_tokens,
-                "an identifier with one segment",
+                plain_ident_capitalised,
                 "`}`",
             )
             wrong_token_err(s, "While parsing struct type")
@@ -57,10 +61,10 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
         case CloseBraceToken:
             return out, true
         case IdentToken:
-            if len(token) != 1 {
+            if len(token) != 1 || token[0].has_dollar_at_end {
                 return wrong_token(s)
             }
-            field = IdentAndPos{token[0].ident, token[0].pos}
+            field = TextAndPos{token[0].ident, token[0].pos}
         case:
             return wrong_token(s)
         }
@@ -71,7 +75,7 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
             clear_dynamic(&s.last_token_descriptions_of_other_possible_tokens)
             append_dynamic(
                 &s.last_token_descriptions_of_other_possible_tokens,
-                fmt.aprintf("`:` to specify the type of the `%s` field", field.ident),
+                fmt.aprintf("`:` to specify the type of the `%s` field", field.text),
             )
             wrong_token_err(s)
             return StructUnit{}, false
@@ -83,13 +87,13 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
         if !parsed.ok {
             return StructUnit{}, false
         }
-        i, result := lookup_or_insert(&out.m, field.ident, string_to_index_procs)
+        i, result := lookup_or_insert(&out.m, field.text, string_to_index_procs)
         if result == .LookedUp {
             diagnostic(
                 &s.r,
                 field.pos,
                 "There is already a field called `%s` defined in this struct at %v",
-                field.ident,
+                field.text,
                 out.positions.d[i.index],
             )
             return StructUnit{}, false
@@ -161,7 +165,7 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
             return Unit{}, false
         }
         if file_ref, exists := s.files_map[joined]; exists {
-            out.value = Import{file_ref}
+            out.first_unit = Import{file_ref}
         } else {
             data, data_err := os.read_entire_file(joined, context.allocator)
             if data_err != nil {
@@ -181,7 +185,7 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
             )
             ref := &s.files.d[len(s.parsed_files)]
             append_dynamic(&s.parsed_files, nil)
-            out.value = Import{ref}
+            out.first_unit = Import{ref}
             s.files_map[joined] = ref
         }
 
@@ -190,7 +194,7 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
         if !ok {
             return Unit{}, false
         }
-        out.value = Tuple{elements}
+        out.first_unit = Tuple{elements}
 
     // case DynamicToken:
     //     get_next_token(state, false)
@@ -202,7 +206,7 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
 
     case OpenBraceToken:
         ok: bool = ---
-        out.value, ok = parse_struct(s)
+        out.first_unit, ok = parse_struct(s)
         if !ok {
             return Unit{}, false
         }
@@ -223,7 +227,7 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
             clear_dynamic(&s.last_token_descriptions_of_other_possible_tokens)
             append_dynamic_elems(
                 &s.last_token_descriptions_of_other_possible_tokens,
-                "an identifier with one segment",
+                plain_ident_capitalised,
                 "`>`",
             )
             #partial switch token2 in s.last_token {
@@ -233,7 +237,7 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
             case CloseAngleBracketToken:
                 break loop
             case IdentToken:
-                if len(token2) != 1 {
+                if len(token2) != 1 || token2[0].has_dollar_at_end {
                     wrong_token_err(s)
                     return Unit{}, false
                 }
@@ -292,7 +296,7 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
                 }
             }
         }
-        out.value = sum_type
+        out.first_unit = sum_type
 
     case OpenSquareBracketToken:
         args, args_ok := parse_units_until(s, is_close_square_bracket, "`]`")
@@ -311,40 +315,40 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
             if !args2_ok {
                 return Unit{}, false
             }
-            unit.value = CallWithSquareBrackets{new_clone(unit), args2}
+            unit.first_unit = CallWithSquareBrackets{new_clone(unit), args2}
             get_next_token(s, true)
         }
-        out.value = CallWithFrontedSquareBrackets{new_clone(unit), args}
+        out.first_unit = CallWithFrontedSquareBrackets{new_clone(unit), args}
         return out, true
 
     case IdentToken:
-        out.value = Ident{token}
+        out.first_unit = IdentNode{token}
 
     case MarkerToken:
-        markers := [dynamic]IdentAndPos{{string(token), Pos{s.last_token_pos, s.file_ref}}}
+        markers := [dynamic]TextAndPos{{string(token), Pos{s.last_token_pos, s.file_ref}}}
         for {
             get_next_token(s, false)
             marker, is_marker := s.last_token.(MarkerToken)
             if !is_marker {
                 break
             }
-            append_elem(&markers, IdentAndPos{string(marker), Pos{s.last_token_pos, s.file_ref}})
+            append_elem(&markers, TextAndPos{string(marker), Pos{s.last_token_pos, s.file_ref}})
         }
         val, ok := parse_initial_unit(s)
         if !ok {
             return Unit{}, false
         }
-        out.value = MarkedUnit{new_clone(val), markers[:]}
+        out.first_unit = MarkedUnit{new_clone(val), markers[:]}
         return out, true
 
     case TrueToken:
-        out.value = Bool(true)
+        out.first_unit = Bool(true)
 
     case FalseToken:
-        out.value = Bool(false)
+        out.first_unit = Bool(false)
 
     case DigitsToken:
-        out.value = Number{false, string(token)}
+        out.first_unit = Number{false, string(token)}
 
     case SymbolsToken:
         if token != "-" {
@@ -357,7 +361,7 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
             wrong_token_err(s)
             return Unit{}, false
         }
-        out.value = Number{true, string(digits)}
+        out.first_unit = Number{true, string(digits)}
 
     case StringToken:
         strings := [dynamic]string{string(token)}
@@ -365,7 +369,7 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
             get_next_token(s, true)
             #partial switch token2 in s.last_token {
             case:
-                out.value = String(strings[:])
+                out.first_unit = String(strings[:])
                 append_dynamic(
                     &s.last_token_descriptions_of_other_possible_tokens,
                     "a string token",
@@ -377,14 +381,14 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
         }
 
     case CharToken:
-        out.value = Char(token)
+        out.first_unit = Char(token)
 
     case BarToken:
         func, ok := parse_function_def(s)
         if !ok {
             return Unit{}, false
         }
-        out.value = FuncDefinitionRef{uint(len(s.function_defs))}
+        out.first_unit = FuncDefinitionRef{uint(len(s.function_defs))}
         append_elem(&s.function_defs, func)
 
     }
@@ -438,20 +442,20 @@ ParsedUnit :: struct {
 }
 
 create_joined_unit :: proc(
-    join_method: UnitJoinMethod,
+    join_method: HierarchyUnitJoinMethod,
     unit0: Unit,
     unit1: ^Unit,
 ) -> UnitWithoutPos {
-    joined_values, is_joined_values := unit1.value.(JoinedUnits)
+    joined_values, is_joined_values := unit1.first_unit.(HierarchyJoinedUnits)
     if is_joined_values && get_prioraty(joined_values.join_method) <= get_prioraty(join_method) {
         val0 := create_joined_unit(join_method, unit0, joined_values.unit0)
-        return JoinedUnits {
+        return HierarchyJoinedUnits {
             joined_values.join_method,
-            new_clone(Unit{unit0.pos, val0}),
+            new_clone(Unit{unit0.pos, val0, nil}),
             joined_values.unit1,
         }
     }
-    return JoinedUnits{join_method, new_clone(unit0), unit1}
+    return HierarchyJoinedUnits{join_method, new_clone(unit0), unit1}
 }
 
 parse_unit :: proc(s: ^ParserState) -> ParsedUnit {
@@ -477,14 +481,14 @@ parse_unit :: proc(s: ^ParserState) -> ParsedUnit {
             if !args_ok {
                 return ParsedUnit{ok = false}
             }
-            val = Unit{value_pos, CallWithBrackets{new_clone(val), args}}
+            val = Unit{value_pos, CallWithBrackets{new_clone(val), args}, nil}
             get_next_token(s, true)
         case OpenSquareBracketToken:
             args, args_ok := parse_units_until(s, is_close_square_bracket, "`]`")
             if !args_ok {
                 return ParsedUnit{ok = false}
             }
-            val = Unit{value_pos, CallWithSquareBrackets{new_clone(val), args}}
+            val = Unit{value_pos, CallWithSquareBrackets{new_clone(val), args}, nil}
             get_next_token(s, true)
         }
     }
@@ -494,7 +498,7 @@ parse_unit :: proc(s: ^ParserState) -> ParsedUnit {
         &s.last_token_descriptions_of_other_possible_tokens,
         "a value joiner (`and`, `or`, `==`, `!=`, `>`, `>=`, `<`, `<=`, `*`, `/`, `+`, `-`, `%`, `::`, `:`, `->`, `in`)",
     )
-    value_type: UnitJoinMethod
+    value_type: HierarchyUnitJoinMethod
     #partial switch token in s.last_token {
     case:
         return ParsedUnit{true, val}
@@ -549,7 +553,7 @@ parse_unit :: proc(s: ^ParserState) -> ParsedUnit {
     }
     return ParsedUnit {
         true,
-        Unit{value_pos, create_joined_unit(value_type, val, new_clone(next_value.unit))},
+        Unit{value_pos, create_joined_unit(value_type, val, new_clone(next_value.unit)), nil},
     }
 }
 
@@ -592,23 +596,23 @@ parse_iterator :: proc(s: ^ParserState) -> Iterator {
 }
 
 at_description := "`@` to set the label of the loop"
-parse_possible_loop_label :: proc(s: ^ParserState) -> (IdentAndPos, bool) {
+parse_possible_loop_label :: proc(s: ^ParserState) -> (TextAndPos, bool) {
     get_next_token(s, false)
     if _, is_at_token := s.last_token.(AtToken); is_at_token {
         get_next_token(s, false)
         ident, is_ident := s.last_token.(IdentToken)
-        if !is_ident || len(ident) != 1 {
+        if !is_ident || len(ident) != 1 || ident[0].has_dollar_at_end {
             append_dynamic(
                 &s.last_token_descriptions_of_other_possible_tokens,
-                "An identifier with one segment for the label of the loop",
+                plain_ident_capitalised + " for the label of the loop",
             )
             wrong_token_err(s)
-            return IdentAndPos{}, false
+            return TextAndPos{}, false
         }
         get_next_token(s, false)
-        return IdentAndPos{ident[0].ident, ident[0].pos}, true
+        return TextAndPos{ident[0].ident, ident[0].pos}, true
     }
-    return IdentAndPos{}, true
+    return TextAndPos{}, true
 }
 
 // Does not include the `for`
@@ -617,22 +621,22 @@ parse_for_loop :: proc(s: ^ParserState) -> (ForInLoop, bool) {
     if !ok {
         return ForInLoop{}, false
     }
-    variables: [3]IdentAndPos
+    variables: [3]TextAndPos
     variable_index := 0
     variables_loop: for {
         ident, is_ident := s.last_token.(IdentToken)
-        if !is_ident || len(ident) != 1 {
+        if !is_ident || len(ident) != 1 || ident[0].has_dollar_at_end {
             append_dynamic(
                 &s.last_token_descriptions_of_other_possible_tokens,
-                "the name of the variable in a for loop (an identifier with one segment)",
+                "the name of the variable in a for loop (an identifier with one segment and no dollar sign at the end)",
             )
-            if can_be_at := label.ident == ""; can_be_at {
+            if can_be_at := label.text == ""; can_be_at {
                 append_dynamic(&s.last_token_descriptions_of_other_possible_tokens, at_description)
             }
             wrong_token_err(s)
             return ForInLoop{}, false
         }
-        variables[variable_index] = IdentAndPos{ident[0].ident, ident[0].pos}
+        variables[variable_index] = TextAndPos{ident[0].ident, ident[0].pos}
         variable_index += 1
 
         get_next_token(s, false)
@@ -764,7 +768,7 @@ get_identifier :: proc(
     _, is_open_square_brace := s.last_token.(OpenSquareBracketToken)
     if !is_open_square_brace {
         append_dynamic(&s.last_token_descriptions_of_other_possible_tokens, "`[`")
-        return VariableDest{IdentAndPos{ident.ident, ident.pos}, variable_dest_type, nil}, true
+        return VariableDest{ident, variable_dest_type, nil}, true
     }
     get_next_token(s, true)
     value := parse_unit(s)
@@ -778,12 +782,7 @@ get_identifier :: proc(
         return VariableDest{}, false
     }
     get_next_token(s, true)
-    return VariableDest {
-            IdentAndPos{ident.ident, ident.pos},
-            variable_dest_type,
-            new_clone(value.unit),
-        },
-        true
+    return VariableDest{ident, variable_dest_type, new_clone(value.unit)}, true
 }
 
 
@@ -939,7 +938,10 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
                 get_next_token(s, true)
                 append_elem(
                     &out,
-                    Statement{pos, CallWithBrackets{new_clone(Unit{pos, Ident{token}}), args}},
+                    Statement {
+                        pos,
+                        CallWithBrackets{new_clone(Unit{pos, IdentNode{token}, nil}), args},
+                    },
                 )
                 break switch_stmt
             case CommaToken:
@@ -974,20 +976,20 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
             append_elem(&out, Statement{pos, if_else^})
         case ContinueToken:
             get_next_token(s, true)
-            label := IdentAndPos{}
+            label := TextAndPos{}
             _, is_at := s.last_token.(AtToken)
             if is_at {
                 get_next_token(s, true)
                 ident, is_ident := s.last_token.(IdentToken)
-                if !is_ident || len(ident) != 1 {
+                if !is_ident || len(ident) != 1 || ident[0].has_dollar_at_end {
                     append_dynamic(
                         &s.last_token_descriptions_of_other_possible_tokens,
-                        "An identifier with one segment",
+                        plain_ident_capitalised,
                     )
                     wrong_token_err(s)
                     return nil, false
                 }
-                label = IdentAndPos{ident[0].ident, ident[0].pos}
+                label = TextAndPos{ident[0].ident, ident[0].pos}
                 get_next_token(s, true)
             }
             append_elem(&out, Statement{pos, ContinueStatement{label}})
@@ -1182,9 +1184,7 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
 
         append_dynamic_elems(
             &s.last_token_descriptions_of_other_possible_tokens,
-            "an identifier for the name of a normal function argument",
-            "`~` to add a mutable function argument",
-            "`-` to add a function argument which is deallocated from the PCS during the execution of this function",
+            "an identifier with one segment and no dollar sign at the end for the name of a normal function argument",
             "`|`",
         )
         #partial switch token in s.last_token {
@@ -1193,34 +1193,12 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
             return FunctionDefinition{}, false
         case BarToken:
             break loop
-        case SymbolsToken:
-            switch token {
-            case "~":
-                arg.arg_type = .Mutable
-            case "-":
-                arg.arg_type = .RemovedFromStack
-            case:
-                wrong_token_err(s)
-                return FunctionDefinition{}, false
-            }
-            get_next_token(s, true)
-            #partial switch token2 in s.last_token {
-            case:
-                wrong_token_err(s)
-                return FunctionDefinition{}, false
-            case IdentToken:
-                if len(token2) != 1 {
-                    wrong_token_err(s)
-                    return FunctionDefinition{}, false
-                }
-                arg.name = IdentAndPos{token2[0].ident, token2[0].pos}
-            }
         case IdentToken:
-            if len(token) != 1 {
+            if len(token) != 1 || token[0].has_dollar_at_end {
                 wrong_token_err(s)
                 return FunctionDefinition{}, false
             }
-            arg.name = IdentAndPos{token[0].ident, token[0].pos}
+            arg.name = TextAndPos{token[0].ident, token[0].pos}
         }
 
         get_next_token(s, true)
@@ -1289,7 +1267,7 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
 
 GlobalValueWithGeneric :: struct {
     name:     string,
-    generics: []IdentAndPos, // The parser checks that the name of each generic argument is unique
+    generics: []TextAndPos, // The parser checks that the name of each generic argument is unique
     value:    Unit,
     file:     FileRef,
 }
@@ -1325,7 +1303,7 @@ parse_file :: proc(s: ^ParserState) -> bool {
             &s.last_token_descriptions_of_other_possible_tokens,
             "a newline",
             "a comment",
-            "an identifier with one segment to define a global",
+            "an identifier with one segment and no `$` sign at the end to define a global",
         )
         #partial switch token in s.last_token {
         case:
@@ -1335,7 +1313,7 @@ parse_file :: proc(s: ^ParserState) -> bool {
             return true
         case IdentToken:
             position := Pos{s.last_token_pos, s.file_ref}
-            if len(token) != 1 {
+            if len(token) != 1 || token[0].has_dollar_at_end {
                 wrong_token_err(s)
                 return false
             }
@@ -1352,16 +1330,16 @@ parse_file :: proc(s: ^ParserState) -> bool {
             }
             get_next_token(s, false)
             generic_map := make(map[string]Pos) // The key is the position of the generic arg
-            generic := make([dynamic]IdentAndPos)
+            generic := make([dynamic]TextAndPos)
             _, is_open_square_bracket := s.last_token.(OpenSquareBracketToken)
             if is_open_square_bracket {
                 for {
                     get_next_token(s, false)
                     segments, is_ident := s.last_token.(IdentToken)
-                    if !is_ident || len(segments) != 1 {
+                    if !is_ident || len(segments) != 1 || segments[0].has_dollar_at_end {
                         append_dynamic(
                             &s.last_token_descriptions_of_other_possible_tokens,
-                            "An identifier with one segment",
+                            "An identifier with one segment and no dollar sign at the end",
                         )
                         break
                     }
@@ -1378,7 +1356,7 @@ parse_file :: proc(s: ^ParserState) -> bool {
                         return false
                     }
                     pos := segments[0].pos
-                    append_elem(&generic, IdentAndPos{segments[0].ident, pos})
+                    append_elem(&generic, TextAndPos{segments[0].ident, pos})
                     generic_map[segments[0].ident] = pos
 
                     get_next_token(s, false)

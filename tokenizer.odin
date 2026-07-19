@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:io"
 import "core:strings"
 
 // Things that might need adding in the future:
@@ -31,7 +32,7 @@ ArrowToken :: struct {} // ->
 AssignToken :: struct {} // =
 SymbolsToken :: distinct string
 DigitsToken :: distinct string
-IdentToken :: #soa[]IdentAndPos // A list of the segments in the identifier, where each segment is separated by `.`
+IdentToken :: #soa[]Ident // A list of the segments in the identifier, where each segment is separated by `.`
 MarkerToken :: distinct string
 TrueToken :: struct {} // true
 FalseToken :: struct {} // false
@@ -50,7 +51,7 @@ UnreachableToken :: struct {} // unreachable
 AndToken :: struct {} // and
 OrToken :: struct {} // or
 MatchToken :: struct {} // match
-MutToken :: struct {} // mut
+MutToken :: struct {} // mut // TODO: Change to `re`
 CommentToken :: distinct string
 
 // Escapes that were in the string are removed by the tokenizer
@@ -163,12 +164,16 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
     case DigitsToken:
         fmt.wprintf(fi.writer, "the digits `%s`", value)
     case IdentToken:
-        fmt.wprintf(
-            fi.writer,
-            "the identifier `%s` (which has %d segments)",
-            strings.join(value.ident[:len(value)], "."),
-            len(value),
-        )
+        io.write_string(fi.writer, "the identifier `")
+        io.write_string(fi.writer, value[0].ident)
+        for segment in value[1:] {
+            io.write_string(fi.writer, ".")
+            io.write_string(fi.writer, segment.ident)
+        }
+        io.write_string(fi.writer, "` (which has ")
+        io.write_int(fi.writer, len(value))
+        io.write_string(fi.writer, " segments)")
+        io.flush(fi.writer)
     case MarkerToken:
         fmt.wprintf(fi.writer, "the marker `#%s`", value)
     case TrueToken:
@@ -357,20 +362,25 @@ wrong_token_err :: proc(state: ^ParserState, infos: ..string, loc := #caller_loc
 }
 
 tokenize_segmented_identifier :: proc(s: ^TokenizerState, first_ident: string) {
-    segments := make(#soa[dynamic]IdentAndPos, 1)
-    segments[0] = IdentAndPos{first_ident, Pos{s.last_token_pos, s.file_ref}}
+    has_dollar := false
+    if s.index < len(s.file_ref.code) && s.file_ref.code[s.index] == '$' {
+        s.index += 1
+        has_dollar = true
+    }
+    segments := make(#soa[dynamic]Ident, 1)
+    segments[0] = Ident{first_ident, Pos{s.last_token_pos, s.file_ref}, has_dollar}
     for s.index < len(s.file_ref.code) && s.file_ref.code[s.index] == '.' {
         s.index += 1
         segment_start := s.index
         skipper_result := skip(s, is_alphanumeric_char)
         if skipper_result.skipped_atleast_one_char {
-            append_soa_elem(
-                &segments,
-                IdentAndPos {
-                    s.file_ref.code[segment_start:s.index],
-                    Pos{segment_start, s.file_ref},
-                },
-            )
+            ident := s.file_ref.code[segment_start:s.index]
+            has_dollar = false
+            if s.index < len(s.file_ref.code) && s.file_ref.code[s.index] == '$' {
+                s.index += 1
+                has_dollar = true
+            }
+            append_soa_elem(&segments, Ident{ident, Pos{segment_start, s.file_ref}, has_dollar})
         } else {
             s.last_token = Error(
                 skipper_result.reached_end_of_file ? "While tokenizing segmented identifier\nExpected an alphanumeric\nGot the end of the file" : fmt.aprintf("While tokenizing segmented identifier\nExpected an alphanumeric\nGot `%c`", s.file_ref.code[s.index]),

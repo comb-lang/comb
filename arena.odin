@@ -7,7 +7,7 @@ package main
 
 import "base:runtime"
 import "core:mem"
-import "core:mem/virtual"
+import "virtual"
 
 // For every `virtual.Memory_Block` the `.base` field points to an `ArenaBlockData`
 

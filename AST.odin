@@ -130,7 +130,7 @@ ExtraUnit :: struct {
 // TODO: Maybe all unit join methods should be left to right?
 
 LeftToRightUnitJoinMethod :: enum {
-    Equals, // =
+    Assign, // =
     Tilde, // ~
 }
 

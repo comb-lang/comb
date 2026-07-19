@@ -9,6 +9,7 @@ import "core:strings"
 import "core:time"
 
 debug_tokenizer :: false // You can use this to debug the parser
+debug_parser :: false
 debug_parser_output :: false
 debug_checker :: false
 debug_emitter :: false

@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:io"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -1337,6 +1338,7 @@ get_array_type :: proc(
     return ArrayType{}, false
 }
 
+/*
 // The `Type` returned is the expected type of the source value
 // The `CheckedValue` returned is the value of the destination
 check_mutation_destination :: proc(
@@ -1485,6 +1487,17 @@ check_mutation :: proc(
     }
     panic("Unreachable")
 }
+*/
+
+check_mutation :: proc(
+    s: ^CheckerState,
+    unit_being_mutated: UnitWithPos,
+    new_value: Unit,
+    body: ^[dynamic]CheckedStatement,
+    generic_args: map[string]Type,
+) -> bool {
+    panic("TODO")
+}
 
 // The boolean returned is whether the block checked successfully
 check_block :: proc(
@@ -1503,6 +1516,7 @@ check_block :: proc(
     for stmt, stmt_index in block {
         switch value in stmt.value {
 
+        /*
         case VariableManagement:
             value_type := unknown_type
             checked_value := check_runtime_value(
@@ -1537,14 +1551,46 @@ check_block :: proc(
                 return nil, false
             }
             append_elem(body, mutation)
+        */
 
-        case CallWithBrackets:
-            call := check_function_call(s, stmt.position, value, body, nil, generic_args)
-            if call == nil {
+        case Unit:
+            if len(value.extra_units) != 0 {
+                if value.extra_units[0].join_method != .Assign {
+                    diagnostic(
+                        s,
+                        value.extra_units[0].join_method_pos,
+                        "First join method must be `=`",
+                    )
+                    return nil, false
+                }
+                ok := check_mutation(
+                    s,
+                    UnitWithPos{value.first_unit, value.pos},
+                    Unit {
+                        value.extra_units[0].unit.pos,
+                        value.extra_units[0].unit.unit,
+                        value.extra_units[1:],
+                    },
+                    body,
+                    generic_args,
+                )
+                if !ok {
+                    return nil, false
+                }
+            }
+
+            #partial switch unit in value.first_unit {
+            case CallWithBrackets:
+                call := check_function_call(s, value.pos, unit, body, nil, generic_args)
+                if call == nil {
+                    return nil, false
+                }
+                // Call cannot be a `CompileTimeValue` because `expected_return_types` is set to `nil`
+                append_elem(body, call.(CheckedFunctionCall))
+            case:
+                diagnostic(s, value.pos, "Cannot use this kind of unit as a statement")
                 return nil, false
             }
-            // Call cannot be a `CompileTimeValue` because `expected_return_types` is set to `nil`
-            append_elem(body, call.(CheckedFunctionCall))
 
         case ConditionControlledLoop:
             append_elem(&s.scopes, Scope{})
@@ -2018,7 +2064,7 @@ value_err1 :: "Compiler cannot generate a `.` function without knowing the retur
 
 check_namespaced_var_ref :: proc(
     s: ^CheckerState,
-    namespace: FileRef,
+    namespace: ^CompilerFile,
     ref: IdentNode,
     index: int,
 ) -> (
@@ -2730,6 +2776,7 @@ check_joined_unit_value :: proc(
 }
 
 import_use_err :: "Cannot use an import as a runtime value"
+mut_then_ident_use_err :: "Cannot use `mut` followed by an identifier as a value"
 
 /*
 ValueWithGenericHint :: struct {
@@ -3084,6 +3131,10 @@ check_initial_value :: proc(
     case IdentNode:
         return check_var_ref(s, value, pos, a)
 
+    case MutThenIdent:
+        diagnostic(s, pos, mut_then_ident_use_err)
+        return nil
+
     case Number:
         // TODO: Check that min(i64) <= number <= max(i64)
         // TODO: Do not assume number type
@@ -3091,9 +3142,11 @@ check_initial_value :: proc(
             NumberValue{BigInt{value.is_negated, big_uint_from_string(value.absolute_digits)}},
         )
         return finish_checking_value(s, pos, a.type, out, i64_type, "")
+
     case String:
         out := CompileTimeValue(StringLiteralValue(strings.join(([]string)(value), "")))
         return finish_checking_value(s, pos, a.type, out, string_type, "")
+
     case Char:
         // TODO: Do not assume number type
         out := CompileTimeValue(NumberValue{BigInt{false, big_uint_from_u64(u64(value))}})
@@ -3290,7 +3343,7 @@ check_array :: proc(
 get_global_function :: proc(
     s: ^CheckerState,
     usage_pos: Pos,
-    file_to_search: FileRef,
+    file_to_search: ^CompilerFile,
     name: string,
     extra_text: string,
 ) -> (
@@ -3346,7 +3399,7 @@ check :: proc(
     a: ^Arena,
     parsed: ParsedProject,
     func_name: string,
-    io: Pipe(^os.File),
+    io: Pipe(io.Writer),
 ) -> CheckerOutput {
     state := CheckerState {
         a                             = a,

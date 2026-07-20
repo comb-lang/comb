@@ -38,18 +38,19 @@ InterpretedExample :: struct {
 
 run_example_via_c :: proc(
     t: ^testing.T,
+    a: ^Arena,
     absolute_path: string,
     stdin_to_send: string,
 ) -> RanExampleViaC {
-    compiler_writer, compiler_builder := pipe_mock()
+    compiler_pipe := pipe_mock(a)
     executable: string
     status := compile(
         FunctionRef{absolute_path, "main"},
-        compiler_writer,
+        compiler_pipe,
         BuildC{&executable},
         NeverExitEarly{},
     )
-    compiler := get_output(compiler_builder)
+    compiler := get_output(compiler_pipe)
     if status != 0 {
         return CompilationFailed{compiler, status}
     }
@@ -93,21 +94,23 @@ run_example_via_c :: proc(
     return CompilationSuccessful{compiler, Pipe(string){string(stdout), string(stderr)}}
 }
 
-interpret_example :: proc(t: ^testing.T, func: FunctionRef) -> InterpretedExample {
-    compiler_pipe, compiler_builder := pipe_mock()
-    program_pipe, program_builder := pipe_mock()
+interpret_example :: proc(t: ^testing.T, a: ^Arena, func: FunctionRef) -> InterpretedExample {
+    compiler_pipe := pipe_mock(a)
+    program_pipe := pipe_mock(a)
     status := compile(
         func,
         compiler_pipe,
         Run{program_pipe, new(LongLivedInterpState)},
         NeverExitEarly{},
     )
-    return InterpretedExample{get_output(compiler_builder), get_output(program_builder), status}
+    return InterpretedExample{get_output(compiler_pipe), get_output(program_pipe), status}
 }
 
 @(test)
 example_00_fizzbuzz :: proc(t: ^testing.T) {
-    ran := run_example_via_c(t, #directory + "examples/00_fizzbuzz.code", "")
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    ran := run_example_via_c(t, &a, #directory + "examples/00_fizzbuzz.code", "")
     if ran == nil {return}
     out := ran.(CompilationSuccessful)
     testing.expect(t, out.compiler.stderr == "")
@@ -121,7 +124,9 @@ example_00_fizzbuzz :: proc(t: ^testing.T) {
 
 @(test)
 example_01_factorial :: proc(t: ^testing.T) {
-    ran := run_example_via_c(t, #directory + "examples/01_factorial.code", "")
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    ran := run_example_via_c(t, &a, #directory + "examples/01_factorial.code", "")
     if ran == nil {return}
     out := ran.(CompilationSuccessful)
     testing.expect(t, out.compiler.stderr == "")
@@ -131,7 +136,9 @@ example_01_factorial :: proc(t: ^testing.T) {
 
 @(test)
 example_02_primes :: proc(t: ^testing.T) {
-    ran := run_example_via_c(t, #directory + "examples/02_primes.code", "")
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    ran := run_example_via_c(t, &a, #directory + "examples/02_primes.code", "")
     if ran == nil {return}
     out := ran.(CompilationSuccessful)
     // testing.expect(t, out.compiler.stderr == "") // TODO: Implement array bounds checking so this line can be uncommented
@@ -249,7 +256,9 @@ example_03_fibonacci :: proc(t: ^testing.T) {
     err := os.remove_all(file)
     testing.expect(t, err == nil || err.(os.General_Error) == .Not_Exist)
 
-    ran := interpret_example(t, FunctionRef{#directory + "examples/03_fibonacci.code", "main"})
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    ran := interpret_example(t, &a, FunctionRef{#directory + "examples/03_fibonacci.code", "main"})
     testing.expect(t, ran.exit_code == 0)
     // testing.expect(ran.compiler.stderr == "") // TODO: Implement array bounds checking so this line can be uncommented
 
@@ -263,7 +272,9 @@ example_03_fibonacci :: proc(t: ^testing.T) {
 
 @(test)
 example_04_linked_list :: proc(t: ^testing.T) {
-    ran := run_example_via_c(t, #directory + "examples/04_linked_list.code", "")
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    ran := run_example_via_c(t, &a, #directory + "examples/04_linked_list.code", "")
     if ran == nil {return}
     out := ran.(CompilationSuccessful)
     testing.expect(t, out.compiler.stderr == "")
@@ -291,8 +302,11 @@ expect_ui_render :: proc(
 
 @(test)
 example_05_ui :: proc(t: ^testing.T) {
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
     ran := run_example_via_c(
         t,
+        &a,
         #directory + "examples/05_ui.code",
         "next\nclick\nprev\nprev\nclick\nnext\nnext\nnext\nclick\nquit\n",
     )
@@ -341,7 +355,9 @@ example_06_counter :: proc(t: ^testing.T) {
     err := os.remove_all(file)
     testing.expect(t, err == nil || err.(os.General_Error) == .Not_Exist)
 
-    ran := interpret_example(t, FunctionRef{#directory + "examples/06_counter.code", "build"})
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    ran := interpret_example(t, &a, FunctionRef{#directory + "examples/06_counter.code", "build"})
     testing.expect(t, ran.exit_code == 0)
     testing.expect(t, ran.compiler.stderr == "")
     testing.expect(t, os.exists(file))
@@ -353,8 +369,11 @@ example_07_conways_game_of_life :: proc(t: ^testing.T) {
     err := os.remove_all(file)
     testing.expect(t, err == nil || err.(os.General_Error) == .Not_Exist)
 
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
+        &a,
         FunctionRef{#directory + "examples/07_conways_game_of_life.code", "build"},
     )
     testing.expect(t, ran.exit_code == 0)
@@ -374,6 +393,8 @@ basic_fuzz_test :: proc(t: ^testing.T) {
         testing.fail_now(t, "err2 != nil")
     }
 
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
 
     for _ in 0 ..< 100 {
         code := random_string(800)
@@ -386,7 +407,7 @@ basic_fuzz_test :: proc(t: ^testing.T) {
             testing.fail_now(t, "err3 != nil")
         }
 
-        pipe, _ := pipe_mock()
+        pipe := pipe_mock(&a)
         compile(FunctionRef{tmp_file, "main"}, pipe, BuildC{}, NeverExitEarly{})
     }
 }
@@ -414,7 +435,9 @@ basic_type_system_test :: proc(t: ^testing.T) {
 @(test)
 example_08_result :: proc(t: ^testing.T) {
     // TODO: Test inputs other than `dog`
-    ran := run_example_via_c(t, #directory + "examples/08_result.code", "dog\n")
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    ran := run_example_via_c(t, &a, #directory + "examples/08_result.code", "dog\n")
     if ran == nil {return}
     out := ran.(CompilationSuccessful)
     testing.expect(t, out.compiler.stderr == "")
@@ -443,7 +466,9 @@ example_09_hashmap :: proc(t: ^testing.T) {
 
 @(test)
 example_10_geometry :: proc(t: ^testing.T) {
-    ran := run_example_via_c(t, #directory + "examples/10_geometry.code", "")
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    ran := run_example_via_c(t, &a, #directory + "examples/10_geometry.code", "")
     if ran == nil {return}
     out := ran.(CompilationSuccessful)
     testing.expect(t, out.compiler.stderr == "")
@@ -485,8 +510,11 @@ example_10_geometry :: proc(t: ^testing.T) {
 
 @(test)
 invalid_example_00_uninitialised_global_value_with_generics :: proc(t: ^testing.T) {
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
     ran := run_example_via_c(
         t,
+        &a,
         #directory + "examples/invalid/00_uninitialised_global_value_with_generics.code",
         "",
     )
@@ -517,7 +545,9 @@ invalid_example_00_uninitialised_global_value_with_generics :: proc(t: ^testing.
 @(test)
 invalid_example_01_wrong_identifier_casing :: proc(t: ^testing.T) {
     file :: #directory + "examples/invalid/01_wrong_identifier_casing.code"
-    ran := run_example_via_c(t, file, "")
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    ran := run_example_via_c(t, &a, file, "")
     if ran == nil {return}
     out := ran.(CompilationSuccessful)
     testing.expect(t, out.program.stderr == "")
@@ -553,7 +583,9 @@ invalid_example_01_wrong_identifier_casing :: proc(t: ^testing.T) {
 @(test)
 invalid_example_02_wrong_main_function_type :: proc(t: ^testing.T) {
     file :: #directory + "examples/invalid/02_wrong_main_function_type.code"
-    ran := run_example_via_c(t, file, "")
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    ran := run_example_via_c(t, &a, file, "")
     if ran == nil {return}
     out := ran.(CompilationFailed)
 

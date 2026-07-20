@@ -1,7 +1,9 @@
 package main
 
 import "base:runtime"
+import "core:bufio"
 import "core:fmt"
+import "core:io"
 import "core:mem"
 import "core:os"
 import "core:path/filepath"
@@ -19,14 +21,10 @@ debug_diagnostics :: false
 debug_arena :: false
 debug_dynamic_array :: false
 
-position_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
-    if verb != 'v' {
-        return false
-    }
-    pos := cast(^Pos)arg.data
-    if pos^ == unknown_pos {
-        fmt.wprint(fi.writer, "unknown_pos")
-        return true
+write_position :: proc(w: io.Writer, pos: Pos) {
+    if pos == unknown_pos {
+        fmt.wprint(w, "unknown_pos")
+        return
     }
     line := 1
     column := 1
@@ -38,7 +36,15 @@ position_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
             column += 1
         }
     }
-    fmt.wprintf(fi.writer, "`%s` (%d:%d)", pos.file.file_path, line, column)
+    fmt.wprintf(w, "`%s` (%d:%d)", pos.file.file_path, line, column, flush = false)
+}
+
+position_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+    if verb != 'v' {
+        return false
+    }
+    pos := cast(^Pos)arg.data
+    write_position(fi.writer, pos^)
     return true
 }
 
@@ -106,7 +112,7 @@ BuildC :: struct {
 }
 
 Run :: struct {
-    program_io:              Pipe(^os.File),
+    program_io:              Pipe(io.Writer),
     long_lived_interp_state: ^LongLivedInterpState,
 }
 
@@ -181,7 +187,7 @@ EarlyExitInfo :: union #no_nil {
 
 compile :: proc(
     func: FunctionRef,
-    compiler: Pipe(^os.File),
+    compiler: Pipe(io.Writer),
     command: Command,
     exit_early: EarlyExitInfo,
 ) -> int {
@@ -192,7 +198,7 @@ compile :: proc(
         exit_early_info^ = ExitEarlyAwaitingSourceCodeChange{start, nil, time.Time{}}
     }
     defer {
-        fmt.fprintfln(
+        fmt.wprintfln(
             compiler.stdout,
             "Done in %f ms!",
             time.duration_milliseconds(time.since(start)),
@@ -216,7 +222,7 @@ compile :: proc(
         debug_nesting -= 1
     }
 
-    fmt.fprintfln(compiler.stdout, "Checking...")
+    fmt.wprintfln(compiler.stdout, "Checking...")
     checker_output := check(&a, parsed, func.func_name, compiler)
     function_type := unknown_type
     if checker_output.func_ref.index < len(checker_output.checked_funcs) {
@@ -290,7 +296,7 @@ compile :: proc(
     elapsed_ms := time.duration_milliseconds(time.since(start))
 
     if checker_output.reporter.number_of[.Error] > 0 {
-        fmt.fprintfln(
+        fmt.wprintfln(
             compiler.stderr,
             "Erroneously checked with %s and %s in %f ms",
             errors,
@@ -300,7 +306,7 @@ compile :: proc(
         return 1
     }
 
-    fmt.fprintfln(
+    fmt.wprintfln(
         compiler.stdout,
         "Successfully checked with %s and %s in %f ms",
         errors,
@@ -309,7 +315,7 @@ compile :: proc(
     )
 
     if build_c, is_build_c := command.(BuildC); is_build_c {
-        fmt.fprintfln(compiler.stdout, "Emitting C code...")
+        fmt.wprintfln(compiler.stdout, "Emitting C code...")
         c := emit_c(checker_output.types, checker_output.checked_funcs, checker_output.func_ref)
         executable_path, ok2 := write_and_compile_c(c, func.file_name)
         if !ok2 {
@@ -324,12 +330,12 @@ compile :: proc(
 
     absolute_file_name, err := filepath.abs(func.file_name, context.allocator)
     if err != nil {
-        fmt.fprintfln(compiler.stderr, "Failed make path absolute: %#v", err)
+        fmt.wprintfln(compiler.stderr, "Failed make path absolute: %#v", err)
         return 1
     }
     defer delete(absolute_file_name)
 
-    fmt.fprintfln(compiler.stdout, "Interpreting `%s`...", func.func_name)
+    fmt.wprintfln(compiler.stdout, "Interpreting `%s`...", func.func_name)
 
     absolute_file_dir := filepath.dir(absolute_file_name)
     state := ShortLivedInterpState {
@@ -598,7 +604,16 @@ main :: proc() {
         }
     }
 
-    std_pipe := Pipe(^os.File){os.stdout, os.stderr}
+    stdout_buf: [1024]byte
+    stderr_buf: [1024]byte
+    stdout_writer: bufio.Writer
+    stderr_writer: bufio.Writer
+    bufio.writer_init_with_buf(&stdout_writer, os.to_stream(os.stdout), stdout_buf[:])
+    bufio.writer_init_with_buf(&stderr_writer, os.to_stream(os.stderr), stderr_buf[:])
+    std_pipe := Pipe(io.Writer) {
+        bufio.writer_to_writer(&stdout_writer),
+        bufio.writer_to_writer(&stderr_writer),
+    }
 
     if len(os.args) < 2 {
         fmt.eprintfln("Expected at least one argument for the command to run")

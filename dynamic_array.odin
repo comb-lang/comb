@@ -82,6 +82,10 @@ append_dynamic :: proc(d: ^[]$T, elem: T, loc := #caller_location) {
     d[len(d) - 1] = elem
 }
 
+pop_dynamic :: proc(d: ^[]$T) {
+    resize_dynamic(d, len(d) - 1)
+}
+
 append_dynamic_elems :: proc(d: ^[]$T, elems: ..T, loc := #caller_location) {
     when debug_dynamic_array {
         print_call(loc, "append_dynamic_elems")

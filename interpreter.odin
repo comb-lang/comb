@@ -1,5 +1,6 @@
 package main
 
+import "core:io"
 // This file is mostly AI generated
 // TODO: Proper memory management (garbage collector?)
 
@@ -1006,7 +1007,7 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
 
 DefaultBuiltinHandlerData :: struct {
     working_dir: string,
-    pipe:        Pipe(^os.File),
+    pipe:        Pipe(io.Writer),
 }
 
 default_builtin_handler_procedure :: proc(
@@ -1020,23 +1021,23 @@ default_builtin_handler_procedure :: proc(
     switch index {
     case .print:
         assert(len(args) == 1)
-        fmt.fprint(data.pipe.stdout, args[0].(RuntimeString).value)
+        fmt.wprint(data.pipe.stdout, args[0].(RuntimeString).value)
         return nil
     case .println:
         assert(len(args) == 1)
-        fmt.fprintln(data.pipe.stdout, args[0].(RuntimeString).value)
+        fmt.wprintln(data.pipe.stdout, args[0].(RuntimeString).value)
         return nil
     case .eprint:
         assert(len(args) == 1)
-        fmt.fprint(data.pipe.stderr, args[0].(RuntimeString).value)
+        fmt.wprint(data.pipe.stderr, args[0].(RuntimeString).value)
         return nil
     case .eprintln:
         assert(len(args) == 1)
-        fmt.fprintln(data.pipe.stderr, args[0].(RuntimeString).value)
+        fmt.wprintln(data.pipe.stderr, args[0].(RuntimeString).value)
         return nil
     case .readline:
         assert(len(args) == 1)
-        fmt.fprint(data.pipe.stdout, args[0].(RuntimeString).value)
+        fmt.wprint(data.pipe.stdout, args[0].(RuntimeString).value)
         scanner: bufio.Scanner
         bufio.scanner_init(&scanner, os.to_reader(os.stdin))
         assert(bufio.scan(&scanner))
@@ -1064,7 +1065,7 @@ default_builtin_handler_procedure :: proc(
         return nil
     case .clear:
         assert(len(args) == 0)
-        fmt.fprint(data.pipe.stdout, ansi_clear)
+        fmt.wprint(data.pipe.stdout, ansi_clear)
         return nil
     case .run_executable:
         panic("TODO")

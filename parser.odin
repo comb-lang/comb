@@ -2,19 +2,30 @@
 package main
 
 import "core:fmt"
+import "core:io"
 import "core:mem"
 import "core:os"
 import "core:path/filepath"
-import "core:strings"
-
-FileRef :: ^CompilerFile
 
 plain_ident_base :: "n identifier with one segment and no `$` sign at the end"
 plain_ident_capitalised :: "A" + plain_ident_base
 plain_ident_normal :: "a" + plain_ident_base
 
-get_file_index :: proc(files: Multi(CompilerFile), ref: FileRef, loc := #caller_location) -> int {
+get_file_index :: proc(
+    files: Multi(CompilerFile),
+    ref: ^CompilerFile,
+    loc := #caller_location,
+) -> int {
     return mem.ptr_sub(ref, &files.d[0])
+}
+
+ParsingContext :: struct {
+    pos:  Pos,
+    kind: enum {
+        StructFieldType,
+        StructType,
+        FuncDefinition,
+    },
 }
 
 // The index of the first unparsed file is always `ParserState.file_ref.index + 1`
@@ -23,9 +34,12 @@ ParserState :: struct {
     // Updated every time the parser starts parsing a different file
     using tokenizer_state:          TokenizerState,
 
+    // Grows and shirnks as the nesting increases and decreases
+    parser_context:                 []ParsingContext,
+
     // Grow as the project is parsed
     using r:                        DiagnosticReporter,
-    files_map:                      map[string]FileRef,
+    files_map:                      map[string]^CompilerFile,
     parsed_files:                   []map[string]ParsedGlobal,
     global_values_without_generics: [dynamic]GlobalValueWithoutGeneric,
     global_values_with_generics:    [dynamic]GlobalValueWithGeneric,
@@ -34,6 +48,8 @@ ParserState :: struct {
 
 // Does not include the `{`
 parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
+    append_dynamic(&s.parser_context, ParsingContext{s.last_token_pos, .StructType})
+    defer pop_dynamic(&s.parser_context)
     out := StructUnit {
         make_key_to_index(s.a, KeyToIndex(string)),
         arena_make_multi(s.a, Multi(Pos), 0, resizable = true),
@@ -54,7 +70,7 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
                 plain_ident_capitalised,
                 "`}`",
             )
-            wrong_token_err(s, "While parsing struct type")
+            wrong_token_err(s)
             return StructUnit{}, false
         }
         #partial switch token in s.last_token {
@@ -83,6 +99,8 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
         }
 
         get_next_token(s, true)
+        append_dynamic(&s.parser_context, ParsingContext{s.last_token_pos, .StructFieldType})
+        defer pop_dynamic(&s.parser_context)
         parsed, parsed_ok := parse_unit(s)
         if !parsed_ok {
             return StructUnit{}, false
@@ -138,9 +156,10 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
             "`<` to create a sum type",
             "`[` to create an array type",
             "`{` to create a struct type",
+            "`mut`",
             // "`dynamic` for a dynamic type",
         )
-        wrong_token_err(s, "While passing either a value or a type")
+        wrong_token_err(s)
         return nil
     }
     #partial switch token in s.last_token {
@@ -157,7 +176,7 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
             return nil
         }
         joined, join_err := filepath.join(
-            []string{s.file_ref.dir_path, string(path)},
+            []string{s.last_token_pos.file.dir_path, string(path)},
             context.allocator,
         )
         if join_err != nil {
@@ -170,13 +189,7 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
         } else {
             data, data_err := os.read_entire_file(joined, context.allocator)
             if data_err != nil {
-                diagnostic(
-                    &s.r,
-                    Pos{s.last_token_pos, s.file_ref},
-                    "Failed to read `%s`: %#v",
-                    joined,
-                    data_err,
-                )
+                diagnostic(&s.r, s.last_token_pos, "Failed to read `%s`: %#v", joined, data_err)
                 return nil
             }
             append_multi_dynamic(
@@ -309,7 +322,7 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
             return nil
         }
         get_next_token(s, false)
-        unit_pos := Pos{s.last_token_pos, s.file_ref}
+        unit_pos := s.last_token_pos
         unit := parse_initial_unit(s)
         if unit == nil {
             return nil
@@ -330,17 +343,27 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
         get_next_token(s, true)
         return IdentNode{token}
 
+    case MutToken:
+        get_next_token(s, false)
+        ident, is_ident := s.last_token.(IdentToken)
+        if !is_ident {
+            append_dynamic(&s.last_token_descriptions_of_other_possible_tokens, "an identifier")
+            wrong_token_err(s)
+        }
+        get_next_token(s, true)
+        return MutThenIdent{ident}
+
     case MarkerToken:
-        markers := [dynamic]TextAndPos{{string(token), Pos{s.last_token_pos, s.file_ref}}}
+        markers := [dynamic]TextAndPos{{string(token), s.last_token_pos}}
         for {
             get_next_token(s, false)
             marker, is_marker := s.last_token.(MarkerToken)
             if !is_marker {
                 break
             }
-            append_elem(&markers, TextAndPos{string(marker), Pos{s.last_token_pos, s.file_ref}})
+            append_elem(&markers, TextAndPos{string(marker), s.last_token_pos})
         }
-        val_pos := Pos{s.last_token_pos, s.file_ref}
+        val_pos := s.last_token_pos
         val := parse_initial_unit(s)
         if val == nil {
             return nil
@@ -463,11 +486,11 @@ create_joined_unit :: proc(
 }
 
 // Returns `nil` on failure
-parse_unit_without_pos :: proc(s: ^ParserState, loc := #caller_location) -> UnitWithoutPos {
+parse_unit_with_pos :: proc(s: ^ParserState, loc := #caller_location) -> UnitWithoutPos {
     when debug_parser {
         print_call(loc, "parse_unit_without_pos")
     }
-    pos := Pos{s.last_token_pos, s.file_ref}
+    pos := s.last_token_pos
     unit := parse_initial_unit(s)
     if unit == nil {
         return nil
@@ -504,7 +527,7 @@ parse_unit_without_pos :: proc(s: ^ParserState, loc := #caller_location) -> Unit
     // Parse possible arithmetic
     append_dynamic(
         &s.last_token_descriptions_of_other_possible_tokens,
-        "a hierarchical value joiner (`and`, `or`, `==`, `!=`, `>`, `>=`, `<`, `<=`, `*`, `/`, `+`, `-`, `%`, `::`, `:`, `->`, `in`)",
+        "A hierarchical value joiner (`and`, `or`, `==`, `!=`, `>`, `>=`, `<`, `<=`, `*`, `/`, `+`, `-`, `%`, `::`, `:`, `->`, `in`)",
     )
     value_type: HierarchyUnitJoinMethod
     #partial switch token in s.last_token {
@@ -555,8 +578,8 @@ parse_unit_without_pos :: proc(s: ^ParserState, loc := #caller_location) -> Unit
         }
     }
     get_next_token(s, true)
-    next_value_pos := Pos{s.last_token_pos, s.file_ref}
-    next_value := parse_unit_without_pos(s)
+    next_value_pos := s.last_token_pos
+    next_value := parse_unit_with_pos(s)
     if next_value == nil {
         return nil
     }
@@ -569,14 +592,15 @@ parse_unit_without_pos :: proc(s: ^ParserState, loc := #caller_location) -> Unit
 
 // Returns `Unit{}, false` on failure
 parse_unit :: proc(s: ^ParserState) -> (Unit, bool) {
-    pos := Pos{s.last_token_pos, s.file_ref}
-    first_unit := parse_unit_without_pos(s)
+    pos := s.last_token_pos
+    first_unit := parse_unit_with_pos(s)
     if first_unit == nil {
         return Unit{}, false
     }
     extra_units := arena_make(s.a, []ExtraUnit, 0, resizable = true)
     defer fix_resizable_dynamic(extra_units)
     for {
+        join_method_pos := s.last_token_pos
         append_dynamic(
             &s.last_token_descriptions_of_other_possible_tokens,
             "A left to right value joiner (`~`, `=`)",
@@ -594,12 +618,15 @@ parse_unit :: proc(s: ^ParserState) -> (Unit, bool) {
             return Unit{pos, first_unit, extra_units}, true
         }
         get_next_token(s, true)
-        extra_unit_pos := Pos{s.last_token_pos, s.file_ref}
-        extra_unit := parse_unit_without_pos(s)
+        extra_unit_pos := s.last_token_pos
+        extra_unit := parse_unit_with_pos(s)
         if extra_unit == nil {
             return Unit{}, false
         }
-        append_dynamic(&extra_units, ExtraUnit{extra_unit_pos, join_method, extra_unit})
+        append_dynamic(
+            &extra_units,
+            ExtraUnit{join_method_pos, join_method, UnitWithPos{extra_unit, extra_unit_pos}},
+        )
     }
 }
 
@@ -701,7 +728,7 @@ parse_for_loop :: proc(s: ^ParserState) -> (ForInLoop, bool) {
             if variable_index >= 3 {
                 diagnostic(
                     &s.r,
-                    Pos{s.last_token_pos, s.file_ref},
+                    s.last_token_pos,
                     "There cannot be more than 3 variables in a for loop head (the iteration the for loop is on, the key of the thing being iterated over, and the value of the thing being iterated over)",
                 )
                 return ForInLoop{}, false
@@ -759,7 +786,7 @@ parse_if :: proc(s: ^ParserState) -> (^IfElseStatement, bool) {
     get_next_token(s, true)
     #partial switch _ in s.last_token {
     case ElseToken:
-        else_pos := Pos{s.last_token_pos, s.file_ref}
+        else_pos := s.last_token_pos
         get_next_token(s, true)
         #partial switch _ in s.last_token {
         case:
@@ -793,6 +820,7 @@ parse_if :: proc(s: ^ParserState) -> (^IfElseStatement, bool) {
     }
 }
 
+/*
 get_identifier :: proc(
     s: ^ParserState,
     variable_dest_type: VariableDestType,
@@ -875,13 +903,14 @@ parse_managed_variable :: proc(s: ^ParserState) -> (VariableDest, bool) {
     wrong_token_err(s)
     return VariableDest{}, false
 }
+*/
 
 // Does not include the `{`
 parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
     out := [dynamic]Statement{}
     get_next_token(s, true)
     for {
-        pos := Pos{s.last_token_pos, s.file_ref}
+        pos := s.last_token_pos
         #partial switch_stmt: switch token in s.last_token {
         case:
             // TODO: I would like to remove this mingling of expected tokens as it makes the error messages less clear
@@ -898,18 +927,11 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
                 "`unreachable`",
                 "`}`",
             )
-            ok: bool = ---
-            var: VariableDest = ---
-            var, ok = parse_managed_variable(s)
+            unit, ok := parse_unit(s)
             if !ok {
                 return nil, false
             }
-            stmt: VariableManagement
-            stmt, ok = parse_variable_management_after_first_var(s, var)
-            if !ok {
-                return nil, false
-            }
-            append_elem(&out, Statement{pos, stmt})
+            append_elem(&out, Statement{pos, unit})
         case DoToken:
             // TODO: Support specifying label with @
             get_next_token(s, false)
@@ -958,6 +980,7 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
             }
             get_next_token(s, true)
             append_elem(&out, Statement{pos, ConditionControlledLoop{.WhileLoop, condition, body}})
+        /*
         case IdentToken:
             get_next_token(s, true)
             #partial switch token2 in s.last_token {
@@ -1009,6 +1032,7 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
                 return nil, false
             }
             append_elem(&out, Statement{pos, stmt})
+            */
         case IfToken:
             if_else: ^IfElseStatement
             ok: bool
@@ -1122,6 +1146,7 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
     }
 }
 
+/*
 parse_variable_management_after_first_var :: proc(
     s: ^ParserState,
     first_var: VariableDest,
@@ -1181,6 +1206,7 @@ parse_variable_management_after_first_var :: proc(
     }
     return VariableManagement{value, variables[:], type}, true
 }
+*/
 
 // Does not include the `(`
 //parse_name_and_type_list :: proc(
@@ -1220,6 +1246,8 @@ parse_variable_management_after_first_var :: proc(
 
 // The boolean returned is whether the function passed successfully
 parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
+    append_dynamic(&s.parser_context, ParsingContext{s.last_token_pos, .FuncDefinition})
+    defer pop_dynamic(&s.parser_context)
     args := make(#soa[dynamic]FunctionArg)
     loop: for {
         arg: FunctionArg
@@ -1312,13 +1340,13 @@ GlobalValueWithGeneric :: struct {
     name:     string,
     generics: []TextAndPos, // The parser checks that the name of each generic argument is unique
     value:    Unit,
-    file:     FileRef,
+    file:     ^CompilerFile,
 }
 
 GlobalValueWithoutGeneric :: struct {
     name: string,
     unit: Unit,
-    file: FileRef,
+    file: ^CompilerFile,
 }
 
 GlobalValueWithGenericRef :: struct {
@@ -1330,7 +1358,7 @@ GlobalValueWithoutGenericRef :: struct {
 }
 
 Import :: struct {
-    file: FileRef,
+    file: ^CompilerFile,
 }
 
 ParsedGlobal :: struct {
@@ -1355,19 +1383,20 @@ parse_file :: proc(s: ^ParserState) -> bool {
         case EndOfFileToken:
             return true
         case IdentToken:
-            position := Pos{s.last_token_pos, s.file_ref}
+            position := s.last_token_pos
             if len(token) != 1 || token[0].has_dollar_at_end {
                 wrong_token_err(s)
                 return false
             }
             name := token[0].ident
-            if def, exists := s.parsed_files[get_file_index(s.files, s.file_ref)][name]; exists {
+            if def, exists := s.parsed_files[get_file_index(s.files, s.last_token_pos.file)][name];
+               exists {
                 diagnostic(
                     &s.r,
                     position,
                     "The global `%s` is already declared at %v",
                     name,
-                    Pos{def.pos, s.file_ref},
+                    Pos{def.pos, s.last_token_pos.file},
                 )
                 return false
             }
@@ -1391,7 +1420,7 @@ parse_file :: proc(s: ^ParserState) -> bool {
                         pos := generic_map[segments[0].ident]
                         diagnostic(
                             &s.r,
-                            Pos{s.last_token_pos, s.file_ref},
+                            s.last_token_pos,
                             "There is already a generic argument called `%s` defined on %v in this global type",
                             segments[0].ident,
                             pos,
@@ -1451,24 +1480,22 @@ parse_file :: proc(s: ^ParserState) -> bool {
                     return false
                 }
                 if len(generic) == 0 {
-                    s.parsed_files[get_file_index(s.files, s.file_ref)][name] = ParsedGlobal {
-                        position.index,
-                        u32(len(s.global_values_without_generics)),
-                        false,
-                    }
+                    s.parsed_files[get_file_index(s.files, s.last_token_pos.file)][name] =
+                        ParsedGlobal {
+                            position.index,
+                            u32(len(s.global_values_without_generics)),
+                            false,
+                        }
                     append_elem(
                         &s.global_values_without_generics,
-                        GlobalValueWithoutGeneric{name, type, s.file_ref},
+                        GlobalValueWithoutGeneric{name, type, s.last_token_pos.file},
                     )
                 } else {
-                    s.parsed_files[get_file_index(s.files, s.file_ref)][name] = ParsedGlobal {
-                        position.index,
-                        u32(len(s.global_values_with_generics)),
-                        true,
-                    }
+                    s.parsed_files[get_file_index(s.files, s.last_token_pos.file)][name] =
+                        ParsedGlobal{position.index, u32(len(s.global_values_with_generics)), true}
                     append_elem(
                         &s.global_values_with_generics,
-                        GlobalValueWithGeneric{name, generic[:], type, s.file_ref},
+                        GlobalValueWithGeneric{name, generic[:], type, s.last_token_pos.file},
                     )
                 }
             }
@@ -1477,7 +1504,7 @@ parse_file :: proc(s: ^ParserState) -> bool {
 }
 
 ParsedProject :: struct {
-    files_map:                     map[string]FileRef,
+    files_map:                     map[string]^CompilerFile,
     parsed_files:                  []map[string]ParsedGlobal,
     files:                         Multi(CompilerFile),
     global_values_without_generic: []GlobalValueWithoutGeneric,
@@ -1488,7 +1515,7 @@ ParsedProject :: struct {
 parse_project :: proc(
     a: ^Arena,
     first_file_relative_path: string,
-    io: Pipe(^os.File),
+    io: Pipe(io.Writer),
     exit_early: EarlyExitInfo,
 ) -> (
     ParsedProject,
@@ -1498,7 +1525,7 @@ parse_project :: proc(
     // therefore the `-watch` flag does not auto reload
     first_file_absolute_path, err := filepath.abs(first_file_relative_path, context.allocator)
     if err != nil {
-        fmt.fprintfln(
+        fmt.wprintfln(
             io.stderr,
             "Failed to make filepath `%s` absolute: %v",
             first_file_relative_path,
@@ -1507,23 +1534,25 @@ parse_project :: proc(
         return ParsedProject{}, false
     }
 
-    fmt.fprintfln(io.stdout, "Reading `%s`...", first_file_absolute_path)
+    fmt.wprintfln(io.stdout, "Reading `%s`...", first_file_absolute_path)
     data, data_err := os.read_entire_file(first_file_absolute_path, context.allocator)
     if data_err != nil {
-        fmt.fprintfln(io.stderr, "Failed to read `%s`: %#v", first_file_absolute_path, data_err)
+        fmt.wprintfln(io.stderr, "Failed to read `%s`: %#v", first_file_absolute_path, data_err)
         return ParsedProject{}, false
     }
 
     state := ParserState {
-        r = DiagnosticReporter {
-            io = io,
-            files = arena_make_multi(a, Multi(CompilerFile), 1, resizable = true),
-        },
-        parsed_files = arena_make(a, []map[string]ParsedGlobal, 1, resizable = true),
-        a = a,
-    }
+            r = DiagnosticReporter {
+                io = io,
+                files = arena_make_multi(a, Multi(CompilerFile), 1, resizable = true),
+            },
+            parser_context = arena_make(a, []ParsingContext, 0, resizable = true),
+            parsed_files = arena_make(a, []map[string]ParsedGlobal, 1, resizable = true),
+            a = a,
+        }
     defer {
         fix_resizable_dynamic(state.parsed_files)
+        fix_resizable_dynamic(state.parser_context)
         fix_resizable_multi(state.r.files)
     }
     state.parsed_files[0] = nil
@@ -1533,11 +1562,11 @@ parse_project :: proc(
         filepath.dir(first_file_absolute_path),
     }
     state.files_map[first_file_absolute_path] = &state.files.d[0]
-    state.file_ref = &state.files.d[0]
+    state.last_token_pos.file = &state.files.d[0]
 
     ok := true
     for {
-        file_path := state.file_ref.file_path
+        file_path := state.last_token_pos.file.file_path
         fmt.printfln("Parsing `%s`...", file_path)
         state.tokenizer_state = TokenizerState {
             last_token_descriptions_of_other_possible_tokens = arena_make(
@@ -1546,7 +1575,7 @@ parse_project :: proc(
                 0,
                 resizable = true,
             ),
-            file_ref                                         = state.file_ref,
+            last_token_pos                                   = Pos{0, state.last_token_pos.file},
         }
         defer fix_resizable_dynamic(
             state.tokenizer_state.last_token_descriptions_of_other_possible_tokens,
@@ -1555,11 +1584,11 @@ parse_project :: proc(
         if !file_ok {
             ok = false
         }
-        next_index := get_file_index(state.files, state.file_ref) + 1
+        next_index := get_file_index(state.files, state.last_token_pos.file) + 1
         if next_index >= len(state.parsed_files) {
             break
         }
-        state.file_ref = &state.files.d[next_index]
+        state.last_token_pos.file = &state.files.d[next_index]
     }
     if exit_early_info, exiting_early := exit_early.(^ExitEarly); exiting_early {
         #partial switch &exit_early_info_value in exit_early_info {

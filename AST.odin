@@ -28,6 +28,10 @@ IdentNode :: struct {
     segments: #soa[]Ident,
 }
 
+MutThenIdent :: struct {
+    segments: #soa[]Ident,
+}
+
 /*
 make_ident :: proc(token: IdentToken, file: FileRef) -> Ident {
     // TODO: Do not copy the token
@@ -107,12 +111,18 @@ UnitWithoutPos :: union {
     CallWithFrontedSquareBrackets,
     HierarchyJoinedUnits,
     IdentNode,
+    MutThenIdent,
     Number,
     String,
     Char,
     Bool,
     MarkedUnit,
     Import,
+}
+
+UnitWithPos :: struct {
+    unit: UnitWithoutPos,
+    pos:  Pos,
 }
 
 Unit :: struct {
@@ -122,9 +132,9 @@ Unit :: struct {
 }
 
 ExtraUnit :: struct {
-    pos:         Pos,
-    join_method: LeftToRightUnitJoinMethod,
-    unit:        UnitWithoutPos,
+    join_method_pos: Pos,
+    join_method:     LeftToRightUnitJoinMethod,
+    unit:            UnitWithPos,
 }
 
 // TODO: Maybe all unit join methods should be left to right?
@@ -198,44 +208,6 @@ HierarchyJoinedUnits :: struct {
     unit1:       ^Unit,
 }
 
-VariableDefinition :: struct {
-    name:  string,
-    type:  Unit,
-    value: Unit,
-}
-
-VariableDestType :: enum {
-    // type // what goes before the identifier
-    Constant, // nothing
-    Mutable, // `mut`
-    ConstantAddedToPcs, // `+`
-    MutableAddedToPcs, // `mut +`
-    Mutated, // `~`
-}
-
-VariableDest :: struct {
-    name: Ident,
-    type: VariableDestType,
-
-    // The unit in square brackets
-    // nil if there isn't a key
-    key:  ^Unit,
-}
-
-MutationType :: enum {
-    IncrementBy,
-    DecrementBy,
-    MultiplyBy,
-    DivideBy,
-    SetTo,
-}
-
-VariableManagement :: struct {
-    value:         Unit,
-    destination:   []VariableDest,
-    mutation_type: MutationType,
-}
-
 Call :: struct {
     unit_being_called: ^Unit,
     args:              []Unit, // TODO: Add named arguments
@@ -264,7 +236,7 @@ NumericIterator :: struct {
 
 Pos :: struct {
     index: uint,
-    file:  FileRef,
+    file:  ^CompilerFile,
 }
 
 unknown_pos :: Pos{max(uint), nil}
@@ -333,8 +305,7 @@ UnreachableStatement :: struct {}
 Statement :: struct {
     position: Pos,
     value:    union {
-        VariableManagement,
-        CallWithBrackets,
+        Unit,
         ConditionControlledLoop,
         ForInLoop,
         IfElseStatement,
@@ -432,6 +403,8 @@ debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
     debug("value at character index %d", unit.pos)
     debug_nesting += 1
     switch v in unit.first_unit {
+    case MutThenIdent:
+        panic("TODO")
     case StructUnit:
         panic("TODO")
     case SumUnit:

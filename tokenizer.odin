@@ -249,12 +249,13 @@ CompilerFile :: struct {
 }
 
 TokenizerState :: struct {
-    file_ref:                                         ^CompilerFile,
     index:                                            uint,
-    last_token_pos:                                   uint,
     last_token:                                       TokenContents,
     last_token_descriptions_of_other_possible_tokens: []string,
     last_token_skipped:                               bool,
+
+    // Includes the `^CompilerFile` for which file is being parsed
+    last_token_pos:                                   Pos,
 }
 
 is_nothing_char :: proc(c: byte) -> bool {
@@ -293,97 +294,91 @@ skip_ignore_first :: proc(
 ) -> SkipperResult {
     for {
         s.index += 1
-        if s.index >= len(s.file_ref.code) {
+        if s.index >= len(s.last_token_pos.file.code) {
             return SkipperResult{true, true}
         }
-        if !should_continue(s.file_ref.code[s.index]) {
+        if !should_continue(s.last_token_pos.file.code[s.index]) {
             return SkipperResult{false, true}
         }
     }
 }
 
 skip :: proc(s: ^TokenizerState, should_continue: proc(_: byte) -> bool) -> SkipperResult {
-    if s.index >= len(s.file_ref.code) {
+    if s.index >= len(s.last_token_pos.file.code) {
         return SkipperResult{true, false}
     }
-    if !should_continue(s.file_ref.code[s.index]) {
+    if !should_continue(s.last_token_pos.file.code[s.index]) {
         return SkipperResult{false, false}
     }
     return skip_ignore_first(s, should_continue)
 }
 
-wrong_token_err :: proc(state: ^ParserState, infos: ..string, loc := #caller_location) {
-    expected_bytes: []byte
-    defer delete(expected_bytes)
+wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
+    when debug_diagnostics {
+        print_call(loc, "wrong_token_err")
+    }
+    w := diagnostic_header(&state.r, state.last_token_pos, .Error)
+    defer diagnostic_footer(w)
+
+    for c in state.parser_context {
+        io.write_string(w, "While parsing ")
+        switch c.kind {
+        case .StructFieldType:
+            io.write_string(w, "the type of a struct field")
+        case .StructType:
+            io.write_string(w, "the type of a struct")
+        case .FuncDefinition:
+            io.write_string(w, "a function definition")
+        case:
+            panic("Unreachable")
+        }
+        io.write_string(w, " at ")
+        write_position(w, c.pos)
+        io.write_byte(w, '\n')
+    }
+
+    io.write_string(w, "Expected ")
+
     if len(state.last_token_descriptions_of_other_possible_tokens) == 1 {
-        expected_bytes = make(
-            []byte,
-            len(state.last_token_descriptions_of_other_possible_tokens[0]) + 1,
-        )
-        expected_bytes[0] = ' '
-        copy(expected_bytes[1:], state.last_token_descriptions_of_other_possible_tokens[0])
+        io.write_string(w, state.last_token_descriptions_of_other_possible_tokens[0])
     } else {
-        line_start :: "\n- "
-        either :: " either:"
-        length :=
-            len(either) +
-            len(state.last_token_descriptions_of_other_possible_tokens) * len(line_start)
+        io.write_string(w, "either:")
         for str in state.last_token_descriptions_of_other_possible_tokens {
-            length += len(str)
-        }
-        expected_bytes = make([]byte, length)
-        i := copy(expected_bytes, either)
-        for str in state.last_token_descriptions_of_other_possible_tokens {
-            i += copy(expected_bytes[i:], line_start)
-            i += copy(expected_bytes[i:], str)
+            io.write_string(w, "\n- ")
+            io.write_string(w, str)
         }
     }
-    info_len := len(infos)
-    for info in infos {
-        info_len += len(info)
-    }
-    info_bytes := make([]byte, info_len)
-    defer delete(info_bytes)
-    i := 0
-    for info in infos {
-        i += copy(info_bytes[i:], info)
-        info_bytes[i] = '\n'
-        i += 1
-    }
-    diagnostic(
-        &state.r,
-        Pos{state.last_token_pos, state.file_ref},
-        "%sExpected%s\nGot %v",
-        string(info_bytes),
-        string(expected_bytes),
-        state.last_token,
-        loc = loc,
-    )
+
+    fmt.wprintf(w, "\nGot %v", state.last_token)
 }
 
 tokenize_segmented_identifier :: proc(s: ^TokenizerState, first_ident: string) {
     has_dollar := false
-    if s.index < len(s.file_ref.code) && s.file_ref.code[s.index] == '$' {
+    if s.index < len(s.last_token_pos.file.code) && s.last_token_pos.file.code[s.index] == '$' {
         s.index += 1
         has_dollar = true
     }
     segments := make(#soa[dynamic]Ident, 1)
-    segments[0] = Ident{first_ident, Pos{s.last_token_pos, s.file_ref}, has_dollar}
-    for s.index < len(s.file_ref.code) && s.file_ref.code[s.index] == '.' {
+    segments[0] = Ident{first_ident, s.last_token_pos, has_dollar}
+    for s.index < len(s.last_token_pos.file.code) && s.last_token_pos.file.code[s.index] == '.' {
         s.index += 1
         segment_start := s.index
         skipper_result := skip(s, is_alphanumeric_char)
         if skipper_result.skipped_atleast_one_char {
-            ident := s.file_ref.code[segment_start:s.index]
+            ident := s.last_token_pos.file.code[segment_start:s.index]
             has_dollar = false
-            if s.index < len(s.file_ref.code) && s.file_ref.code[s.index] == '$' {
+            if s.index < len(s.last_token_pos.file.code) &&
+               s.last_token_pos.file.code[s.index] == '$' {
                 s.index += 1
                 has_dollar = true
             }
-            append_soa_elem(&segments, Ident{ident, Pos{segment_start, s.file_ref}, has_dollar})
+            append_soa_elem(
+                &segments,
+                Ident{ident, Pos{segment_start, s.last_token_pos.file}, has_dollar},
+            )
         } else {
             s.last_token = Error(
-                skipper_result.reached_end_of_file ? "While tokenizing segmented identifier\nExpected an alphanumeric\nGot the end of the file" : fmt.aprintf("While tokenizing segmented identifier\nExpected an alphanumeric\nGot `%c`", s.file_ref.code[s.index]),
+                skipper_result.reached_end_of_file ? "While tokenizing segmented identifier\nExpected an alphanumeric\nGot the end of the file" : fmt.aprintf("While tokenizing segmented identifier\nExpected an alphanumeric\nGot `%c`", s.last_token_pos.file.code[s.index]),
             )
             return
         }
@@ -404,13 +399,13 @@ get_next_token :: proc(
     }
     clear_dynamic(&state.last_token_descriptions_of_other_possible_tokens)
     if skip(state, is_nothing_char).reached_end_of_file {
-        state.last_token_pos = len(state.file_ref.code)
+        state.last_token_pos.index = len(state.last_token_pos.file.code)
         state.last_token = EndOfFileToken{}
         return
     }
-    state.last_token_pos = state.index
+    state.last_token_pos.index = state.index
     state.last_token_skipped = false
-    char := state.file_ref.code[state.index]
+    char := state.last_token_pos.file.code[state.index]
     switch char {
     case '\n':
         state.index += 1
@@ -447,7 +442,8 @@ get_next_token :: proc(
         state.last_token = AtToken{}
     case ':':
         state.index += 1
-        if state.index < len(state.file_ref.code) && state.file_ref.code[state.index] == ':' {
+        if state.index < len(state.last_token_pos.file.code) &&
+           state.last_token_pos.file.code[state.index] == ':' {
             state.index += 1
             state.last_token = ColonColonToken{}
         } else {
@@ -456,7 +452,8 @@ get_next_token :: proc(
 
     case '<':
         state.index += 1
-        if state.index < len(state.file_ref.code) && state.file_ref.code[state.index] == '=' {
+        if state.index < len(state.last_token_pos.file.code) &&
+           state.last_token_pos.file.code[state.index] == '=' {
             state.index += 1
             state.last_token = LessThanOrEqualToken{}
         } else {
@@ -465,7 +462,8 @@ get_next_token :: proc(
 
     case '>':
         state.index += 1
-        if state.index < len(state.file_ref.code) && state.file_ref.code[state.index] == '=' {
+        if state.index < len(state.last_token_pos.file.code) &&
+           state.last_token_pos.file.code[state.index] == '=' {
             state.index += 1
             state.last_token = GreaterThanOrEqualToken{}
         } else {
@@ -483,7 +481,8 @@ get_next_token :: proc(
 
     case '|':
         state.index += 1
-        if state.index < len(state.file_ref.code) && state.file_ref.code[state.index] == '>' {
+        if state.index < len(state.last_token_pos.file.code) &&
+           state.last_token_pos.file.code[state.index] == '>' {
             state.index += 1
             state.last_token = PipeToken{}
         } else {
@@ -492,14 +491,16 @@ get_next_token :: proc(
 
     case '0' ..< '9':
         skip_ignore_first(state, is_digit_char)
-        state.last_token = DigitsToken(state.file_ref.code[state.last_token_pos:state.index])
+        state.last_token = DigitsToken(
+            state.last_token_pos.file.code[state.last_token_pos.index:state.index],
+        )
 
     case '#':
         state.index += 1
         skipper_result := skip(state, is_alphanumeric_char)
         if skipper_result.skipped_atleast_one_char {
             state.last_token = MarkerToken(
-                state.file_ref.code[state.last_token_pos + 1:state.index],
+                state.last_token_pos.file.code[state.last_token_pos.index + 1:state.index],
             )
         } else if skipper_result.reached_end_of_file {
             state.last_token = Error(
@@ -509,14 +510,14 @@ get_next_token :: proc(
             state.last_token = Error(
                 fmt.aprintf(
                     "While tokenizing marker\nExpected an alphanumeric\nGot `%c`",
-                    state.file_ref.code[state.index],
+                    state.last_token_pos.file.code[state.index],
                 ),
             )
         }
 
     case '_', 'a' ..< 'z', 'A' ..< 'Z':
         skip_ignore_first(state, is_alphanumeric_char)
-        ident := state.file_ref.code[state.last_token_pos:state.index]
+        ident := state.last_token_pos.file.code[state.last_token_pos.index:state.index]
         switch ident {
         case "in":
             state.last_token = InToken{}
@@ -561,19 +562,19 @@ get_next_token :: proc(
         state.index += 1
         contents := make([dynamic]byte)
         for {
-            if state.index >= len(state.file_ref.code) {
-                state.last_token_pos = len(state.file_ref.code)
+            if state.index >= len(state.last_token_pos.file.code) {
+                state.last_token_pos.index = len(state.last_token_pos.file.code)
                 state.last_token = Error("Unexpected end of file while tokenizing string")
                 return
             }
-            switch state.file_ref.code[state.index] {
+            switch state.last_token_pos.file.code[state.index] {
             case '"':
                 state.index += 1
                 state.last_token = StringToken(contents[:])
                 return
             case '\\':
                 state.index += 1
-                switch state.index >= len(state.file_ref.code) ? '?' : state.file_ref.code[state.index] {
+                switch state.index >= len(state.last_token_pos.file.code) ? '?' : state.last_token_pos.file.code[state.index] {
                 case 'n':
                     append_elem(&contents, '\n')
                 case 't':
@@ -583,51 +584,51 @@ get_next_token :: proc(
                 case '\\':
                     append_elem(&contents, '\\')
                 case:
-                    state.last_token_pos = state.index
+                    state.last_token_pos.index = state.index
                     state.last_token = Error(
                         "Invalid escape code (supported escape codes are `\\n`, `\\t`, `\\\"`, and `\\\\`)",
                     )
                     return
                 }
             case:
-                append_elem(&contents, state.file_ref.code[state.index])
+                append_elem(&contents, state.last_token_pos.file.code[state.index])
             }
             state.index += 1
         }
     case '\'':
         state.index += 1
-        if state.index >= len(state.file_ref.code) {
+        if state.index >= len(state.last_token_pos.file.code) {
             state.last_token = Error("Unexpected end of file while tokenizing character")
             return
         }
-        if state.file_ref.code[state.index] == '\\' {
+        if state.last_token_pos.file.code[state.index] == '\\' {
             state.index += 1
-            if state.index >= len(state.file_ref.code) {
+            if state.index >= len(state.last_token_pos.file.code) {
                 state.last_token = Error("Unexpected end of file while tokenizing character")
                 return
             }
         }
-        state.last_token = CharToken(state.file_ref.code[state.index])
+        state.last_token = CharToken(state.last_token_pos.file.code[state.index])
         state.index += 1
-        if state.index >= len(state.file_ref.code) {
+        if state.index >= len(state.last_token_pos.file.code) {
             state.last_token = Error(
                 "While tokenizing character. Expected `'`. Got unexpected end of file.",
             )
             return
         }
-        if state.file_ref.code[state.index] != '\'' {
+        if state.last_token_pos.file.code[state.index] != '\'' {
             state.last_token = Error(
-                fmt.aprintf("Expected `'`, got `%c`", state.file_ref.code[state.index]),
+                fmt.aprintf("Expected `'`, got `%c`", state.last_token_pos.file.code[state.index]),
             )
             return
         }
         state.index += 1
     case '/':
-        if state.index + 1 < len(state.file_ref.code) &&
-           state.file_ref.code[state.index + 1] == '/' {
+        if state.index + 1 < len(state.last_token_pos.file.code) &&
+           state.last_token_pos.file.code[state.index + 1] == '/' {
             state.index += 2
-            for state.index < len(state.file_ref.code) &&
-                state.file_ref.code[state.index] != '\n' {
+            for state.index < len(state.last_token_pos.file.code) &&
+                state.last_token_pos.file.code[state.index] != '\n' {
                 state.index += 1
             }
             state.index += 1
@@ -636,20 +637,27 @@ get_next_token :: proc(
                 state.last_token_skipped = true
             } else {
                 state.last_token = CommentToken(
-                    strings.trim(state.file_ref.code[state.last_token_pos:state.index - 1], " "),
+                    strings.trim(
+                        state.last_token_pos.file.code[state.last_token_pos.index:state.index - 1],
+                        " ",
+                    ),
                 )
             }
         } else {
             skip_ignore_first(state, is_symbol_char)
-            state.last_token = SymbolsToken(state.file_ref.code[state.last_token_pos:state.index])
+            state.last_token = SymbolsToken(
+                state.last_token_pos.file.code[state.last_token_pos.index:state.index],
+            )
         }
     case '.':
-        if state.index + 1 < len(state.file_ref.code) &&
-           is_alphanumeric_char(state.file_ref.code[state.index + 1]) {
+        if state.index + 1 < len(state.last_token_pos.file.code) &&
+           is_alphanumeric_char(state.last_token_pos.file.code[state.index + 1]) {
             tokenize_segmented_identifier(state, "")
         } else {
             skip_ignore_first(state, is_symbol_char)
-            state.last_token = SymbolsToken(state.file_ref.code[state.last_token_pos:state.index])
+            state.last_token = SymbolsToken(
+                state.last_token_pos.file.code[state.last_token_pos.index:state.index],
+            )
         }
     case:
         if !is_symbol_char(char) {
@@ -657,7 +665,7 @@ get_next_token :: proc(
             return
         }
         skip_ignore_first(state, is_symbol_char)
-        symbols := state.file_ref.code[state.last_token_pos:state.index]
+        symbols := state.last_token_pos.file.code[state.last_token_pos.index:state.index]
         switch symbols {
         case "->":
             state.last_token = ArrowToken{}

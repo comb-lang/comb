@@ -216,7 +216,7 @@ is_builtin :: proc(name: string) -> bool {
 add_unnamed_variable :: proc(
     s: ^CheckerState,
     variable_type: Type,
-    variable_is_mut: bool, // TODO: rename `mut` -> `re`
+    variable_is_re: bool,
     loc := #caller_location,
 ) -> VariableRef {
     when debug_checker {
@@ -225,7 +225,7 @@ add_unnamed_variable :: proc(
     var_ref := VariableRef{len(s.scopes) - 1, len(s.scopes[len(s.scopes) - 1].variables)}
     append_soa_elem(
         &s.scopes[len(s.scopes) - 1].variables,
-        ScopeVariable{variable_type, variable_is_mut},
+        ScopeVariable{variable_type, variable_is_re},
     )
     return var_ref
 }

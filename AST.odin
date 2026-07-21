@@ -29,17 +29,6 @@ IdentNode :: struct {
     has_re_before: bool,
 }
 
-/*
-make_ident :: proc(token: IdentToken, file: FileRef) -> Ident {
-    // TODO: Do not copy the token
-    out := make(#soa[]IdentAndPos, len(token))
-    for segment, i in token {
-        out[i] = IdentAndPos{segment.ident, Pos{segment.index, file}}
-    }
-    return Ident{out}
-}
-*/
-
 Number :: struct {
     is_negated:      bool,
     absolute_digits: string,

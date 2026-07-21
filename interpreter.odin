@@ -1,11 +1,11 @@
 package main
 
-import "core:io"
 // This file is mostly AI generated
 // TODO: Proper memory management (garbage collector?)
 
 import "base:runtime"
 import "core:fmt"
+import "core:io"
 import "core:net"
 import "core:os"
 import "core:path/filepath"

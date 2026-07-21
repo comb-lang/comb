@@ -20,7 +20,7 @@
 
 # General
 
-- The `$` postfix means that a variable is reassignable
+- See [the memory model](./readme.md#current-memory-model)
 
 <!--
 - `~` means that something is being mutated
@@ -62,11 +62,13 @@ re my_array$ = []I64(1, 2, 3)
 my_number$ = my_number$ + 5
 my_array$ = my_array$ ++ []I64(4, 5)
 my_array$ = increment_by(my_array$, 1)
+my_array$ = my_array$ ~ [3] = square_root(my_array$[3])
 my_array$ = my_array$ ~ [3] = my_array$[3] + 1
-// OR (TODO: Support syntaxes like the following)
+// OR (TODO: Support syntaxes roughly like the following)
 my_number$ += 5
 my_array$ ++= []I64(4, 5)
 my_array$ |= increment_by(1)
+my_array$ ~ [3] |= sqrt()
 my_array$ ~ [3] += 1
 ```
 

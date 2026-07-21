@@ -65,7 +65,7 @@ A new language for the web, because it's time to stop working around javascript.
 - Add a `delete` function for ordered hash maps, where `typeof(delete[K, V]) = (OrderedHashMap[K, V], K) -> OrderedHashMap[K, V]`
 - Remove unnecersarry array copies from the C backend
   - Once this is done, arrays should grow by a multiple of 2 when they overflow rather than growing the minimum amount to be able to fit their new contents
-- Add reference counting or garbage collection to the emitted C code to stop it from leaking memory
+- Add reference counting to the emitted C code to stop it from leaking memory
 - Do not leak memory in the compiler and interpreter
   - Especially important since the `-watch` flag was added
   - For the interpreter, any http server in `LongLivedInterpState.http_servers` should be cleaned up once it is no longer accessible through in-scope variables or the compiler cache
@@ -283,9 +283,26 @@ Considering all of this, these design principles are tentative and subject to ch
 
 # Programming language memory model
 
+## Current memory model
+
+(subject to change)
+
+- Every value is immutable
+  - This means that with reference counting, garbage collection should be completely unnecersarry, because if every value is immutable then it is impossible to create a circular reference
+- Procedural programming is supported through a combination of:
+  - **Builtin procedural control flow structures**, including `for`, `while` and `do while`
+  - **Reassignable variables** - Being able to define a variable which can be reassigned a different value in nested scopes
+    - The `$` postfix means that a variable is reassignable
+  - **Derivations** - A way to create a slightly altered copy of a value (see [docs.md](./docs.md#derivations))
+- In the future, an optimisation may be implemented where if the base of a derivation is not referenced again in the code, then it can be mutated rather than copying it and mutating
+  - Reference counting might need to be implemented in all backends for this optimisation
+  - TODO: Implement this optimisation and remove unnecersarry copies from all backends
+
+## Notes
+
 - For stack based memory models, stack resizes should be deduplicated
 
-## Criteria for a memory model
+### Criteria for a memory model
 
 - Safety:
   - No dereferencing invalid pointers:
@@ -300,7 +317,7 @@ Considering all of this, these design principles are tentative and subject to ch
 - Conciseness
 - Performance
 
-## Levels of performance for a memory model
+### Levels of performance for a memory model
 
 1. Every piece of data is stored on either registers, or the CMS, or the PMS
 2. Most data is stored on registers or the stack, some data is stored on the heap and managed manually
@@ -308,7 +325,7 @@ Considering all of this, these design principles are tentative and subject to ch
 4. Most data is stored on registers or the stack, some data is stored on the heap and managed using garbage collection
 5. Data is unnecessarily copied
 
-## Other memory models
+### Other memory models
 
 - Borrow checker (like in rust)
 - Linear types (like in austral)

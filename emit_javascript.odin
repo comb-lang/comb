@@ -124,18 +124,24 @@ emit_js_derivation :: proc(
         return
     }
 
-    strings.write_string(&s.b, "update(")
-    if v == nil {
-        strings.write_string(&s.b, "old")
-    } else {
-        emit_js_value(s, v)
-    }
-    strings.write_byte(&s.b, ',')
-
     switch elem in subset_elems[0] {
     case ArrayElementAccess:
+        strings.write_string(&s.b, "with_update(")
+        if v == nil {
+            strings.write_string(&s.b, "old")
+        } else {
+            emit_js_value(s, v)
+        }
+        strings.write_byte(&s.b, ',')
         emit_js_value(s, elem.index)
     case StringOrderedHashMapAccess:
+        strings.write_string(&s.b, "map_update(")
+        if v == nil {
+            strings.write_string(&s.b, "old")
+        } else {
+            emit_js_value(s, v)
+        }
+        strings.write_byte(&s.b, ',')
         emit_js_value(s, elem.key)
     case FieldAccess:
         panic("TODO")
@@ -462,7 +468,8 @@ emit_javascript :: proc(types: Types, checked_functions: []CheckedFunction) -> s
     strings.write_string(
         &s.b,
         "function in_map(a, b) {return Map.prototype.has.call(b, a)}" +
-        "function update(value, key, func) {return value.with(key, func(value[key]))}",
+        "function with_update(value, key, func) {return value.with(key, func(value[key]))}" +
+        "function map_update(map, key, func) {return new Map(map).set(key, func(map.get(key)))}",
     )
 
     for _, index in types.m.keys {

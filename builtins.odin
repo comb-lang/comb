@@ -244,13 +244,35 @@ add_variable :: proc(
         print_call(loc, "add_variable")
     }
     // TODO: Add a warning for unused variables
-    expect_snake_case(s, "variable names", TextAndPos{variable.ident, variable.pos})
+    expect_snake_case(
+        s,
+        "variable names",
+        TextAndPos{variable.ident, variable.pos},
+        can_have_dollar_postfix = true,
+    )
     if is_builtin(variable.ident) {
         diagnostic(s, variable.pos, builtins_err, variable.ident)
         return VariableRef{}, false
     }
     if variable.ident in s.variables_map {
         diagnostic(s, variable.pos, "Redeclaration of variable `%s`", variable.ident)
+        return VariableRef{}, false
+    }
+    alt_ident := ""
+    if variable.has_dollar_at_end {
+        alt_ident = variable.ident[:len(variable.ident) - 1]
+    } else {
+        alt_ident = aprintf(s.a, "%s$", variable.ident)
+    }
+    if alt_ident in s.variables_map {
+        diagnostic(
+            s,
+            variable.pos,
+            "Declaring variable called `%s` when variable called `%s` is already declared",
+            variable.ident,
+            alt_ident,
+            type = .Warning,
+        )
         return VariableRef{}, false
     }
     var_ref := add_unnamed_variable(s, variable_type, variable.has_dollar_at_end)

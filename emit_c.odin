@@ -138,6 +138,10 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: CompileTimeValue) {
 
 emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
     switch value in v {
+    case ArrayLiteral:
+        panic("TODO: Handle array literal in C emitter")
+    case CheckedDerivation:
+        panic("TODO: Handle checked derivation in C emitter")
     case OrderedHashMapInitFunc:
         panic("TODO")
     case CheckedOrderedHashMapAccess,
@@ -379,6 +383,7 @@ emit_c_block_body :: proc(
             strings.write_string(&s.b, "goto loop")
             strings.write_uint(&s.b, stmt.loop_index)
             strings.write_string(&s.b, "end;")
+        /*
         case CheckedArrayMutation:
             if stmt.variable_type.length == 0 {
                 emit_variable(&s.b, stmt.variable)
@@ -427,8 +432,9 @@ emit_c_block_body :: proc(
                 }
             }
             strings.write_byte(&s.b, '}')
-        case CheckedMutation:
-            emit_c_value(s, stmt.destination)
+            */
+        case CheckedAssignment:
+            emit_variable(&s.b, stmt.dest)
             strings.write_byte(&s.b, '=')
             emit_c_value(s, stmt.value)
             strings.write_byte(&s.b, ';')

@@ -25,11 +25,8 @@ SumType :: struct {
 }
 
 IdentNode :: struct {
-    segments: #soa[]Ident,
-}
-
-MutThenIdent :: struct {
-    segments: #soa[]Ident,
+    segments:      #soa[]Ident,
+    has_re_before: bool,
 }
 
 /*
@@ -60,6 +57,10 @@ MarkedUnit :: struct {
 }
 
 Tuple :: struct {
+    elements: []Unit,
+}
+
+UnitsInSquareBrackets :: struct {
     elements: []Unit,
 }
 
@@ -105,13 +106,13 @@ UnitWithoutPos :: union {
     StructUnit,
     SumUnit,
     Tuple,
+    UnitsInSquareBrackets,
     FuncDefinitionRef,
     CallWithBrackets,
     CallWithSquareBrackets,
     CallWithFrontedSquareBrackets,
     HierarchyJoinedUnits,
     IdentNode,
-    MutThenIdent,
     Number,
     String,
     Char,
@@ -403,7 +404,7 @@ debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
     debug("value at character index %d", unit.pos)
     debug_nesting += 1
     switch v in unit.first_unit {
-    case MutThenIdent:
+    case UnitsInSquareBrackets:
         panic("TODO")
     case StructUnit:
         panic("TODO")

@@ -48,6 +48,7 @@ run_example_via_c :: proc(
         FunctionRef{absolute_path, "main"},
         compiler_pipe,
         BuildC{&executable},
+        panic_reader,
         NeverExitEarly{},
     )
     compiler := get_output(compiler_pipe)
@@ -94,13 +95,19 @@ run_example_via_c :: proc(
     return CompilationSuccessful{compiler, Pipe(string){string(stdout), string(stderr)}}
 }
 
-interpret_example :: proc(t: ^testing.T, a: ^Arena, func: FunctionRef) -> InterpretedExample {
+interpret_example :: proc(
+    t: ^testing.T,
+    a: ^Arena,
+    func: FunctionRef,
+    stdin: string = "",
+) -> InterpretedExample {
     compiler_pipe := pipe_mock(a)
     program_pipe := pipe_mock(a)
     status := compile(
         func,
         compiler_pipe,
         Run{program_pipe, new(LongLivedInterpState)},
+        make_reader(stdin),
         NeverExitEarly{},
     )
     return InterpretedExample{get_output(compiler_pipe), get_output(program_pipe), status}
@@ -110,14 +117,13 @@ interpret_example :: proc(t: ^testing.T, a: ^Arena, func: FunctionRef) -> Interp
 example_00_fizzbuzz :: proc(t: ^testing.T) {
     a: Arena
     defer delete_arena(&a, expect_empty = false)
-    ran := run_example_via_c(t, &a, #directory + "examples/00_fizzbuzz.code", "")
-    if ran == nil {return}
-    out := ran.(CompilationSuccessful)
-    testing.expect(t, out.compiler.stderr == "")
-    testing.expect(t, out.program.stderr == "")
+    ran := interpret_example(t, &a, FunctionRef{#directory + "examples/00_fizzbuzz.code", "main"})
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.compiler.stderr == "")
+    testing.expect(t, ran.program.stderr == "")
     testing.expect(
         t,
-        out.program.stdout ==
+        ran.program.stdout ==
         "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzbuzz\n16\n17\nFizz\n19\nBuzz\nFizz\n22\n23\nFizz\nBuzz\n26\nFizz\n28\n29\nFizzbuzz\n31\n32\nFizz\n34\nBuzz\nFizz\n37\n38\nFizz\nBuzz\n41\nFizz\n43\n44\nFizzbuzz\n46\n47\nFizz\n49\nBuzz\nFizz\n52\n53\nFizz\nBuzz\n56\nFizz\n58\n59\nFizzbuzz\n61\n62\nFizz\n64\nBuzz\nFizz\n67\n68\nFizz\nBuzz\n71\nFizz\n73\n74\nFizzbuzz\n76\n77\nFizz\n79\nBuzz\nFizz\n82\n83\nFizz\nBuzz\n86\nFizz\n88\n89\nFizzbuzz\n91\n92\nFizz\n94\nBuzz\nFizz\n97\n98\nFizz\nBuzz\n",
     )
 }
@@ -129,7 +135,7 @@ example_01_factorial :: proc(t: ^testing.T) {
     ran := run_example_via_c(t, &a, #directory + "examples/01_factorial.code", "")
     if ran == nil {return}
     out := ran.(CompilationSuccessful)
-    testing.expect(t, out.compiler.stderr == "")
+    testing.expect(t, out.compiler.stderr == c_warning)
     testing.expect(t, out.program.stderr == "")
     testing.expect(t, out.program.stdout == "120\n")
 }
@@ -138,14 +144,13 @@ example_01_factorial :: proc(t: ^testing.T) {
 example_02_primes :: proc(t: ^testing.T) {
     a: Arena
     defer delete_arena(&a, expect_empty = false)
-    ran := run_example_via_c(t, &a, #directory + "examples/02_primes.code", "")
-    if ran == nil {return}
-    out := ran.(CompilationSuccessful)
+    ran := interpret_example(t, &a, FunctionRef{#directory + "examples/02_primes.code", "main"})
+    testing.expect(t, ran.exit_code == 0)
     // testing.expect(t, out.compiler.stderr == "") // TODO: Implement array bounds checking so this line can be uncommented
-    testing.expect(t, out.program.stderr == "")
+    testing.expect(t, ran.program.stderr == "")
     testing.expect(
         t,
-        out.program.stdout ==
+        ran.program.stdout ==
         `The number 1 is not prime
 The number 2 is prime
 The number 3 is prime
@@ -274,12 +279,15 @@ example_03_fibonacci :: proc(t: ^testing.T) {
 example_04_linked_list :: proc(t: ^testing.T) {
     a: Arena
     defer delete_arena(&a, expect_empty = false)
-    ran := run_example_via_c(t, &a, #directory + "examples/04_linked_list.code", "")
-    if ran == nil {return}
-    out := ran.(CompilationSuccessful)
-    testing.expect(t, out.compiler.stderr == "")
-    testing.expect(t, out.program.stderr == "")
-    testing.expect(t, out.program.stdout == "1\n2\n3\nReversed:\n3\n2\n1\n")
+    ran := interpret_example(
+        t,
+        &a,
+        FunctionRef{#directory + "examples/04_linked_list.code", "main"},
+    )
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.compiler.stderr == "")
+    testing.expect(t, ran.program.stderr == "")
+    testing.expect(t, ran.program.stdout == "1\n2\n3\nReversed:\n3\n2\n1\n")
 }
 
 expect_ui_render :: proc(
@@ -304,18 +312,17 @@ expect_ui_render :: proc(
 example_05_ui :: proc(t: ^testing.T) {
     a: Arena
     defer delete_arena(&a, expect_empty = false)
-    ran := run_example_via_c(
+    ran := interpret_example(
         t,
         &a,
-        #directory + "examples/05_ui.code",
+        FunctionRef{#directory + "examples/05_ui.code", "main"},
         "next\nclick\nprev\nprev\nclick\nnext\nnext\nnext\nclick\nquit\n",
     )
-    if ran == nil {return}
-    out := ran.(CompilationSuccessful)
-    testing.expect(t, out.compiler.stderr == "")
-    testing.expect(t, out.program.stderr == "")
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.compiler.stderr == "")
+    testing.expect(t, ran.program.stderr == "")
 
-    text_expecter := TestingTextExpecter{0, out.program.stdout, t}
+    text_expecter := TestingTextExpecter{0, ran.program.stdout, t}
     expect_ui_render(&text_expecter, "Initial text", 1)
     expect_ui_render(&text_expecter, "Initial text", 2) // After next
     expect_ui_render(&text_expecter, "Text 2", 2) // After click
@@ -408,7 +415,8 @@ basic_fuzz_test :: proc(t: ^testing.T) {
         }
 
         pipe := pipe_mock(&a)
-        compile(FunctionRef{tmp_file, "main"}, pipe, BuildC{}, NeverExitEarly{})
+        defer get_output(pipe)
+        compile(FunctionRef{tmp_file, "main"}, pipe, BuildC{}, panic_reader, NeverExitEarly{})
     }
 }
 
@@ -440,7 +448,7 @@ example_08_result :: proc(t: ^testing.T) {
     ran := run_example_via_c(t, &a, #directory + "examples/08_result.code", "dog\n")
     if ran == nil {return}
     out := ran.(CompilationSuccessful)
-    testing.expect(t, out.compiler.stderr == "")
+    testing.expect(t, out.compiler.stderr == c_warning)
     testing.expect(t, out.program.stderr == "")
     if out.program.stdout != "Enter the name of an animal: You entered the animal dog\n" {
         testing.fail_now(t, fmt.aprintf("Got the stdout `%s`", out.program.stdout))
@@ -471,7 +479,7 @@ example_10_geometry :: proc(t: ^testing.T) {
     ran := run_example_via_c(t, &a, #directory + "examples/10_geometry.code", "")
     if ran == nil {return}
     out := ran.(CompilationSuccessful)
-    testing.expect(t, out.compiler.stderr == "")
+    testing.expect(t, out.compiler.stderr == c_warning)
     testing.expect(t, out.program.stderr == "")
     e := TestingTextExpecter{0, out.program.stdout, t}
     expect_string(&e, "                              cc                              \n")
@@ -552,7 +560,7 @@ invalid_example_01_wrong_identifier_casing :: proc(t: ^testing.T) {
     out := ran.(CompilationSuccessful)
     testing.expect(t, out.program.stderr == "")
     testing.expect(t, out.program.stdout == "Hello world\n")
-    testing.expect(t, out.compiler.stderr == "")
+    testing.expect(t, out.compiler.stderr == c_warning)
     e := TestingTextExpecter{0, out.compiler.stdout, t}
     fmt.println(out.compiler.stdout)
     expect_string(&e, "Reading `" + file + "`...\n")

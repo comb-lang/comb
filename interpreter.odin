@@ -5,7 +5,6 @@ import "core:io"
 // TODO: Proper memory management (garbage collector?)
 
 import "base:runtime"
-import "core:bufio"
 import "core:fmt"
 import "core:net"
 import "core:os"
@@ -125,7 +124,7 @@ RuntimeStringOrderedHashMap :: struct {
     type:          Type,
     needs_freeing: bool,
     hashmap:       map[string]RuntimeValue,
-    order:         [dynamic]string,
+    order:         []string,
 }
 RuntimeI64OrderedHashMap :: struct {
     type:          Type,
@@ -543,7 +542,7 @@ interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> Runtim
         for key, value in v.hashmap {
             out_hashmap[key] = interp_clone_value(value)
         }
-        out_order := slice.clone_to_dynamic(v.order[:])
+        out_order := slice.clone(v.order)
         return RuntimeStringOrderedHashMap{v.type, true, out_hashmap, out_order}
     case RuntimeI64OrderedHashMap:
         out_hashmap := make(map[i64]RuntimeValue, len(v.hashmap))
@@ -666,7 +665,8 @@ interp_exec_statement :: proc(state: InterpState, stmt: CheckedStatement) {
         assert(state.control_flow_op == nil)
         state.control_flow_op = BreakLoop{s.loop_index}
 
-    case CheckedMutation:
+    case CheckedAssignment:
+        /*
         get_mutable_value :: proc(
             s: InterpState,
             value: CheckedValue,
@@ -701,8 +701,11 @@ interp_exec_statement :: proc(state: InterpState, stmt: CheckedStatement) {
         }
         mutable_value := get_mutable_value(state, s.destination)
         interp_destroy_value(mutable_value)
-        mutable_value^ = interp_clone_value(interp_eval_value(state, s.value))
+        */
+        state.frames[len(state.frames) - 1].scopes[s.dest.nesting_level][s.dest.index] =
+            interp_eval_value(state, s.value)
 
+    /*
     case CheckedArrayMutation:
         old_value :=
             state.frames[len(state.frames) - 1].scopes[s.variable.nesting_level][s.variable.index]
@@ -728,6 +731,7 @@ interp_exec_statement :: proc(state: InterpState, stmt: CheckedStatement) {
         }
         state.frames[len(state.frames) - 1].scopes[s.variable.nesting_level][s.variable.index] =
             arr
+            */
 
     case CheckedFunctionCall:
         assert(interp_execute_function(state, s) == nil)
@@ -793,8 +797,67 @@ interp_eval_comptime_value :: proc(s: InterpState, value: CompileTimeValue) -> R
     }
 }
 
+interp_derive_value :: proc(
+    s: InterpState,
+    v: RuntimeValue,
+    subset_elems: []DerivationSubsetElement,
+    alteration: DerivationAlteration,
+) -> RuntimeValue {
+    if len(subset_elems) == 0 {
+        assert(alteration.kind == .Replace)
+        return interp_eval_value(s, alteration.arg^)
+    }
+
+    switch elem in subset_elems[0] {
+    case ArrayElementAccess:
+        index := interp_eval_value(s, elem.index).(i64)
+        old := v.(RuntimeArray)
+        new_elems := make([dynamic]RuntimeValue, len(old.elems))
+        for old_elem, i in old.elems {
+            new_elems[i] = old_elem
+        }
+        new_elems[index] = interp_derive_value(s, old.elems[index], subset_elems[1:], alteration)
+        return RuntimeArray{old.type, true, new_elems}
+    case StringOrderedHashMapAccess:
+        key := interp_eval_value(s, elem.key).(RuntimeString).value
+        old := v.(RuntimeStringOrderedHashMap)
+        new_hashmap := make(map[string]RuntimeValue)
+        new_order := old.order
+        if key not_in old.hashmap {
+            dyn := slice.clone_to_dynamic(old.order)
+            append_elem(&dyn, key)
+            new_order = dyn[:]
+        }
+        for k, old_elem in old.hashmap {
+            new_hashmap[k] = old_elem
+        }
+        new_hashmap[key] = interp_derive_value(s, old.hashmap[key], subset_elems[1:], alteration)
+        return RuntimeStringOrderedHashMap{old.type, true, new_hashmap, new_order}
+    case FieldAccess:
+        panic("TODO")
+    case:
+        panic("Unreachable")
+    }
+}
+
 interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
     switch value in v {
+    case ArrayLiteral:
+        elems := make([dynamic]RuntimeValue)
+        for segment in value.segments {
+            switch seg in segment {
+            case InlineArraySegment:
+                append_elems(&elems, ..interp_eval_value(s, seg.array).(RuntimeArray).elems[:])
+            case SingleElemSegment:
+                append_elem(&elems, interp_eval_value(s, seg.elem))
+            case:
+                panic("Unreachable")
+            }
+        }
+        return RuntimeArray{value.type, true, elems}
+    case CheckedDerivation:
+        base_value := interp_eval_value(s, value.base^)
+        return interp_derive_value(s, base_value, value.subset.elements, value.alteration)
     case OrderedHashMapInitFunc:
         #partial switch type in get_type(s.types, value.type).key {
         case OrderedHashMapTypeWithStringKey:
@@ -1008,6 +1071,7 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
 DefaultBuiltinHandlerData :: struct {
     working_dir: string,
     pipe:        Pipe(io.Writer),
+    stdin:       io.Reader,
 }
 
 default_builtin_handler_procedure :: proc(
@@ -1037,11 +1101,18 @@ default_builtin_handler_procedure :: proc(
         return nil
     case .readline:
         assert(len(args) == 1)
-        fmt.wprint(data.pipe.stdout, args[0].(RuntimeString).value)
-        scanner: bufio.Scanner
-        bufio.scanner_init(&scanner, os.to_reader(os.stdin))
-        assert(bufio.scan(&scanner))
-        return RuntimeString{false, bufio.scanner_text(&scanner)}
+        io.write_string(data.pipe.stdout, args[0].(RuntimeString).value)
+        io.flush(data.pipe.stdout)
+        bytes := make([dynamic]byte)
+        for {
+            b, err := io.read_byte(data.stdin)
+            assert(err == nil)
+            if b == '\n' {
+                break
+            }
+            append_elem(&bytes, b)
+        }
+        return RuntimeString{true, string(bytes[:])}
     case .read_file:
         panic("TODO")
     case .write_file:

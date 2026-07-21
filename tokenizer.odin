@@ -51,7 +51,7 @@ UnreachableToken :: struct {} // unreachable
 AndToken :: struct {} // and
 OrToken :: struct {} // or
 MatchToken :: struct {} // match
-MutToken :: struct {} // mut // TODO: Change to `re`
+ReToken :: struct {} // re
 CommentToken :: distinct string
 
 // Escapes that were in the string are removed by the tokenizer
@@ -104,7 +104,7 @@ TokenContents :: union {
     AndToken,
     OrToken,
     MatchToken,
-    MutToken,
+    ReToken,
     CommentToken,
     StringToken,
     CharToken,
@@ -210,8 +210,8 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
         fmt.wprint(fi.writer, "the keyword `or`")
     case MatchToken:
         fmt.wprint(fi.writer, "the keyword `match`")
-    case MutToken:
-        fmt.wprint(fi.writer, "the keyword `mut`")
+    case ReToken:
+        fmt.wprint(fi.writer, "the keyword `re`")
     case CommentToken:
         fmt.wprint(fi.writer, "a comment")
     case StringToken:
@@ -352,20 +352,23 @@ wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
     fmt.wprintf(w, "\nGot %v", state.last_token)
 }
 
-tokenize_segmented_identifier :: proc(s: ^TokenizerState, first_ident: string) {
+tokenize_segmented_identifier :: proc(s: ^TokenizerState, first_ident_start: uint) {
     has_dollar := false
     if s.index < len(s.last_token_pos.file.code) && s.last_token_pos.file.code[s.index] == '$' {
         s.index += 1
         has_dollar = true
     }
     segments := make(#soa[dynamic]Ident, 1)
-    segments[0] = Ident{first_ident, s.last_token_pos, has_dollar}
+    segments[0] = Ident {
+        s.last_token_pos.file.code[first_ident_start:s.index],
+        s.last_token_pos,
+        has_dollar,
+    }
     for s.index < len(s.last_token_pos.file.code) && s.last_token_pos.file.code[s.index] == '.' {
         s.index += 1
         segment_start := s.index
         skipper_result := skip(s, is_alphanumeric_char)
         if skipper_result.skipped_atleast_one_char {
-            ident := s.last_token_pos.file.code[segment_start:s.index]
             has_dollar = false
             if s.index < len(s.last_token_pos.file.code) &&
                s.last_token_pos.file.code[s.index] == '$' {
@@ -374,7 +377,11 @@ tokenize_segmented_identifier :: proc(s: ^TokenizerState, first_ident: string) {
             }
             append_soa_elem(
                 &segments,
-                Ident{ident, Pos{segment_start, s.last_token_pos.file}, has_dollar},
+                Ident {
+                    s.last_token_pos.file.code[segment_start:s.index],
+                    Pos{segment_start, s.last_token_pos.file},
+                    has_dollar,
+                },
             )
         } else {
             s.last_token = Error(
@@ -553,10 +560,10 @@ get_next_token :: proc(
             state.last_token = OrToken{}
         case "match":
             state.last_token = MatchToken{}
-        case "mut":
-            state.last_token = MutToken{}
+        case "re":
+            state.last_token = ReToken{}
         case:
-            tokenize_segmented_identifier(state, ident)
+            tokenize_segmented_identifier(state, state.last_token_pos.index)
         }
     case '"':
         state.index += 1
@@ -652,7 +659,7 @@ get_next_token :: proc(
     case '.':
         if state.index + 1 < len(state.last_token_pos.file.code) &&
            is_alphanumeric_char(state.last_token_pos.file.code[state.index + 1]) {
-            tokenize_segmented_identifier(state, "")
+            tokenize_segmented_identifier(state, state.index)
         } else {
             skip_ignore_first(state, is_symbol_char)
             state.last_token = SymbolsToken(

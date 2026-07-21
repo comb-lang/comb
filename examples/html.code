@@ -50,12 +50,12 @@ reactive_page[T] = |
 | -> String {
     glue = #load "./html.js"
     // TODO: Be able to define the map like `{"state_to_ui": reactivity_function, "state": initial_state}`
-    mut map = OrderedHashMap[String, Any]()
-    ~map["state_to_ui"] = reactivity_function
-    ~map["state"] = initial_state
-    ~map["on_key_down"] = on_key_down
+    re map$ = OrderedHashMap[String, Any]()
+    map$ = map$ ~ ["state_to_ui"] = reactivity_function
+    map$ = map$ ~ ["state"] = initial_state
+    map$ = map$ ~ ["on_key_down"] = on_key_down
     // Maybe there could be an argument with the type `<.Minify{}, .LeaveNames{}>` in the future
-    js = c.emit_js_code(map, glue)
+    js = c.emit_js_code(map$, glue)
     // The close tags are split up so that the browser interprets them as JS strings rather than HTML close tags
 	// TODO: JS should be tree-shaked so the `reactive_page` function shouldn't even be included in the emitted JS code
     return

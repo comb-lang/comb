@@ -111,8 +111,63 @@ emit_js_map_keys_func :: proc(s: ^GeneralEmitterState, hash_map: CheckedValue) {
     strings.write_byte(&s.b, ')')
 }
 
+// Set `v` to `nil` to use `old`
+emit_js_derivation :: proc(
+    s: ^GeneralEmitterState,
+    v: CheckedValue,
+    subset_elems: []DerivationSubsetElement,
+    alteration: DerivationAlteration,
+) {
+    if len(subset_elems) == 0 {
+        assert(alteration.kind == .Replace)
+        emit_js_value(s, alteration.arg^)
+        return
+    }
+
+    strings.write_string(&s.b, "update(")
+    if v == nil {
+        strings.write_string(&s.b, "old")
+    } else {
+        emit_js_value(s, v)
+    }
+    strings.write_byte(&s.b, ',')
+
+    switch elem in subset_elems[0] {
+    case ArrayElementAccess:
+        emit_js_value(s, elem.index)
+    case StringOrderedHashMapAccess:
+        emit_js_value(s, elem.key)
+    case FieldAccess:
+        panic("TODO")
+    case:
+        panic("Unreachable")
+    }
+
+    strings.write_byte(&s.b, ',')
+    strings.write_string(&s.b, "(old) => ")
+    emit_js_derivation(s, nil, subset_elems[1:], alteration)
+    strings.write_byte(&s.b, ')')
+}
+
 emit_js_value :: proc(s: ^GeneralEmitterState, value: CheckedValue) {
     switch v in value {
+    case CheckedDerivation:
+        emit_js_derivation(s, v.base^, v.subset.elements, v.alteration)
+    case ArrayLiteral:
+        strings.write_byte(&s.b, '[')
+        for segment in v.segments {
+            switch seg in segment {
+            case SingleElemSegment:
+                emit_js_value(s, seg.elem)
+                strings.write_byte(&s.b, ',')
+            case InlineArraySegment:
+                emit_js_value(s, seg.array)
+                strings.write_string(&s.b, "...,")
+            case:
+                panic("Unreachable")
+            }
+        }
+        strings.write_byte(&s.b, ']')
     case OrderedHashMapInitFunc:
         strings.write_string(&s.b, "new Map")
     case KeysOfOrderedHashMapWithStringKey:
@@ -345,6 +400,7 @@ emit_js_block_body :: proc(
             strings.write_string(&s.b, "break loop")
             strings.write_uint(&s.b, stmt.loop_index)
             strings.write_byte(&s.b, ';')
+        /*
         case CheckedArrayMutation:
             emit_variable(&s.b, stmt.variable)
             strings.write_string(&s.b, "=[")
@@ -364,8 +420,9 @@ emit_js_block_body :: proc(
                 }
             }
             strings.write_string(&s.b, "];")
-        case CheckedMutation:
-            emit_js_value(s, stmt.destination)
+            */
+        case CheckedAssignment:
+            emit_variable(&s.b, stmt.dest)
             strings.write_byte(&s.b, '=')
             emit_js_value(s, stmt.value)
             strings.write_byte(&s.b, ';')
@@ -402,7 +459,11 @@ emit_js_block :: proc(
 
 emit_javascript :: proc(types: Types, checked_functions: []CheckedFunction) -> strings.Builder {
     s := GeneralEmitterState{strings.builder_make(), types, checked_functions}
-    strings.write_string(&s.b, "function in_map(a, b) {return Map.prototype.has.call(b, a)}")
+    strings.write_string(
+        &s.b,
+        "function in_map(a, b) {return Map.prototype.has.call(b, a)}" +
+        "function update(value, key, func) {return value.with(key, func(value[key]))}",
+    )
 
     for _, index in types.m.keys {
         emit_js_global_type(&s, index)

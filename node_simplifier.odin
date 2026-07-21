@@ -112,7 +112,7 @@ iterate_array :: proc(
     array_type: ArrayType,
 ) -> CheckedLoop {
     loop_enter := make([]CheckedStatement, 1)
-    loop_enter[0] = CheckedMutation{index_variable, CompileTimeValue(NumberValue{int_zero})}
+    loop_enter[0] = CheckedAssignment{index_variable, CompileTimeValue(NumberValue{int_zero})}
 
     if_block := make([]CheckedStatement, 1)
     if_block[0] = BreakLoop{loop_index}
@@ -127,13 +127,13 @@ iterate_array :: proc(
             CheckedBlock{nil, if_block},
             CheckedBlock{},
         },
-        CheckedMutation {
+        CheckedAssignment {
             value_variable,
             CheckedArrayAccess{new_clone(array_value), new_clone(CheckedValue(index_variable))},
         },
     )
     continue_code := make([]CheckedStatement, 1)
-    continue_code[0] = CheckedMutation {
+    continue_code[0] = CheckedAssignment {
         index_variable,
         create_joined_values(
             .Addition,
@@ -162,7 +162,7 @@ iterate_start_end_step :: proc(
 ) -> CheckedLoop {
     // TODO: Handle when `step` is negative
     loop_enter := make([]CheckedStatement, 1)
-    loop_enter[0] = CheckedMutation{index_variable, start}
+    loop_enter[0] = CheckedAssignment{index_variable, start}
     if_block := make([]CheckedStatement, 1)
     if_block[0] = BreakLoop{loop_index}
     dynamic_insert(
@@ -178,7 +178,7 @@ iterate_start_end_step :: proc(
         },
     )
     loop_continue := make([]CheckedStatement, 1)
-    loop_continue[0] = CheckedMutation {
+    loop_continue[0] = CheckedAssignment {
         index_variable,
         create_joined_values(.Addition, index_variable, step),
     }
@@ -203,7 +203,7 @@ iterate_ordered_hash_map :: proc(
     keys := KeysOfOrderedHashMapWithStringKey{new_clone(hash_map)} // TODO: Handle for I64 keys
     dynamic_insert(
         body,
-        CheckedMutation {
+        CheckedAssignment {
             value_variable,
             CheckedOrderedHashMapAccess {
                 new_clone(hash_map),

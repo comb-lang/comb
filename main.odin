@@ -21,6 +21,8 @@ debug_diagnostics :: false
 debug_arena :: false
 debug_dynamic_array :: false
 
+c_warning :: "WARNING: The C emitter is basically unmaintained at this point, and there are many things which it does not implement\n"
+
 write_position :: proc(w: io.Writer, pos: Pos) {
     if pos == unknown_pos {
         fmt.wprint(w, "unknown_pos")
@@ -189,6 +191,7 @@ compile :: proc(
     func: FunctionRef,
     compiler: Pipe(io.Writer),
     command: Command,
+    stdin: io.Reader,
     exit_early: EarlyExitInfo,
 ) -> int {
     a: Arena
@@ -316,6 +319,7 @@ compile :: proc(
 
     if build_c, is_build_c := command.(BuildC); is_build_c {
         fmt.wprintfln(compiler.stdout, "Emitting C code...")
+        fmt.wprintf(compiler.stderr, c_warning)
         c := emit_c(checker_output.types, checker_output.checked_funcs, checker_output.func_ref)
         executable_path, ok2 := write_and_compile_c(c, func.file_name)
         if !ok2 {
@@ -343,7 +347,7 @@ compile :: proc(
         globals         = checker_output.globals,
         checked_funcs   = checker_output.checked_funcs,
         builtin_handler = BuiltinHandler {
-            &DefaultBuiltinHandlerData{absolute_file_dir, run.program_io},
+            &DefaultBuiltinHandlerData{absolute_file_dir, run.program_io, stdin},
             default_builtin_handler_procedure,
         },
         exit_early      = exit_early,
@@ -636,7 +640,13 @@ main :: proc() {
     ref, watch := parse_args_after_command(os.args[2:])
     early_exit_info: EarlyExitInfo = watch ? new(ExitEarly) : NeverExitEarly{}
     for {
-        ret := compile(ref, std_pipe, command, early_exit_info)
+        ret := compile(
+            ref,
+            std_pipe,
+            command,
+            io.to_reader(os.to_stream(os.stdin)),
+            early_exit_info,
+        )
         switch exit_early in early_exit_info {
         case NeverExitEarly:
             os.exit(ret)

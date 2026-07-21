@@ -11,6 +11,53 @@ panicf :: proc(format: string, args: ..any) -> ! {
     panic(fmt.aprintf(format, ..args))
 }
 
+reader_stream_proc :: proc(
+    data: rawptr,
+    mode: io.Stream_Mode,
+    p: []byte,
+    offset: i64,
+    whence: io.Seek_From,
+) -> (
+    i64,
+    io.Error,
+) {
+    assert(offset == 0 && whence == nil)
+    if mode == .Close {
+        assert(len(p) == 0)
+        return 0, nil
+    }
+    assert(mode == .Read)
+    d := (^[]byte)(data)
+    end := min(len(d), len(p))
+    for b, i in d[:end] {
+        p[i] = b
+    }
+    d^ = d[end:]
+    if len(p) > end {
+        return i64(end), .EOF
+    }
+    return i64(end), .None
+}
+
+make_reader :: proc(s: string) -> io.Reader {
+    return io.Reader{reader_stream_proc, new_clone(transmute([]byte)s)}
+}
+
+panic_stream_proc :: proc(
+    _: rawptr,
+    _: io.Stream_Mode,
+    _: []byte,
+    _: i64,
+    _: io.Seek_From,
+) -> (
+    i64,
+    io.Error,
+) {
+    panic("Unreachable")
+}
+
+panic_reader :: io.Reader{panic_stream_proc, nil}
+
 string_builder_stream_proc :: proc(
     data: rawptr,
     mode: io.Stream_Mode,
@@ -18,8 +65,8 @@ string_builder_stream_proc :: proc(
     offset: i64,
     whence: io.Seek_From,
 ) -> (
-    n: i64,
-    err: io.Error,
+    i64,
+    io.Error,
 ) {
     assert(offset == 0 && whence == nil)
     if mode == .Close || mode == .Flush {
@@ -37,18 +84,15 @@ string_builder_stream_proc :: proc(
 StringBuilder :: io.Writer
 
 make_builder :: proc(a: ^Arena) -> StringBuilder {
-    buffer := arena_make(a, []byte, 0, resizable = true)
     data := arena_new(a, []byte)
-    data^ = buffer
+    data^ = arena_make(a, []byte, 0, resizable = true)
     return StringBuilder{string_builder_stream_proc, data}
 }
 
 finish_building :: proc(s: StringBuilder) -> string {
     data := (^[]byte)(s.data)
-    buffer := data^
-    dealloc(data)
-    fix_resizable_dynamic(buffer)
-    return string(buffer)
+    fix_resizable_dynamic(data^)
+    return string(data^)
 }
 
 aprintf :: proc(a: ^Arena, format: string, args: ..any) -> string {

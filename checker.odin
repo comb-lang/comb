@@ -12,8 +12,8 @@ VariableRef :: struct {
 }
 
 ScopeVariable :: struct {
-    type:       Type,
-    is_mutable: bool,
+    type:            Type,
+    is_reassignable: bool,
 }
 
 Scope :: struct {
@@ -205,6 +205,13 @@ CheckedValue :: union {
     KeysOfOrderedHashMapWithStringKey,
     KeysOfOrderedHashMapWithI64Key,
     StringsAreEqual,
+    ArrayLiteral,
+    CheckedDerivation,
+}
+
+ArrayLiteral :: struct {
+    type:     Type,
+    segments: []ArraySegment,
 }
 
 FuncType :: struct {
@@ -234,7 +241,12 @@ get_character_group :: proc(c: byte) -> CharGroup {
     }
 }
 
-expect_snake_case :: proc(s: ^CheckerState, expected: string, ident: TextAndPos) {
+expect_snake_case :: proc(
+    s: ^CheckerState,
+    expected: string,
+    ident: TextAndPos,
+    can_have_dollar_postfix: bool,
+) {
     i: uint = 0
     state: enum {
         InUppercaseBlock,
@@ -281,14 +293,17 @@ expect_snake_case :: proc(s: ^CheckerState, expected: string, ident: TextAndPos)
         case .Underscore:
             state = .NotInBlock
         case .Unknown:
-            diagnostic(
-                s,
-                Pos{ident.pos.index + i, ident.pos.file},
-                "Unexpected character '%c' in identifier `%s`",
-                ident.text[i],
-                ident.text,
-                type = .Warning,
-            )
+            assert(i + 1 == len(ident.text))
+            assert(ident.text[i] == '$')
+            if !can_have_dollar_postfix {
+                diagnostic(
+                    s,
+                    Pos{ident.pos.index + uint(i) + 1, ident.pos.file},
+                    "Cannot have '$' post fix in %s",
+                    expected,
+                    type = .Warning,
+                )
+            }
             return
         }
         i += 1
@@ -324,11 +339,12 @@ expect_camel_case :: proc(s: ^CheckerState, expected: string, ident: TextAndPos)
             return
         case .LowerCase, .UpperCase, .Digit:
         case .Unknown:
+            assert(i + 1 == len(ident.text))
+            assert(ident.text[i] == '$')
             diagnostic(
                 s,
                 Pos{ident.pos.index + uint(i) + 1, ident.pos.file},
-                "Unexpected character '%c' in identifier `%s`",
-                c,
+                "Cannot have '$' post fix in `CamalCase` identifier `%s`",
                 ident.text,
                 type = .Warning,
             )
@@ -352,6 +368,7 @@ check_struct_type :: proc(
             s,
             "the name of a struct field",
             TextAndPos{field.key, type.positions.d[i]},
+            can_have_dollar_postfix = false,
         )
         field_types.d[i] = check_type(s, type.types.d[i], generic_args)
         if field_types.d[i] == invalid_type {
@@ -551,14 +568,43 @@ CheckedBlock :: struct {
     body:      []CheckedStatement,
 }
 
-CheckedMutation :: struct {
-    destination: CheckedValue,
-    value:       CheckedValue, // The source
+ArrayElementAccess :: struct {
+    index: CheckedValue,
+}
+
+StringOrderedHashMapAccess :: struct {
+    key: CheckedValue,
+}
+
+FieldAccess :: struct {
+    field_index: uint,
+}
+
+DerivationSubsetElement :: union #no_nil {
+    StringOrderedHashMapAccess,
+    ArrayElementAccess,
+    FieldAccess,
+}
+
+DerivationSubset :: struct {
+    elements: []DerivationSubsetElement,
+}
+
+DerivationAlteration :: struct {
+    kind: enum {
+        Replace,
+    },
+    arg:  ^CheckedValue,
+}
+
+CheckedDerivation :: struct {
+    base:       ^CheckedValue,
+    subset:     DerivationSubset,
+    alteration: DerivationAlteration,
 }
 
 InlineArraySegment :: struct {
-    array:        CheckedValue, // an array that should be copied into the `ArrayValue`
-    array_length: CheckedValue,
+    array: CheckedValue, // an array that should be copied into the `ArrayValue`
 }
 
 SingleElemSegment :: struct {
@@ -568,16 +614,6 @@ SingleElemSegment :: struct {
 ArraySegment :: union {
     InlineArraySegment,
     SingleElemSegment,
-}
-// Cannot be a value and has to be a statement so that when something like
-// `~my_array = append(my_array, 1)` is written, `check_value` creates a
-// temporary variable that is used to allocate the expanded array, rather then
-// setting `my_array` to a new allocation and then attempting to copy that
-// uninitialised data onto itself.
-CheckedArrayMutation :: struct {
-    variable:      VariableRef, // the variable being mutated
-    variable_type: ArrayType,
-    segments:      []ArraySegment, // The source
 }
 
 ToStringFromType :: enum {
@@ -609,14 +645,18 @@ CheckedMatch :: struct {
     branches: []CheckedMatchBranch, // The branch index is the variant index
 }
 
+CheckedAssignment :: struct {
+    dest:  VariableRef,
+    value: CheckedValue,
+}
+
 CheckedStatement :: union {
     CheckedReturn,
     CheckedIf,
     CheckedLoop,
     ContinueLoop,
     BreakLoop,
-    CheckedMutation,
-    CheckedArrayMutation, // like `CheckedMutation`, except the value is an array
+    CheckedAssignment,
     CheckedFunctionCall,
     CheckedMatch,
 
@@ -1338,6 +1378,8 @@ get_array_type :: proc(
     return ArrayType{}, false
 }
 
+bounds_checks_warning :: "This array access is not bounds checked\nTODO: Bounds checks"
+
 /*
 // The `Type` returned is the expected type of the source value
 // The `CheckedValue` returned is the value of the destination
@@ -1361,7 +1403,7 @@ check_mutation_destination :: proc(
         diagnostic(
             s,
             key.pos,
-            "This array access is not bounds checked\nTODO: Bounds checks",
+            bounds_checks_warning,
             type = .Warning,
         )
         index_value := check_runtime_value(s, key^, body, i64_type, generic_args)
@@ -1388,115 +1430,88 @@ check_mutation_destination :: proc(
     diagnostic(s, key.pos, "Cannot use a key with the type `%s`", type_to_string(s, var_type))
     return invalid_type, nil
 }
-
-check_mutation :: proc(
-    s: ^CheckerState,
-    destination: VariableDest,
-    mutation_type: MutationType,
-    value: CheckedValue,
-    value_type: Type,
-    value_pos: Pos,
-    body: ^[dynamic]CheckedStatement,
-    generic_args: map[string]Type,
-    loc := #caller_location,
-) -> (
-    CheckedMutation,
-    bool,
-) {
-    when debug_checker {
-        print_call(loc, "check_mutation")
-    }
-    switch destination.type {
-    case .Mutated:
-        var_ref, ok := s.variables_map[destination.name.ident]
-        if !ok {
-            diagnostic(
-                s,
-                destination.name.pos,
-                "The variable `%s` is not defined",
-                destination.name.ident,
-            )
-            return CheckedMutation{}, false
-        }
-        if s.scopes[var_ref.nesting_level].variables[var_ref.index].is_mutable == false {
-            diagnostic(
-                s,
-                destination.name.pos,
-                "The variable `%s` is not mutable",
-                destination.name.ident,
-            )
-            return CheckedMutation{}, false
-        }
-        expected_value_type, destination_value := check_mutation_destination(
-            s,
-            destination.name,
-            var_ref,
-            destination.key,
-            body,
-            generic_args,
-        )
-        if expected_value_type != unknown_type {
-            if !expect_value_of_type(s, value_pos, expected_value_type, nil, value_type, "") {
-                return CheckedMutation{}, false
-            }
-        }
-        if destination_value == nil {
-            return CheckedMutation{}, false
-        }
-        val := value
-        if mutation_type != .SetTo {
-            if !type_is_numeric(s, value_type) {
-                diagnostic(
-                    s,
-                    value_pos,
-                    "Cannot perform numeric mutation on non-numeric type `%s`",
-                    type_to_string(s, value_type),
-                )
-                return CheckedMutation{}, false
-            }
-            join_method: HierarchyUnitJoinMethod = ---
-            switch mutation_type {
-            case .IncrementBy:
-                join_method = .Addition
-            case .DecrementBy:
-                join_method = .Subtraction
-            case .MultiplyBy:
-                join_method = .Multiplication
-            case .DivideBy:
-                join_method = .Division
-            case .SetTo:
-                panic("Unreachable")
-            }
-            val = CheckedJoinedValues{join_method, new_clone(destination_value), new_clone(value)}
-        }
-        return CheckedMutation{destination_value, val}, true
-    case .Constant, .Mutable:
-        if mutation_type != .SetTo {
-            diagnostic(s, destination.name.pos, "Expected variable assignment to be done with `=`")
-            return CheckedMutation{}, false
-        }
-        // variable_is_mutable := destination.type == .Mutable // TODO
-        variable, variable_ok := add_variable(s, value_type, destination.name)
-        if !variable_ok {
-            return CheckedMutation{}, false
-        }
-        return CheckedMutation{variable, value}, true
-    case .ConstantAddedToPcs, .MutableAddedToPcs:
-        diagnostic(s, destination.name.pos, "TODO: Figure out what to do with old code")
-        return CheckedMutation{}, false
-    }
-    panic("Unreachable")
-}
 */
 
 check_mutation :: proc(
     s: ^CheckerState,
     unit_being_mutated: UnitWithPos,
-    new_value: Unit,
+    new_value_unit: Unit,
     body: ^[dynamic]CheckedStatement,
     generic_args: map[string]Type,
+    loc := #caller_location,
 ) -> bool {
-    panic("TODO")
+    when debug_checker {
+        print_call(loc, "check_mutation")
+    }
+    ident, is_ident := unit_being_mutated.unit.(IdentNode)
+    if !is_ident || len(ident.segments) != 1 {
+        diagnostic(
+            &s.r,
+            unit_being_mutated.pos,
+            "Expected an identifier with one segment for the unit being mutated",
+        )
+        return false
+    }
+    if ident.has_re_before && !ident.segments[0].has_dollar_at_end {
+        diagnostic(
+            &s.r,
+            ident.segments[0].pos,
+            "The name of a reassignable variable must have a `$` postfix",
+        )
+        return false
+    }
+    if !ident.has_re_before && ident.segments[0].has_dollar_at_end {
+        var_ref, ok := s.variables_map[ident.segments[0].ident]
+        if !ok {
+            diagnostic(
+                s,
+                unit_being_mutated.pos,
+                "The variable `%s` is not defined",
+                ident.segments[0].ident,
+            )
+            return false
+        }
+        var := s.scopes[var_ref.nesting_level].variables[var_ref.index]
+        if !var.is_reassignable {
+            diagnostic(
+                s,
+                unit_being_mutated.pos,
+                "The variable `%s` is not reassignable",
+                ident.segments[0].ident,
+            )
+            return false
+        }
+
+        new_value := check_value(
+            s,
+            new_value_unit,
+            CheckValueArgs{body, var.type, generic_args, nil},
+        )
+        if new_value == nil {
+            return false
+        }
+
+        append_elem(body, CheckedAssignment{var_ref, new_value})
+        return true
+    }
+
+    value_type := any_type
+    new_value := check_value(
+        s,
+        new_value_unit,
+        CheckValueArgs{body, AnyType{&value_type}, generic_args, nil},
+    )
+    if new_value == nil {
+        return false
+    }
+
+    variable, variable_ok := add_variable(s, value_type, ident.segments[0])
+    if !variable_ok {
+        return false
+    }
+
+    append_elem(body, CheckedAssignment{variable, new_value})
+    return true
 }
 
 // The boolean returned is whether the block checked successfully
@@ -1577,19 +1592,19 @@ check_block :: proc(
                 if !ok {
                     return nil, false
                 }
-            }
-
-            #partial switch unit in value.first_unit {
-            case CallWithBrackets:
-                call := check_function_call(s, value.pos, unit, body, nil, generic_args)
-                if call == nil {
+            } else {
+                #partial switch unit in value.first_unit {
+                case CallWithBrackets:
+                    call := check_function_call(s, value.pos, unit, body, nil, generic_args)
+                    if call == nil {
+                        return nil, false
+                    }
+                    // Call cannot be a `CompileTimeValue` because `expected_return_types` is set to `nil`
+                    append_elem(body, call.(CheckedFunctionCall))
+                case:
+                    diagnostic(s, value.pos, "Cannot use this kind of unit as a statement")
                     return nil, false
                 }
-                // Call cannot be a `CompileTimeValue` because `expected_return_types` is set to `nil`
-                append_elem(body, call.(CheckedFunctionCall))
-            case:
-                diagnostic(s, value.pos, "Cannot use this kind of unit as a statement")
-                return nil, false
             }
 
         case ConditionControlledLoop:
@@ -1936,7 +1951,7 @@ check_block :: proc(
             }
 
             variable_ref := add_unnamed_variable(s, val_type, false)
-            append_elem(body, CheckedMutation{variable_ref, val})
+            append_elem(body, CheckedAssignment{variable_ref, val})
 
             variant_has_branch := make([]bool, len(val_sum_type.m.keys))
             variant_branch_positions := make([]Pos, len(val_sum_type.m.keys))
@@ -1967,7 +1982,8 @@ check_block :: proc(
                 type_variable, is_variable := branch_type.first_unit.(IdentNode)
                 if !is_variable ||
                    len(type_variable.segments) != 2 ||
-                   type_variable.segments[0].ident != "" {
+                   type_variable.segments[0].ident != "" ||
+                   type_variable.has_re_before {
                     diagnostic(
                         s,
                         branch_type.pos,
@@ -2007,7 +2023,8 @@ check_block :: proc(
                     ident, is_ident := variable_name.first_unit.(IdentNode)
                     if !is_ident ||
                        len(ident.segments) != 1 ||
-                       ident.segments[0].has_dollar_at_end {
+                       ident.segments[0].has_dollar_at_end ||
+                       ident.has_re_before {
                         diagnostic(s, variable_name.pos, "Expected " + plain_ident_normal)
                         return nil, false
                     }
@@ -2065,7 +2082,7 @@ value_err1 :: "Compiler cannot generate a `.` function without knowing the retur
 check_namespaced_var_ref :: proc(
     s: ^CheckerState,
     namespace: ^CompilerFile,
-    ref: IdentNode,
+    segments: #soa[]Ident,
     index: int,
 ) -> (
     CheckedValue,
@@ -2074,13 +2091,13 @@ check_namespaced_var_ref :: proc(
 ) {
     namespace_index := get_file_index(s.files, namespace)
     file_globals := s.parsed_files[namespace_index]
-    parsed_global, global_exists := file_globals[ref.segments[index].ident]
+    parsed_global, global_exists := file_globals[segments[index].ident]
     if !global_exists {
         diagnostic(
             s,
-            ref.segments[index].pos,
+            segments[index].pos,
             "The variable `%s` is not defined in the file `%s`",
-            ref.segments[index].ident,
+            segments[index].ident,
             s.files.d[namespace_index].file_path,
         )
         return nil, invalid_type, 0
@@ -2168,25 +2185,25 @@ check_namespaced_var_ref :: proc(
 check_var_ref_start :: proc(
     s: ^CheckerState,
     pos: Pos,
-    ref: IdentNode,
+    segments: #soa[]Ident,
     generic_args: map[string]Type,
 ) -> (
     CheckedValue,
     Type,
     int,
 ) {
-    if ref.segments[0].ident != "" && ref.segments[0].ident in generic_args {
-        return CompileTimeValue(generic_args[ref.segments[0].ident]), type_type, 1
+    if segments[0].ident != "" && segments[0].ident in generic_args {
+        return CompileTimeValue(generic_args[segments[0].ident]), type_type, 1
     }
-    if builtin_func, builtin_func_type := get_builtin_func_from_name(ref.segments[0].ident);
+    if builtin_func, builtin_func_type := get_builtin_func_from_name(segments[0].ident);
        builtin_func != .invalid_builtin {
         return CompileTimeValue(builtin_func), builtin_func_type, 1
     }
-    if builtin_type := get_builtin_type_from_name(ref.segments[0].ident);
+    if builtin_type := get_builtin_type_from_name(segments[0].ident);
        builtin_type != unknown_type {
         return CompileTimeValue(builtin_type), type_type, 1
     }
-    if ref.segments[0].ident == "OrderedHashMap" {
+    if segments[0].ident == "OrderedHashMap" {
         return CompileTimeValue(UninitialisedOrderedHashMapType{}), unknown_type, 1
     }
     /*
@@ -2205,15 +2222,15 @@ check_var_ref_start :: proc(
         }
     }
     */
-    if var_ref, ok := s.variables_map[ref.segments[0].ident]; ok {
+    if var_ref, ok := s.variables_map[segments[0].ident]; ok {
         return var_ref, get_variable_type(s, var_ref), 1
     }
-    return check_namespaced_var_ref(s, pos.file, ref, 0)
+    return check_namespaced_var_ref(s, pos.file, segments, 0)
 }
 
 check_var_ref :: proc(
     s: ^CheckerState,
-    ref: IdentNode,
+    segments: #soa[]Ident,
     pos: Pos,
     a: CheckValueArgs,
     loc := #caller_location,
@@ -2223,7 +2240,7 @@ check_var_ref :: proc(
         print_arg("ref", ref)
         print_arg("a", a)
     }
-    if len(ref.segments) == 2 && ref.segments[0].ident == "" {
+    if len(segments) == 2 && segments[0].ident == "" {
         expected_return_type: Type = ---
         switch expected in a.type {
         case AnyType:
@@ -2255,14 +2272,14 @@ check_var_ref :: proc(
             return nil
         }
 
-        variant := lookup(sum_type.m, ref.segments[1].ident, string_to_index_procs)
+        variant := lookup(sum_type.m, segments[1].ident, string_to_index_procs)
         if variant == does_not_exist {
             diagnostic(
                 s,
                 pos,
                 "The sum type `%s` does not have a variant called `%s`",
                 type_to_string(s, expected_return_type),
-                ref.segments[1].ident,
+                segments[1].ident,
             )
             return nil
         }
@@ -2313,12 +2330,12 @@ check_var_ref :: proc(
         */
     }
 
-    out, out_type, start_i := check_var_ref_start(s, pos, ref, a.generic_args)
+    out, out_type, start_i := check_var_ref_start(s, pos, segments, a.generic_args)
     if out == nil {
         return nil
     }
-    for i := start_i; i < len(ref.segments); i += 1 {
-        extra_segment := ref.segments[i]
+    for i := start_i; i < len(segments); i += 1 {
+        extra_segment := segments[i]
         if extra_segment.ident == "len" {
             #partial switch type in get_type(s.types, simplify_type(s, out_type)).key {
             case ArrayType:
@@ -2353,12 +2370,12 @@ check_var_ref :: proc(
             out, out_type, i = check_namespaced_var_ref(
                 s,
                 out.(CompileTimeValue).(Import).file,
-                ref,
+                segments,
                 i,
             )
             continue
         }
-        struct_type, ok := get_struct_type(s, ref.segments[i].pos, out_type)
+        struct_type, ok := get_struct_type(s, segments[i].pos, out_type)
         if !ok {
             return nil
         }
@@ -2418,9 +2435,14 @@ check_array_initialisation :: proc(
     if !ok {
         return nil
     }
-    array_ref := add_unnamed_variable(s, array_type, false)
-    append_elem(a.body, CheckedArrayMutation{array_ref, array_type_value, array_segments})
-    return finish_checking_value(s, array_type_pos, a.type, array_ref, array_type, "")
+    return finish_checking_value(
+        s,
+        array_type_pos,
+        a.type,
+        ArrayLiteral{array_type, array_segments},
+        array_type,
+        "",
+    )
 }
 
 // Returns `nil` on failure
@@ -2684,11 +2706,16 @@ check_joined_unit_value :: proc(
         return_type1 := ArrayType{0, item_type}
         return_type0 := create_type(&s.types, return_type1).type // TODO: Maybe `::` should be able to output fixed size arrays
         segments := make([]ArraySegment, 2)
-        segments[0] = InlineArraySegment{val0, length}
+        segments[0] = InlineArraySegment{val0}
         segments[1] = SingleElemSegment{val1}
-        array_ref := add_unnamed_variable(s, return_type0, false)
-        append_elem(a.body, CheckedArrayMutation{array_ref, return_type1, segments})
-        return finish_checking_value(s, pos, a.type, array_ref, return_type0, "")
+        return finish_checking_value(
+            s,
+            pos,
+            a.type,
+            ArrayLiteral{return_type0, segments},
+            return_type0,
+            "",
+        )
 
     case .StringConcat:
         val0 := check_runtime_value(s, value.unit0^, a.body, string_type, a.generic_args)
@@ -2731,11 +2758,16 @@ check_joined_unit_value :: proc(
         return_type1 := ArrayType{0, item_type0}
         return_type := create_type(&s.types, return_type1).type // TODO: Maybe `++` should be able to output fixed size arrays
         segments := make([]ArraySegment, 2)
-        segments[0] = InlineArraySegment{val0, length0}
-        segments[1] = InlineArraySegment{val1, length1}
-        array_ref := add_unnamed_variable(s, return_type, false)
-        append_elem(a.body, CheckedArrayMutation{array_ref, return_type1, segments})
-        return finish_checking_value(s, pos, a.type, array_ref, return_type, "")
+        segments[0] = InlineArraySegment{val0}
+        segments[1] = InlineArraySegment{val1}
+        return finish_checking_value(
+            s,
+            pos,
+            a.type,
+            ArrayLiteral{return_type, segments},
+            return_type,
+            "",
+        )
 
     case .IsGreaterThan, .IsGreaterThanOrEqual, .IsLessThan, .IsLessThanOrEqual:
         // TODO: Do not assume number types
@@ -2777,6 +2809,7 @@ check_joined_unit_value :: proc(
 
 import_use_err :: "Cannot use an import as a runtime value"
 mut_then_ident_use_err :: "Cannot use `mut` followed by an identifier as a value"
+units_in_square_brackets_use_err :: "Cannots use `[...]` as a value"
 
 /*
 ValueWithGenericHint :: struct {
@@ -2940,6 +2973,10 @@ check_initial_value :: proc(
         diagnostic(s, pos, import_use_err)
         return nil
 
+    case UnitsInSquareBrackets:
+        diagnostic(s, pos, units_in_square_brackets_use_err)
+        return nil
+
     case MarkedUnit:
         return check_value_with_markers(s, value.value^, value.markers, a)
 
@@ -3035,12 +3072,7 @@ check_initial_value :: proc(
         }
         #partial switch t in get_type(s.types, being_called_type).key {
         case ArrayType:
-            diagnostic(
-                s,
-                pos,
-                "This array access is not bounds checked\nTODO: Bounds checks",
-                type = .Warning,
-            )
+            diagnostic(s, pos, bounds_checks_warning, type = .Warning)
             index_value := check_runtime_value(s, value.args[0], a.body, i64_type, a.generic_args)
             if index_value == nil {
                 return nil
@@ -3129,11 +3161,11 @@ check_initial_value :: proc(
         return check_joined_unit_value(s, pos, value, a)
 
     case IdentNode:
-        return check_var_ref(s, value, pos, a)
-
-    case MutThenIdent:
-        diagnostic(s, pos, mut_then_ident_use_err)
-        return nil
+        if value.has_re_before {
+            diagnostic(s, pos, mut_then_ident_use_err)
+            return nil
+        }
+        return check_var_ref(s, value.segments, pos, a)
 
     case Number:
         // TODO: Check that min(i64) <= number <= max(i64)
@@ -3154,6 +3186,93 @@ check_initial_value :: proc(
     }
 }
 
+// Returns `DerivationsSubset{}, invalid_type` on failure
+// The type returned is the type of the derivation alteration's value
+check_derivation_subset :: proc(
+    s: ^CheckerState,
+    derivation_base_type: Type,
+    unit: UnitWithPos,
+    generic_args: map[string]Type,
+    body: ^[dynamic]CheckedStatement,
+) -> (
+    DerivationSubset,
+    Type,
+) {
+    #partial switch t in get_type(s.types, derivation_base_type).key {
+    case ArrayType:
+        unit_in_square_brackets, ok := unit.unit.(UnitsInSquareBrackets)
+        if !ok {
+            diagnostic(
+                s,
+                unit.pos,
+                "Can only use unit in square brackets as derivation subset on array type `%s`",
+                type_to_string(s, derivation_base_type),
+            )
+            return DerivationSubset{}, invalid_type
+        }
+        if len(unit_in_square_brackets.elements) != 1 {
+            diagnostic(
+                s,
+                unit.pos,
+                "Expected 1 value in square brackets\nGot %d values",
+                len(unit_in_square_brackets.elements),
+            )
+            return DerivationSubset{}, invalid_type
+        }
+        index := check_value(
+            s,
+            unit_in_square_brackets.elements[0],
+            CheckValueArgs{body, i64_type, generic_args, nil},
+        )
+        if index == nil {
+            return DerivationSubset{}, invalid_type
+        }
+        diagnostic(&s.r, unit.pos, bounds_checks_warning, type = .Warning)
+        elements := make([]DerivationSubsetElement, 1)
+        elements[0] = ArrayElementAccess{index}
+        return DerivationSubset{elements}, t.item_type
+    case OrderedHashMapTypeWithStringKey:
+        unit_in_square_brackets, ok := unit.unit.(UnitsInSquareBrackets)
+        if !ok {
+            diagnostic(
+                s,
+                unit.pos,
+                "Can only use unit in square brackets as derivation subset on ordered hash map type `%s`",
+                type_to_string(s, derivation_base_type),
+            )
+            return DerivationSubset{}, invalid_type
+        }
+        if len(unit_in_square_brackets.elements) != 1 {
+            diagnostic(
+                s,
+                unit.pos,
+                "Expected 1 value in square brackets\nGot %d values",
+                len(unit_in_square_brackets.elements),
+            )
+            return DerivationSubset{}, invalid_type
+        }
+        key := check_value(
+            s,
+            unit_in_square_brackets.elements[0],
+            CheckValueArgs{body, string_type, generic_args, nil},
+        )
+        if key == nil {
+            return DerivationSubset{}, invalid_type
+        }
+        elements := make([]DerivationSubsetElement, 1)
+        elements[0] = StringOrderedHashMapAccess{key}
+        return DerivationSubset{elements}, t.value_type
+    case:
+        diagnostic(
+            s,
+            unit.pos,
+            "Cannot have derivation subset when the type of the derivation base is `%s`",
+            type_to_string(s, derivation_base_type),
+        )
+        return DerivationSubset{}, invalid_type
+    }
+}
+
 check_value :: proc(
     s: ^CheckerState,
     v: Unit,
@@ -3169,15 +3288,75 @@ check_value :: proc(
         return check_initial_value(s, v.pos, v.first_unit, a)
     }
 
-    initial_type := any_type
-    initial_value := check_initial_value(
+    type := any_type
+    value := check_initial_value(
         s,
         v.pos,
         v.first_unit,
-        CheckValueArgs{a.body, AnyType{&initial_type}, a.generic_args, nil},
+        CheckValueArgs{a.body, AnyType{&type}, a.generic_args, nil},
     )
+    if value == nil {
+        return nil
+    }
 
-    panic("TODO")
+    i := 0
+    for i < len(v.extra_units) {
+        extra_unit := v.extra_units[i]
+        if extra_unit.join_method != .Tilde {
+            diagnostic(
+                s,
+                extra_unit.join_method_pos,
+                "Expected join method to be a `~` to set the derivation subset",
+            )
+            return nil
+        }
+        derivation_subset, derivation_alteration_type := check_derivation_subset(
+            s,
+            type,
+            extra_unit.unit,
+            a.generic_args,
+            a.body,
+        )
+        if derivation_alteration_type == invalid_type {
+            return nil
+        }
+
+        i += 1
+        if i >= len(v.extra_units) {
+            diagnostic(s, extra_unit.join_method_pos, "Expected a derivation alteration")
+            return nil
+        }
+
+        extra_unit = v.extra_units[i]
+        if extra_unit.join_method != .Assign {
+            diagnostic(
+                s,
+                extra_unit.join_method_pos,
+                "Expected join method to be a `=` to set the subset's new value",
+            )
+            return nil
+        }
+
+        new_value := check_initial_value(
+            s,
+            extra_unit.unit.pos,
+            extra_unit.unit.unit,
+            CheckValueArgs{a.body, derivation_alteration_type, a.generic_args, nil},
+        )
+        if new_value == nil {
+            return nil
+        }
+
+        value = CheckedDerivation {
+            new_clone(value),
+            derivation_subset,
+            DerivationAlteration{.Replace, new_clone(new_value)},
+        }
+
+        i += 1
+    }
+
+    return finish_checking_value(s, v.pos, a.type, value, type, "")
 }
 
 // Returns `CheckedFuncRef{max(uint)}, invalid_type` on failure

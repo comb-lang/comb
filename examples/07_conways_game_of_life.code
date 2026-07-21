@@ -17,38 +17,38 @@ count_pixel_life = |s: [game_size]Bool, x: I64, y: I64| -> I64 {
 
 run_tick = |s: [game_size]Bool| -> [game_size]Bool {
     f = false
-    mut new_state = [game_size]Bool(f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f)
+    re new_state$ = [game_size]Bool(f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f)
     for was_alive, index in s {
         x = index % game_width
         y = (index - x) / game_width
 
-        mut surrounding_alive_pixels = 0
+        re surrounding_alive_pixels$ = 0
 
-	    ~surrounding_alive_pixels += count_pixel_life(s, x-1, y-1)
-	    ~surrounding_alive_pixels += count_pixel_life(s, x,   y-1)
-	    ~surrounding_alive_pixels += count_pixel_life(s, x+1, y-1)
-	    ~surrounding_alive_pixels += count_pixel_life(s, x-1, y)
-	    ~surrounding_alive_pixels += count_pixel_life(s, x+1, y)
-	    ~surrounding_alive_pixels += count_pixel_life(s, x-1, y+1)
-	    ~surrounding_alive_pixels += count_pixel_life(s, x,   y+1)
-	    ~surrounding_alive_pixels += count_pixel_life(s, x+1, y+1)
+	    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x-1, y-1)
+	    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x,   y-1)
+	    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x+1, y-1)
+	    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x-1, y)
+	    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x+1, y)
+	    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x-1, y+1)
+	    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x,   y+1)
+	    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x+1, y+1)
 
 		if was_alive {
-			~new_state[index] = 2 <= surrounding_alive_pixels and surrounding_alive_pixels <= 3
+			new_state$ = new_state$ ~ [index] = 2 <= surrounding_alive_pixels$ and surrounding_alive_pixels$ <= 3
 		} else {
-			~new_state[index] = surrounding_alive_pixels == 3
+			new_state$ = new_state$ ~ [index] = surrounding_alive_pixels$ == 3
 		}
     }
-    return new_state
+    return new_state$
 }
 
 game_of_life = |s: [game_size]Bool| -> h.UI[[game_size]Bool] {
-    mut grid_pixels = []h.HtmlElem[[game_size]Bool]()
+    re grid_pixels$ = []h.HtmlElem[[game_size]Bool]()
     for pixel in s {
         if pixel {
-	        ~grid_pixels = grid_pixels :: .Div("background: #FFFFFF;", []h.HtmlElem[[game_size]Bool]())
+	        grid_pixels$ = grid_pixels$ :: .Div("background: #FFFFFF;", []h.HtmlElem[[game_size]Bool]())
         } else {
-	        ~grid_pixels = grid_pixels :: .Div("background: #000000;", []h.HtmlElem[[game_size]Bool]())
+	        grid_pixels$ = grid_pixels$ :: .Div("background: #000000;", []h.HtmlElem[[game_size]Bool]())
         }
     }
 	grid_style =
@@ -57,7 +57,7 @@ game_of_life = |s: [game_size]Bool| -> h.UI[[game_size]Bool] {
         "aspect-ratio: 1 / 1;"
 	ui_contents = []h.HtmlElem[[game_size]Bool](
         .Button([]h.HtmlElem[[game_size]Bool](.Text("Run tick")), run_tick),
-        .Div(grid_style, grid_pixels),
+        .Div(grid_style, grid_pixels$),
     )
 	return h.UI[[game_size]Bool](main_title, ui_contents)
 }

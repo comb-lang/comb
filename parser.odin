@@ -137,11 +137,20 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
     }
 }
 
-parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWithoutPos {
+// Returns `nil, false` on failure
+// Returns `nil, true` if there wasn't an initial unit to parse
+// Returns something other than `nil`, and `true` on success
+maybe_parse_initial_unit :: proc(
+    s: ^ParserState,
+    loc := #caller_location,
+) -> (
+    UnitWithoutPos,
+    bool,
+) {
     when debug_parser {
-        print_call(loc, "parse_initial_unit")
+        print_call(loc, "maybe_parse_initial_unit")
     }
-    e :: proc(s: ^ParserState) -> UnitWithoutPos {
+    e :: proc(s: ^ParserState) -> (UnitWithoutPos, bool) {
         append_dynamic_elems(
             &s.last_token_descriptions_of_other_possible_tokens,
             "`true`",
@@ -156,11 +165,10 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
             "`<` to create a sum type",
             "`[` to create an array type",
             "`{` to create a struct type",
-            "`mut`",
+            "`re`",
             // "`dynamic` for a dynamic type",
         )
-        wrong_token_err(s)
-        return nil
+        return nil, true
     }
     #partial switch token in s.last_token {
     case:
@@ -173,7 +181,7 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
             clear_dynamic(&s.last_token_descriptions_of_other_possible_tokens)
             append_dynamic(&s.last_token_descriptions_of_other_possible_tokens, "A string literal")
             wrong_token_err(s)
-            return nil
+            return nil, false
         }
         joined, join_err := filepath.join(
             []string{s.last_token_pos.file.dir_path, string(path)},
@@ -181,16 +189,16 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
         )
         if join_err != nil {
             diagnostic(&s.r, unknown_pos, "Failed to join filepath: %v", join_err)
-            return nil
+            return nil, false
         }
         if file_ref, exists := s.files_map[joined]; exists {
             get_next_token(s, true)
-            return Import{file_ref}
+            return Import{file_ref}, true
         } else {
             data, data_err := os.read_entire_file(joined, context.allocator)
             if data_err != nil {
                 diagnostic(&s.r, s.last_token_pos, "Failed to read `%s`: %#v", joined, data_err)
-                return nil
+                return nil, false
             }
             append_multi_dynamic(
                 &s.files,
@@ -201,16 +209,16 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
             append_dynamic(&s.parsed_files, nil)
             get_next_token(s, true)
             s.files_map[joined] = ref
-            return Import{ref}
+            return Import{ref}, true
         }
 
     case OpenBracketToken:
         elements, ok := parse_units_until(s, is_close_bracket, "`)` to end the tuple")
         if !ok {
-            return nil
+            return nil, false
         }
         get_next_token(s, true)
-        return Tuple{elements}
+        return Tuple{elements}, true
 
     // case DynamicToken:
     //     get_next_token(state, false)
@@ -223,10 +231,10 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
     case OpenBraceToken:
         out, ok := parse_struct(s)
         if !ok {
-            return nil
+            return nil, false
         }
         get_next_token(s, true)
-        return out
+        return out, true
 
     case OpenAngleBracketToken:
         sum_type := SumUnit {
@@ -250,13 +258,13 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
             #partial switch token2 in s.last_token {
             case:
                 wrong_token_err(s)
-                return nil
+                return nil, false
             case CloseAngleBracketToken:
                 break loop
             case IdentToken:
                 if len(token2) != 1 || token2[0].has_dollar_at_end {
                     wrong_token_err(s)
-                    return nil
+                    return nil, false
                 }
                 variant_name := token2[0]
                 variant_payload := StructUnit{}
@@ -265,7 +273,7 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
                 if has_payload {
                     variant_payload, has_payload = parse_struct(s)
                     if !has_payload {
-                        return nil
+                        return nil, false
                     }
                     get_next_token(s, false)
                 }
@@ -282,7 +290,7 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
                         variant_name.ident,
                         sum_type.positions.d[i.index],
                     )
-                    return nil
+                    return nil, false
                 }
                 resize_multi(&sum_type.positions, len(sum_type.m.keys))
                 resize_multi(&sum_type.payloads, len(sum_type.m.keys))
@@ -306,7 +314,7 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
                         )
                     }
                     wrong_token_err(s)
-                    return nil
+                    return nil, false
                 case CommaToken:
                 case CloseAngleBracketToken:
                     break loop
@@ -314,36 +322,43 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
             }
         }
         get_next_token(s, true)
-        return sum_type
+        return sum_type, true
 
     case OpenSquareBracketToken:
         args, args_ok := parse_units_until(s, is_close_square_bracket, "`]`")
         if !args_ok {
-            return nil
+            return nil, false
         }
         get_next_token(s, false)
         unit_pos := s.last_token_pos
-        unit := parse_initial_unit(s)
+        unit, ok := maybe_parse_initial_unit(s)
         if unit == nil {
-            return nil
+            if !ok {
+                return nil, false
+            }
+            return UnitsInSquareBrackets{args}, true
+        }
+        assert(ok)
+        if unit == nil {
+            return nil, false
         }
         // TODO: Update the syntax so that this exception to the parsed order of operations is not necersarry
         if _, is_open_square_bracket := s.last_token.(OpenSquareBracketToken);
            is_open_square_bracket {
             args2, args2_ok := parse_units_until(s, is_close_square_bracket, "`]`")
             if !args2_ok {
-                return nil
+                return nil, false
             }
             unit = CallWithSquareBrackets{new_clone(Unit{unit_pos, unit, nil}), args2}
             get_next_token(s, true)
         }
-        return CallWithFrontedSquareBrackets{new_clone(Unit{unit_pos, unit, nil}), args}
+        return CallWithFrontedSquareBrackets{new_clone(Unit{unit_pos, unit, nil}), args}, true
 
     case IdentToken:
         get_next_token(s, true)
-        return IdentNode{token}
+        return IdentNode{token, false}, true
 
-    case MutToken:
+    case ReToken:
         get_next_token(s, false)
         ident, is_ident := s.last_token.(IdentToken)
         if !is_ident {
@@ -351,7 +366,7 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
             wrong_token_err(s)
         }
         get_next_token(s, true)
-        return MutThenIdent{ident}
+        return IdentNode{ident, true}, true
 
     case MarkerToken:
         markers := [dynamic]TextAndPos{{string(token), s.last_token_pos}}
@@ -366,21 +381,21 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
         val_pos := s.last_token_pos
         val := parse_initial_unit(s)
         if val == nil {
-            return nil
+            return nil, false
         }
-        return MarkedUnit{new_clone(Unit{val_pos, val, nil}), markers[:]}
+        return MarkedUnit{new_clone(Unit{val_pos, val, nil}), markers[:]}, true
 
     case TrueToken:
         get_next_token(s, true)
-        return Bool(true)
+        return Bool(true), true
 
     case FalseToken:
         get_next_token(s, true)
-        return Bool(false)
+        return Bool(false), true
 
     case DigitsToken:
         get_next_token(s, true)
-        return Number{false, string(token)}
+        return Number{false, string(token)}, true
 
     case SymbolsToken:
         if token != "-" {
@@ -391,10 +406,10 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
         if !is_digits {
             append_dynamic(&s.last_token_descriptions_of_other_possible_tokens, "A digits token")
             wrong_token_err(s)
-            return nil
+            return nil, false
         }
         get_next_token(s, true)
-        return Number{true, string(digits)}
+        return Number{true, string(digits)}, true
 
     case StringToken:
         strings := [dynamic]string{string(token)}
@@ -406,7 +421,7 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
                     &s.last_token_descriptions_of_other_possible_tokens,
                     "a string token",
                 )
-                return String(strings[:])
+                return String(strings[:]), true
             case StringToken:
                 append_elem(&strings, string(token2))
             }
@@ -414,18 +429,34 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWith
 
     case CharToken:
         get_next_token(s, true)
-        return Char(token)
+        return Char(token), true
 
     case BarToken:
         func, ok := parse_function_def(s)
         if !ok {
-            return nil
+            return nil, false
         }
         get_next_token(s, true)
         out := FuncDefinitionRef{uint(len(s.function_defs))}
         append_elem(&s.function_defs, func)
-        return out
+        return out, true
 
+    }
+}
+
+parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWithoutPos {
+    when debug_parser {
+        print_call(loc, "parse_initial_unit")
+    }
+    out, ok := maybe_parse_initial_unit(s)
+    if out == nil {
+        if ok {
+            wrong_token_err(s)
+        }
+        return nil
+    } else {
+        assert(ok)
+        return out
     }
 }
 

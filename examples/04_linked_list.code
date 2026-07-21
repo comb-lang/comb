@@ -19,36 +19,35 @@ reverse[T] = |list: LinkedList[T], end: LinkedList[T]| -> LinkedList[T] {
 }
 
 to_array[T] = |list: LinkedList[T]| -> []T {
-    mut array = []T()
-    mut l = list
+    re array$ = []T()
+    re l$ = list
     while true {
-        match l {
+        match l$ {
             .Empty {
-                return array
+                return array$
             }
             not_empty: .NotEmpty {
-                ~array = array :: not_empty.head
-                ~l = not_empty.tail
+                array$ = array$ :: not_empty.head
+                l$ = not_empty.tail
             }
         }
     }
 }
 
 foreach[T] = |list: LinkedList[T], func: (T) -> ()| {
-    mut l = list
+    re l$ = list
     while true {
-        match l {
+        match l$ {
             .Empty {
                 return
             }
             not_empty: .NotEmpty {
                 func(not_empty.head)
-                ~l = not_empty.tail
+                l$ = not_empty.tail
             }
         }
     }
 }
-foreach_i64 = foreach[I64]
 
 empty_list[T] = || -> LinkedList[T] {
     return .Empty()
@@ -65,15 +64,14 @@ main = || -> I64 {
 	//     |> insert(_, 3)
 	//     |> insert(_, 2)
 	//     |> insert(_, 1)
-    mut l = empty_list[I64]()
-    ~l = insert[I64](l, 3)
-    ~l = insert[I64](l, 2)
-    ~l = insert[I64](l, 1)
-    for number in to_array[I64](l) {
+    re l$ = empty_list[I64]()
+    l$ = insert[I64](l$, 3)
+    l$ = insert[I64](l$, 2)
+    l$ = insert[I64](l$, 1)
+    for number in to_array[I64](l$) {
         println(number.to_str)
     }
     println("Reversed:")
-    // TODO: Be able to use `foreach[I64]` instead of `foreach_i64`
-    foreach_i64(reverse[I64](l, .Empty()), debug_number)
+    foreach[I64](reverse[I64](l$, .Empty()), debug_number)
     return 0
 }

@@ -36,6 +36,9 @@ BuiltinFunction :: enum u8 {
     cache_get,
     init_http_server,
     cast_func,
+    save_cursor_pos,
+    restore_cursor_pos,
+    clear_after_cursor,
     invalid_builtin = max(u8),
 }
 
@@ -67,6 +70,12 @@ get_builtin_func_from_name :: proc(name: string) -> (BuiltinFunction, Type) {
         return .init_http_server, no_args_to_http_server_type
     case "cast":
         return .cast_func, unknown_type
+    case "save_cursor_pos":
+        return .save_cursor_pos, no_args_to_nil_type
+    case "restore_cursor_pos":
+        return .restore_cursor_pos, no_args_to_nil_type
+    case "clear_after_cursor":
+        return .clear_after_cursor, no_args_to_nil_type
     case:
         return .invalid_builtin, invalid_type
     }
@@ -187,6 +196,9 @@ is_builtin :: proc(name: string) -> bool {
          "clear",
          "run_executable",
          "exit",
+         "save_cursor_pos",
+         "restore_cursor_pos",
+         "clear_after_cursor",
          "I64",
          "I32",
          "I16",

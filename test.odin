@@ -455,22 +455,21 @@ example_08_result :: proc(t: ^testing.T) {
     }
 }
 
-/*
-// TODO:
-// - Add support for hashmaps to the C backend so that 09_hashmap.code can be tested with the C backend
-// - Add support for testing with the interpreter so that 09_hashmap.code can be tested with the interpreter
 @(test)
 example_09_hashmap :: proc(t: ^testing.T) {
-    ran := run_normal_example(
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    ran := interpret_example(
         t,
-        "examples/09_hashmap.code",
+        &a,
+        FunctionRef{#directory + "examples/09_hashmap.code", "main"},
         "add\nbanana\nadd\napple\nadd\nbanana\nremove\napple\nexit\n",
     )
-    if !ran.ok {return}
-    testing.expect(t, ran.stderr == "")
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.compiler.stderr == "")
+    testing.expect(t, ran.program.stderr == "")
     // TODO: Implement the test
 }
-*/
 
 @(test)
 example_10_geometry :: proc(t: ^testing.T) {
@@ -723,6 +722,21 @@ arena_test :: proc(t: ^testing.T) {
     if fibonacci_string != "[0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377]" {
         testing.fail_now(t, fmt.aprintf("Fibonacci string is %q", fibonacci_string))
     }
+}
+
+@(test)
+example_12_lambda_functions :: proc(t: ^testing.T) {
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    ran := interpret_example(
+        t,
+        &a,
+        FunctionRef{#directory + "examples/12_lambda_functions.code", "main"},
+    )
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.program.stdout == "")
+    testing.expect(t, ran.program.stderr == "")
+    testing.expect(t, ran.compiler.stderr == "")
 }
 
 // TODO: Add a fuzz test where the code that gets compiled never has any syntax errors

@@ -1219,6 +1219,18 @@ default_builtin_handler_procedure :: proc(
             true,
             strings.repeat(args[0].(RuntimeString).value, int(args[1].(i64))),
         }
+    case .save_cursor_pos:
+        io.write_string(data.pipe.stdout, "\033[s")
+        io.flush(data.pipe.stdout)
+        return nil
+    case .restore_cursor_pos:
+        io.write_string(data.pipe.stdout, "\033[u")
+        io.flush(data.pipe.stdout)
+        return nil
+    case .clear_after_cursor:
+        io.write_string(data.pipe.stdout, "\033[0J")
+        io.flush(data.pipe.stdout)
+        return nil
     case .invalid_builtin, .cast_func:
         panic("Unreachable")
     case:

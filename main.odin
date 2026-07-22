@@ -372,7 +372,7 @@ compile :: proc(
     }
     result := interp_execute_function2(
         InterpState{&state, run.long_lived_interp_state},
-        checker_output.func_ref,
+        RuntimeFunc{checker_output.func_ref, nil},
         args,
     )
     if should_exit_early(exit_early) {

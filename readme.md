@@ -111,6 +111,9 @@ A new language for the web, because it's time to stop working around javascript.
 - Support length based strings as well as null terminated strings
 - Always output error messages and warnings in the order that they appear in the program, rather than a somewhat random order
 - Check that functions which return a value have a `return` statement in all control flow paths
+- Maybe there should be a distinction between functions that do not use any values from the outer scope and functions that do because a value from the outer scope may be outdated
+  - `->` could be used for functions that don't use values from the outer scope
+  - `=>` could be used for functions that do
 
 # Stuff that may be added
 
@@ -296,6 +299,7 @@ Considering all of this, these design principles are tentative and subject to ch
   - **Derivations** - A way to create a slightly altered copy of a value (see [docs.md](./docs.md#derivations))
 - In the future, an optimisation may be implemented where if the base of a derivation is not referenced again in the code, then it can be mutated rather than copying it and mutating
   - Reference counting might need to be implemented in all backends for this optimisation
+  - Maybe there could be optimisation tools to debug why alterations aren't being optimised into mutations
   - TODO: Implement this optimisation and remove unnecersarry copies from all backends
 
 ## Notes

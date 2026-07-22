@@ -36,9 +36,18 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: CompileTimeValue) {
         }
         strings.write_byte(&s.b, ')')
 
-    case CheckedFuncRef:
+    case Func:
         strings.write_string(&s.b, "func")
-        strings.write_uint(&s.b, comptime.index)
+        strings.write_uint(&s.b, comptime.ref.index)
+        lambda_args_len := len(s.checked_funcs[comptime.ref.index].inline_stuff.scope0.variables)
+        if lambda_args_len > 0 {
+            strings.write_byte(&s.b, '(')
+            for i in 0 ..< lambda_args_len {
+                emit_variable(&s.b, comptime.lambda_args.d[i])
+                strings.write_byte(&s.b, ',')
+            }
+            strings.write_byte(&s.b, ')')
+        }
     case Type, UninitialisedOrderedHashMapType:
         panic("Unreachable")
     case GlobalValueWithGenericRef, Import:
@@ -73,9 +82,10 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: CompileTimeValue) {
 
 emit_js_runtime_value :: proc(b: ^strings.Builder, value: RuntimeValue) {
     #partial switch v in value {
-    case CheckedFuncRef:
+    case RuntimeFunc:
         strings.write_string(b, "func")
-        strings.write_uint(b, v.index)
+        strings.write_uint(b, v.ref.index)
+        assert(v.lambda_args == nil)
     case RuntimeStruct:
         strings.write_byte(b, '{')
         for field, i in v.field_values {
@@ -497,8 +507,17 @@ emit_javascript :: proc(types: Types, checked_functions: []CheckedFunction) -> s
         when debug_emitter {
             debug("emitting function index %d", index)
         }
-        strings.write_string(&s.b, "function func")
+        strings.write_string(&s.b, "const func")
         strings.write_int(&s.b, index)
+        strings.write_byte(&s.b, '=')
+        if len(func.inline_stuff.scope0.variables) > 0 {
+            strings.write_byte(&s.b, '(')
+            for _, i in func.inline_stuff.scope0.variables {
+                emit_variable(&s.b, VariableRef{0, uint(i)})
+                strings.write_byte(&s.b, ',')
+            }
+            strings.write_string(&s.b, ") =>")
+        }
         strings.write_byte(&s.b, '(')
         info := get_type(types, func.type).key.(FuncType)
         first_arg := true
@@ -508,10 +527,10 @@ emit_javascript :: proc(types: Types, checked_functions: []CheckedFunction) -> s
             } else {
                 strings.write_byte(&s.b, ',')
             }
-            emit_variable(&s.b, VariableRef{0, uint(i)})
+            emit_variable(&s.b, VariableRef{1, uint(i)})
         }
         strings.write_string(&s.b, ") {")
-        emit_js_block(&s, 1, func.variables, func.body)
+        emit_js_block(&s, 2, func.variables, func.body)
         strings.write_byte(&s.b, '}')
     }
 

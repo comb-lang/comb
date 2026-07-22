@@ -1,0 +1,37 @@
+// Curried concat function
+// TODO: Infer function return type
+concat[T] = |a: []T| -> ([]T) -> []T {
+	return |b: []T| -> []T {
+		return a ++ b
+	}
+}
+
+// TODO: Be able to convert arrays to strings automatically
+array_to_str = |a: []I64| -> String {
+	re out$ = "["
+	// TODO: Cleanup syntax: `out$ = out$ & ...` => something like `out &= ...`
+	for elem, i in a {
+		if i != 0 {
+			out$ = out$ & ", "
+		}
+		out$ = out$ & elem.to_str
+	}
+	out$ = out$ & "]"
+	return out$
+}
+
+// TOOD: You should not have to define `assert` in every program you write that uses assert
+assert = |cond: Bool| {
+	if cond == false {
+		unreachable
+	}
+}
+
+main = || -> I64 {
+	my_concatanater = concat[I64]([]I64(1, 2, 3))
+	result1 = my_concatanater([]I64(4, 5))
+	result2 = my_concatanater([]I64(6, 7, 8, 9))
+	assert(array_to_str(result1) == "[1, 2, 3, 4, 5]")
+	assert(array_to_str(result2) == "[1, 2, 3, 6, 7, 8, 9]")
+	return 0
+}

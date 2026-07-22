@@ -64,6 +64,17 @@ GenericInitialisations :: struct {
     values: Multi(CheckedGlobalValue),
 }
 
+CheckerScopeState :: struct {
+    return_types:      []Type,
+    loop_index:        uint,
+    parent_loop_index: uint, // Set to max(uint) when there is no parent loop
+
+    // The following fields depend on which variables are in scope
+    scopes:            [dynamic]Scope,
+    variables_map:     map[string]VariableRef,
+    labels_map:        map[string]LabelRef,
+}
+
 CheckerState :: struct {
     // The following fields do not change while checking
     parsed_files:                  []map[string]ParsedGlobal, // len(parsed_files) == len(r.files)
@@ -78,16 +89,14 @@ CheckerState :: struct {
     checked_functions:             [dynamic]CheckedFunction,
     first_unchecked_function:      uint,
     types:                         Types,
-    // checked_funcs:                 OrderedHashSet(CheckedFunction),
-    return_types:                  []Type,
-    loop_index:                    uint,
-    parent_loop_index:             uint, // Set to max(uint) when there is no parent loop
-    // TODO: represent the order of the programmer controlled stack
 
-    // The following fields depend on which variables are in scope
-    scopes:                        [dynamic]Scope,
-    variables_map:                 map[string]VariableRef,
-    labels_map:                    map[string]LabelRef,
+    // Depend on which function is being checked
+    using scope_state:             CheckerScopeState,
+}
+
+InlineFuncFields :: struct {
+    variables_from_outer_scope: map[string]VariableRef,
+    scope0:                     Scope,
 }
 
 CheckedFunction :: struct {
@@ -96,6 +105,7 @@ CheckedFunction :: struct {
     generic_args: map[string]Type,
     variables:    []Type,
     body:         []CheckedStatement,
+    inline_stuff: InlineFuncFields,
 }
 
 StringLiteralValue :: distinct string
@@ -180,10 +190,16 @@ CompileTimeValue :: union {
     GlobalValueWithGenericRef, // For an uninitialised global value with generics
     UninitialisedOrderedHashMapType,
     Import,
-    CheckedFuncRef,
+    Func,
     CompileTimeStructInitialisation,
     BuiltinFunction,
     CastFunction,
+}
+Func :: struct {
+    ref:         CheckedFuncRef,
+    // For when variables defined in one function are accessible from an inline
+    // function
+    lambda_args: Multi(VariableRef),
 }
 CheckedValue :: union {
     CompileTimeValue,
@@ -208,6 +224,7 @@ CheckedValue :: union {
     ArrayLiteral,
     CheckedDerivation,
 }
+
 
 ArrayLiteral :: struct {
     type:     Type,
@@ -735,6 +752,8 @@ check_comptime_func_call :: proc(
 
     body: [dynamic]CheckedStatement
     value_type := unknown_type
+    old_scope_state := s.scope_state
+    s.scope_state = CheckerScopeState{}
     checked_value := check_value(
         s,
         generic.value,
@@ -745,6 +764,7 @@ check_comptime_func_call :: proc(
             GenericTypeValue{global, generic_args},
         },
     )
+    s.scope_state = old_scope_state
     if checked_value == nil {
         return nil
     }
@@ -3126,8 +3146,8 @@ check_initial_value :: proc(
             "",
         )
     case FuncDefinitionRef:
-        out_func_ref, out_type, _ := check_anonymous_func_head(s, value, a.generic_args)
-        return finish_checking_value(s, pos, a.type, out_func_ref, out_type, "")
+        out_func, out_type, _ := check_anonymous_func_head(s, value, a.generic_args)
+        return finish_checking_value(s, pos, a.type, out_func, out_type, "")
     case CallWithBrackets:
         if len(value.unit_being_called.extra_units) == 0 {
             array_type, is_array := value.unit_being_called.first_unit.(CallWithFrontedSquareBrackets)
@@ -3359,17 +3379,43 @@ check_value :: proc(
     return finish_checking_value(s, v.pos, a.type, value, type, "")
 }
 
+get_inline_func_fields :: proc(s: ^CheckerState) -> (InlineFuncFields, Multi(VariableRef)) {
+    if len(s.variables_map) == 0 {
+        return InlineFuncFields{}, Multi(VariableRef){nil}
+    }
+    variables_from_outer_scope: map[string]VariableRef
+    scope0: Scope
+    lambda_args := arena_make_multi(s.a, Multi(VariableRef), 0, resizable = true)
+    defer fix_resizable_multi(lambda_args)
+
+    for var_name, var_ref in s.variables_map {
+        variable := s.scopes[var_ref.nesting_level].variables[var_ref.index]
+
+        if variable.is_reassignable {
+            // Reassignable variables defined in an outer function are not accessible from an inline function
+            continue
+        }
+
+        variables_from_outer_scope[var_name] = VariableRef{0, len(scope0.variables)}
+        append_multi_dynamic(&lambda_args, len(scope0.variables), var_ref)
+        append(&scope0.variables, variable)
+    }
+
+    return InlineFuncFields{variables_from_outer_scope, scope0}, lambda_args
+}
+
 // Returns `CheckedFuncRef{max(uint)}, invalid_type` on failure
 check_anonymous_func_head :: proc(
     s: ^CheckerState,
     ref: FuncDefinitionRef,
     generic_args: map[string]Type,
 ) -> (
-    CheckedFuncRef,
+    Func,
     Type,
     FuncType,
 ) {
     func := s.func_defs[ref.index]
+    inline_func_fields, lambda_args := get_inline_func_fields(s)
     checked_func_type, ok := check_function_type(
         s,
         func.inputs.value_type[:len(func.inputs)],
@@ -3377,12 +3423,15 @@ check_anonymous_func_head :: proc(
         generic_args,
     )
     if !ok {
-        return CheckedFuncRef{max(uint)}, invalid_type, FuncType{}
+        return Func{CheckedFuncRef{max(uint)}, Multi(VariableRef){}}, invalid_type, FuncType{}
     }
     type := create_type(&s.types, checked_func_type).type
     checked_ref := CheckedFuncRef{len(s.checked_functions)}
-    append(&s.checked_functions, CheckedFunction{type, ref, generic_args, nil, nil})
-    return checked_ref, type, checked_func_type
+    append(
+        &s.checked_functions,
+        CheckedFunction{type, ref, generic_args, nil, nil, inline_func_fields},
+    )
+    return Func{checked_ref, lambda_args}, type, checked_func_type
 }
 
 // Returns `false` on failure
@@ -3397,10 +3446,13 @@ check_anonymous_func_body :: proc(s: ^CheckerState, ref: CheckedFuncRef) -> bool
     s.parent_loop_index = max(uint)
     assert(len(s.scopes) == 0)
     assert(len(s.variables_map) == 0)
+    s.variables_map = checked_func.inline_stuff.variables_from_outer_scope
     assert(len(s.labels_map) == 0)
     for return_type, i in func_type.return_types {
         s.return_types[i] = return_type
     }
+    append(&s.scopes, checked_func.inline_stuff.scope0)
+    defer pop_scope(s)
     append(&s.scopes, Scope{})
     defer pop_scope(s)
     ok := true
@@ -3458,11 +3510,14 @@ check_global_value_without_generic :: proc(
     body: [dynamic]CheckedStatement = nil
     early_exit_if_value_is_type: TypeKey = nil // TODO: Do not use nil to prevent infinite cycles with global types without generics
     type: Type = unknown_type
+    old_scope_state := s.scope_state
+    s.scope_state = CheckerScopeState{}
     checked_value := check_value(
         s,
         value.unit,
         CheckValueArgs{&body, AnyType{&type}, no_generic_args, early_exit_if_value_is_type},
     )
+    s.scope_state = old_scope_state
     when debug_checker {
         debug(
             "Checked global with name `%s` and type `%v`",
@@ -3547,7 +3602,7 @@ get_global_function :: proc(
         return CheckedFuncRef{}, unknown_pos, false
     }
     global := s.global_values_without_generic[parsed_global.index]
-    func_ref, is_func := global.v.value.(CheckedFuncRef)
+    func_ref, is_func := global.v.value.(Func)
     if !is_func {
         diagnostic(
             s,
@@ -3558,7 +3613,7 @@ get_global_function :: proc(
         )
         return CheckedFuncRef{}, unknown_pos, false
     }
-    return func_ref, Pos{parsed_global.pos, file_to_search}, true
+    return func_ref.ref, Pos{parsed_global.pos, file_to_search}, true
 }
 
 EntryFuncType :: enum {

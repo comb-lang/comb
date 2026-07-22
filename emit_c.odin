@@ -104,9 +104,10 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: CompileTimeValue) {
             first_arg = false
         }
         strings.write_string(&s.b, ")")
-    case CheckedFuncRef:
+    case Func:
+        // TODO: Handle comptime.lambda_args
         strings.write_string(&s.b, "func")
-        strings.write_uint(&s.b, comptime.index)
+        strings.write_uint(&s.b, comptime.ref.index)
     case NumberValue:
         if comptime.value.is_negated {
             strings.write_byte(&s.b, '-')
@@ -657,7 +658,7 @@ emit_function_head :: proc(s: ^CEmitterState, func_index: int, type: Type) {
         if !first_arg {
             strings.write_byte(&s.b, ',')
         }
-        name := fmt.aprintf(variable_format, 0, i)
+        name := fmt.aprintf(variable_format, 1, i)
         emit_type(&s.b, name, arg)
         delete_string(name)
         first_arg = false
@@ -690,7 +691,7 @@ emit_c :: proc(
     for func, index in checked_funcs {
         emit_function_head(&s, index, func.type)
         strings.write_byte(&s.b, '{')
-        emit_c_block(&s, 1, func.variables, func.body)
+        emit_c_block(&s, 2, func.variables, func.body)
         strings.write_byte(&s.b, '}')
     }
 

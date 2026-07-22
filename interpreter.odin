@@ -33,7 +33,7 @@ RuntimeValue :: union {
     StructTypeInitFunc,
     RuntimeSumType,
     SumTypeInitFunc,
-    CheckedFuncRef,
+    RuntimeFunc,
     BuiltinFunction,
     CastFunction,
     SetHttpServerHandler,
@@ -86,8 +86,8 @@ get_value_type :: proc(s: InterpState, value: RuntimeValue) -> Type {
         return v.type
     case SumTypeInitFunc:
         panic("TODO")
-    case CheckedFuncRef:
-        return s.checked_funcs[v.index].type
+    case RuntimeFunc:
+        return s.checked_funcs[v.ref.index].type
     case BuiltinFunction:
         panic("TODO")
     case CastFunction:
@@ -99,6 +99,11 @@ get_value_type :: proc(s: InterpState, value: RuntimeValue) -> Type {
     case:
         panic("Unreachable")
     }
+}
+
+RuntimeFunc :: struct {
+    ref:         CheckedFuncRef,
+    lambda_args: []RuntimeValue,
 }
 
 SetHttpServerHandler :: struct {
@@ -172,7 +177,7 @@ ControlFlowOperation :: union {
 
 HttpServer :: struct {
     socket:  net.TCP_Socket,
-    handler: CheckedFuncRef,
+    handler: RuntimeFunc,
 }
 
 // Interpreter state that lasts when the program is restarted by the `-watch` flag
@@ -256,7 +261,7 @@ interp_execute_function :: proc(s: InterpState, c: CheckedFunctionCall) -> Runti
     #partial switch val in fn_val {
     case BuiltinFunction:
         return s.builtin_handler.procedure(s, val, args)
-    case CheckedFuncRef:
+    case RuntimeFunc:
         return interp_execute_function2(s, val, args)
     case RuntimeI64OrderedHashMapInitFunc:
         assert(len(args) == 0)
@@ -266,12 +271,12 @@ interp_execute_function :: proc(s: InterpState, c: CheckedFunctionCall) -> Runti
         return RuntimeStringOrderedHashMap{val.return_type, false, nil, nil}
     case SetHttpServerHandler:
         assert(len(args) == 1)
-        s.l.http_servers[val.server].handler = args[0].(CheckedFuncRef)
+        s.l.http_servers[val.server].handler = args[0].(RuntimeFunc)
         return nil
     case HttpServerListenAndServe:
         assert(len(args) == 0)
         server := s.l.http_servers[val.server]
-        if server.handler.index == max(uint) {
+        if server.handler.ref.index == max(uint) {
             panic("`listen_and_serve` called when handler has not been set")
         }
         buf: [65536]byte
@@ -341,17 +346,17 @@ interp_execute_function :: proc(s: InterpState, c: CheckedFunctionCall) -> Runti
 
 interp_execute_function2 :: proc(
     state: InterpState,
-    func_ref: CheckedFuncRef,
+    func: RuntimeFunc,
     args: []RuntimeValue,
 ) -> RuntimeValue {
-    checked_func := state.checked_funcs[func_ref.index]
+    checked_func := state.checked_funcs[func.ref.index]
 
     frame := Frame {
-        func_index = func_ref.index,
+        func_index = func.ref.index,
         scopes     = make([dynamic][]RuntimeValue),
     }
+    append_elem(&frame.scopes, func.lambda_args)
     append_elem(&frame.scopes, args)
-
     append_elem(&frame.scopes, make([]RuntimeValue, len(checked_func.variables)))
     // for var_type, i in checked_func.variables {
     // frame.scopes[1][i] = interp_default_value(state, var_type)
@@ -362,11 +367,11 @@ interp_execute_function2 :: proc(
     assert(state.control_flow_op == nil)
     interp_exec_block(state, checked_func.body)
     f := pop(&state.frames)
-    assert(len(f.scopes) == 2)
-    for &v in f.scopes[1] {
+    assert(len(f.scopes) == 3)
+    for &v in f.scopes[2] {
         interp_destroy_value(&v)
     }
-    delete(f.scopes[1])
+    delete(f.scopes[2])
     delete(f.scopes)
 
     if return_data, returning := state.control_flow_op.(ReturnFromFunction); returning {
@@ -580,7 +585,7 @@ interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> Runtim
          u16,
          u8,
          bool,
-         CheckedFuncRef,
+         RuntimeFunc,
          BuiltinFunction,
          StructTypeInitFunc,
          SumTypeInitFunc,
@@ -777,8 +782,17 @@ interp_eval_comptime_value :: proc(s: InterpState, value: CompileTimeValue) -> R
             out_args[i] = interp_eval_comptime_value(s, arg)
         }
         return RuntimeStruct{true, out_args, comptime.func.return_type}
-    case CheckedFuncRef:
-        return comptime
+    case Func:
+        lambda_args := make(
+            []RuntimeValue,
+            len(s.checked_funcs[comptime.ref.index].inline_stuff.scope0.variables),
+        )
+        for _, i in lambda_args {
+            var_ref := comptime.lambda_args.d[i]
+            lambda_args[i] =
+                s.frames[len(s.frames) - 1].scopes[var_ref.nesting_level][var_ref.index]
+        }
+        return RuntimeFunc{comptime.ref, lambda_args}
     case StringLiteralValue:
         return RuntimeString{false, string(comptime)}
     case NumberValue:
@@ -922,7 +936,7 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
         case RuntimeArray,
              RuntimeStruct,
              RuntimeSumType,
-             CheckedFuncRef,
+             RuntimeFunc,
              BuiltinFunction,
              RuntimeStringOrderedHashMap,
              RuntimeI64OrderedHashMap,
@@ -1186,7 +1200,10 @@ default_builtin_handler_procedure :: proc(
             socket, err := net.listen_tcp(endpoint)
             if err == nil {
                 fields[2] = i64(endpoint.port)
-                append(&state.l.http_servers, HttpServer{socket, CheckedFuncRef{max(uint)}})
+                append(
+                    &state.l.http_servers,
+                    HttpServer{socket, RuntimeFunc{CheckedFuncRef{max(uint)}, nil}},
+                )
                 return RuntimeStruct{true, fields, http_server_type}
             }
             if err != net.Bind_Error.Address_In_Use {

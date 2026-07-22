@@ -276,7 +276,7 @@ is_digit_char :: proc(c: byte) -> bool {
 
 is_symbol_char :: proc(c: byte) -> bool {
     switch c {
-    case '=', '+', '-', '*', '/', '.', '<', '>', '%', '~', '&':
+    case '=', '+', '-', '*', '/', '.', '<', '>', '%', '~', '&', '!':
         return true
     case:
         return false
@@ -496,7 +496,7 @@ get_next_token :: proc(
             state.last_token = BarToken{}
         }
 
-    case '0' ..< '9':
+    case '0' ..= '9':
         skip_ignore_first(state, is_digit_char)
         state.last_token = DigitsToken(
             state.last_token_pos.file.code[state.last_token_pos.index:state.index],

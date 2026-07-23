@@ -124,12 +124,12 @@ CheckedFunctionCall :: struct {
 StructTypeInitFunc :: struct {
     return_type: Type,
 }
-OrderedHashMapInitFunc :: struct {
-    type: Type,
-}
 SumTypeInitFunc :: struct {
     sum_type:      Type,
     variant_index: u32,
+}
+LengthOfString :: struct {
+    str: ^CheckedValue,
 }
 LengthOfArray :: struct {
     array: ^CheckedValue,
@@ -150,10 +150,18 @@ CheckedOrderedHashMapAccess :: struct {
     hash_map: ^CheckedValue,
     key:      ^CheckedValue,
 }
-CheckedArrayAccess :: struct {
+CheckedIndex :: struct {
     // The code emitter might not emit code to sanity check the index
-    array: ^CheckedValue,
-    index: ^CheckedValue,
+    start_index: ^CheckedValue,
+    end_index:   ^CheckedValue, // May be nil
+}
+CheckedIndexedAccess :: struct {
+    base_type: enum {
+        String,
+        Array,
+    },
+    base:      ^CheckedValue,
+    i:         CheckedIndex,
 }
 CheckedFieldAccess :: struct {
     value:       ^CheckedValue,
@@ -182,6 +190,17 @@ CompileTimeStructInitialisation :: struct {
 CastFunction :: struct {
     type: Type,
 }
+CompileTimeOrderedHashMapInitialisation :: struct {
+    type:  Type,
+    value: map[string]CompileTimeValue,
+    order: []string,
+}
+OrderedHashMapInitialisation :: struct {
+    type:                Type,
+    compile_time_values: map[string]CompileTimeValue,
+    runtime_values:      map[string]CheckedValue,
+    order:               []string,
+}
 CompileTimeValue :: union {
     StringLiteralValue,
     NumberValue,
@@ -192,6 +211,7 @@ CompileTimeValue :: union {
     Import,
     Func,
     CompileTimeStructInitialisation,
+    CompileTimeOrderedHashMapInitialisation,
     BuiltinFunction,
     CastFunction,
 }
@@ -210,12 +230,12 @@ CheckedValue :: union {
     CheckedFunctionCall,
     StructTypeInitFunc,
     SumTypeInitFunc,
-    CheckedArrayAccess,
+    CheckedIndexedAccess,
     CheckedOrderedHashMapAccess,
     CheckedFieldAccess,
     // CheckedJsFunctionCall,
     LengthOfArray,
-    OrderedHashMapInitFunc,
+    LengthOfString,
     LengthOfOrderedHashMapWithStringKey,
     LengthOfOrderedHashMapWithI64Key,
     KeysOfOrderedHashMapWithStringKey,
@@ -223,6 +243,7 @@ CheckedValue :: union {
     StringsAreEqual,
     ArrayLiteral,
     CheckedDerivation,
+    OrderedHashMapInitialisation,
 }
 
 
@@ -784,12 +805,18 @@ check_comptime_func_call :: proc(
         initialised_type := check_value(
             s,
             generic.value,
-            CheckValueArgs{&body, AnyType{&value_type}, generic_args_map, nil},
+            CheckValueArgs{nil, AnyType{&value_type}, generic_args_map, nil},
         )
+        assert(value_type == type_type)
         if initialised_type == nil {
             return out
         }
-        s.types.m.keys[type_value.index].key = GenericTypeValue{global, generic_args}
+        assert(
+            type_key_is_equal(
+                s.types.m.keys[type_value.index].key,
+                GenericTypeValue{global, generic_args},
+            ),
+        )
         s.types.values.d[type_value.index].type = initialised_type.(CompileTimeValue).(Type)
     }
 
@@ -891,10 +918,11 @@ simplify_type :: proc(s: ^CheckerState, type: Type, loc := #caller_location) -> 
     cur_type := type
     for {
         got := get_type(s.types, cur_type)
-        if _, ok := got.key.(GenericTypeValue); ok {
+        #partial switch key in got.key {
+        case GenericTypeValue, GlobalType:
             cur_type = got.value.type
             assert(cur_type != unknown_type)
-        } else {
+        case:
             return cur_type
         }
     }
@@ -967,17 +995,6 @@ get_func_type :: proc(
         case StructType:
             value^ = StructTypeInitFunc{value_type}
             return got.value.type
-        // TODO: CLEANUP
-        case OrderedHashMapTypeWithI64Key:
-            value^ = OrderedHashMapInitFunc{value_type}
-            return_types := make([]Type, 1)
-            return_types[0] = value_type_unsimplified
-            return create_type(&s.types, FuncType{nil, return_types}).type
-        case OrderedHashMapTypeWithStringKey:
-            value^ = OrderedHashMapInitFunc{value_type}
-            return_types := make([]Type, 1)
-            return_types[0] = value_type_unsimplified
-            return create_type(&s.types, FuncType{nil, return_types}).type
         }
         diagnostic(
             s,
@@ -1059,7 +1076,8 @@ type_is_subset :: proc(
             }
         }
         return false
-    case GenericTypeValue:
+    case GenericTypeValue, GlobalType:
+        assert(superset_type.value.type != unknown_type)
         return type_is_subset(s, type, superset_type.value.type)
     }
 }
@@ -1201,12 +1219,19 @@ get_variable_type :: proc(
 }
 
 type_to_string :: proc(s: ^CheckerState, t: Type, loc := #caller_location) -> string {
-    return type_to_string2(s.types, s.global_values_with_generics, t, loc)
+    return type_to_string2(
+        s.types,
+        s.global_values_without_generic.ast_node[:len(s.global_values_without_generic)],
+        s.global_values_with_generics,
+        t,
+        loc,
+    )
 }
 
 type_to_string2 :: proc(
     types: Types,
-    globals: []GlobalValueWithGeneric,
+    globals_without_generic: []GlobalValueWithoutGeneric,
+    globals_with_generic: []GlobalValueWithGeneric,
     t: Type,
     loc := #caller_location,
 ) -> string {
@@ -1214,13 +1239,14 @@ type_to_string2 :: proc(
         print_call(loc, "type_to_string2")
     }
     builder := strings.builder_make()
-    build_type_string(types, globals, &builder, t)
+    build_type_string(types, globals_without_generic, globals_with_generic, &builder, t)
     return strings.to_string(builder)
 }
 
 build_struct_string :: proc(
     types: Types,
-    globals: []GlobalValueWithGeneric,
+    globals_without_generic: []GlobalValueWithoutGeneric,
+    globals_with_generic: []GlobalValueWithGeneric,
     b: ^strings.Builder,
     type: StructType,
 ) {
@@ -1233,14 +1259,15 @@ build_struct_string :: proc(
         first_field = false
         strings.write_string(b, field.key)
         strings.write_string(b, ": ")
-        build_type_string(types, globals, b, type.types.d[i])
+        build_type_string(types, globals_without_generic, globals_with_generic, b, type.types.d[i])
     }
     strings.write_byte(b, '}')
 }
 
 build_type_string :: proc(
     types: Types,
-    globals: []GlobalValueWithGeneric,
+    globals_without_generic: []GlobalValueWithoutGeneric,
+    globals_with_generic: []GlobalValueWithGeneric,
     b: ^strings.Builder,
     t: Type,
     loc := #caller_location,
@@ -1281,9 +1308,12 @@ build_type_string :: proc(
     case any_type:
         strings.write_string(b, "Any")
     case:
+        // TODO: For `GlobalType` and `StructType`, put the right namespace before the type
         switch tv in get_type(types, t).key {
+        case GlobalType:
+            strings.write_string(b, globals_without_generic[tv.global.index].name)
         case StructType:
-            build_struct_string(types, globals, b, tv)
+            build_struct_string(types, globals_without_generic, globals_with_generic, b, tv)
         case SumType:
             strings.write_byte(b, '<')
             first_variant := true
@@ -1293,19 +1323,25 @@ build_type_string :: proc(
                 }
                 variant_type := get_type(types, tv.payloads.d[i]).key.(StructType)
                 strings.write_string(b, variant.key)
-                build_struct_string(types, globals, b, variant_type)
+                build_struct_string(
+                    types,
+                    globals_without_generic,
+                    globals_with_generic,
+                    b,
+                    variant_type,
+                )
                 first_variant = false
             }
             strings.write_byte(b, '>')
         case GenericTypeValue:
-            strings.write_string(b, globals[tv.global.index].name)
+            strings.write_string(b, globals_with_generic[tv.global.index].name)
             strings.write_byte(b, '[')
             first_arg := true
             for arg in tv.generic_args {
                 if !first_arg {
                     strings.write_string(b, ", ")
                 }
-                build_type_string(types, globals, b, arg)
+                build_type_string(types, globals_without_generic, globals_with_generic, b, arg)
                 first_arg = false
             }
             strings.write_byte(b, ']')
@@ -1313,14 +1349,20 @@ build_type_string :: proc(
             strings.write_byte(b, '(')
             for arg, index in tv.args {
                 // TODO: Print the name and whether the arg is mutable
-                build_type_string(types, globals, b, arg)
+                build_type_string(types, globals_without_generic, globals_with_generic, b, arg)
                 if index + 1 != len(tv.args) {
                     strings.write_string(b, ", ")
                 }
             }
             strings.write_string(b, ") -> ")
             if len(tv.return_types) == 1 {
-                build_type_string(types, globals, b, tv.return_types[0])
+                build_type_string(
+                    types,
+                    globals_without_generic,
+                    globals_with_generic,
+                    b,
+                    tv.return_types[0],
+                )
             } else {
                 strings.write_byte(b, '(')
                 first_return_type := true
@@ -1328,18 +1370,36 @@ build_type_string :: proc(
                     if first_return_type == false {
                         strings.write_string(b, ", ")
                     }
-                    build_type_string(types, globals, b, return_type)
+                    build_type_string(
+                        types,
+                        globals_without_generic,
+                        globals_with_generic,
+                        b,
+                        return_type,
+                    )
                     first_return_type = false
                 }
                 strings.write_byte(b, ')')
             }
         case OrderedHashMapTypeWithI64Key:
             strings.write_string(b, "OrderedHashMap[I64, ")
-            build_type_string(types, globals, b, tv.value_type)
+            build_type_string(
+                types,
+                globals_without_generic,
+                globals_with_generic,
+                b,
+                tv.value_type,
+            )
             strings.write_string(b, "]")
         case OrderedHashMapTypeWithStringKey:
             strings.write_string(b, "OrderedHashMap[String, ")
-            build_type_string(types, globals, b, tv.value_type)
+            build_type_string(
+                types,
+                globals_without_generic,
+                globals_with_generic,
+                b,
+                tv.value_type,
+            )
             strings.write_string(b, "]")
         case ArrayType:
             strings.write_byte(b, '[')
@@ -1347,7 +1407,13 @@ build_type_string :: proc(
                 strings.write_uint(b, uint(tv.length))
             }
             strings.write_byte(b, ']')
-            build_type_string(types, globals, b, tv.item_type)
+            build_type_string(
+                types,
+                globals_without_generic,
+                globals_with_generic,
+                b,
+                tv.item_type,
+            )
         case nil:
             panic("Unreachable")
         }
@@ -2257,7 +2323,7 @@ check_var_ref :: proc(
 ) -> CheckedValue {
     when debug_checker {
         print_call(loc, "check_var_ref")
-        print_arg("ref", ref)
+        print_arg("segments", segments)
         print_arg("a", a)
     }
     if len(segments) == 2 && segments[0].ident == "" {
@@ -2357,7 +2423,13 @@ check_var_ref :: proc(
     for i := start_i; i < len(segments); i += 1 {
         extra_segment := segments[i]
         if extra_segment.ident == "len" {
-            #partial switch type in get_type(s.types, simplify_type(s, out_type)).key {
+            simplified := simplify_type(s, out_type)
+            if simplified == string_type {
+                out_type = i64_type
+                out = LengthOfString{new_clone(out)}
+                continue
+            }
+            #partial switch type in get_type(s.types, simplified).key {
             case ArrayType:
                 out_type = i64_type
                 out = length_of_array(type, out)
@@ -2374,7 +2446,7 @@ check_var_ref :: proc(
             diagnostic(
                 s,
                 extra_segment.pos,
-                "The value before `.len` is of type %s\nExpected an array type of an OrderedHashSet type",
+                "The value before `.len` is of type %s\nExpected a string type, an array type, or an OrderedHashSet type",
                 type_to_string(s, out_type),
             )
             return nil
@@ -2925,6 +2997,29 @@ finish_checking_early_return_type :: proc(
     return finish_checking_value(s, pos, a.type, out, type_type, "")
 }
 
+// `CheckedIndex.start_index == nil` on failure
+check_index :: proc(
+    s: ^CheckerState,
+    u: Unit,
+    body: ^[dynamic]CheckedStatement,
+    generic_args: map[string]Type,
+) -> CheckedIndex {
+    joined, is_joined := u.first_unit.(HierarchyJoinedUnits)
+    if len(u.extra_units) != 0 || !is_joined || joined.join_method != .Colon {
+        start_index := check_runtime_value(s, u, body, i64_type, generic_args)
+        if start_index == nil {
+            return CheckedIndex{}
+        }
+        return CheckedIndex{new_clone(start_index), nil}
+    }
+    start_index := check_runtime_value(s, joined.unit0^, body, i64_type, generic_args)
+    end_index := check_runtime_value(s, joined.unit1^, body, i64_type, generic_args)
+    if start_index == nil || end_index == nil {
+        return CheckedIndex{}
+    }
+    return CheckedIndex{new_clone(start_index), new_clone(end_index)}
+}
+
 check_initial_value :: proc(
     s: ^CheckerState,
     pos: Pos,
@@ -3039,6 +3134,9 @@ check_initial_value :: proc(
             case GlobalValueWithGenericRef:
                 return check_comptime_func_call(s, pos, comptime_value, checked_args, a.type)
             case UninitialisedOrderedHashMapType:
+                if a.early_exit_if_value_is_type != nil {
+                    return finish_checking_early_return_type(s, pos, a)
+                }
                 if len(checked_args) != 2 {
                     argument_count_mismatch(s, pos, len(checked_args), 2, "OrderedHashMap")
                     return nil
@@ -3080,6 +3178,108 @@ check_initial_value :: proc(
                 )
             }
             panic("Unreachable")
+        } else if being_called_type == type_type {
+            // TODO: This function could expect 0 args, and you would
+            // still be able to use the dervation syntax to create an ordered
+            // hashmap value, so maybe all this code is unnecersarry
+            type := simplify_type(s, being_called_value.(CompileTimeValue).(Type))
+            type_value, ok := get_type(s.types, type).key.(OrderedHashMapTypeWithStringKey)
+            if !ok {
+                diagnostic(
+                    s,
+                    value.unit_being_called.pos,
+                    "Got the type `%s`\nExpected an ordered hash map with a string key type (TODO: Support ordered hash maps with i64 key) for hash map creation",
+                    type_to_string(s, type),
+                )
+                return nil
+            }
+            compile_time_items: map[string]CompileTimeValue
+            runtime_items: map[string]CheckedValue
+            order := make([dynamic]string)
+            for arg in value.args {
+                // Check structure
+                if len(arg.extra_units) == 0 {
+                    diagnostic(
+                        s,
+                        arg.pos,
+                        "Expected `key = value` so there is an extra `= value` after this",
+                        len(arg.extra_units),
+                    )
+                    return nil
+                }
+                if arg.extra_units[0].join_method != .Assign {
+                    diagnostic(
+                        s,
+                        arg.extra_units[0].join_method_pos,
+                        "Expected `key = value`, so the first join method is `=`\nGot join method `%v`",
+                        arg.extra_units[0].join_method,
+                    )
+                    return nil
+                }
+
+                // Check key
+                body := make([dynamic]CheckedStatement)
+                key_value := check_initial_value(
+                    s,
+                    arg.pos,
+                    arg.first_unit,
+                    CheckValueArgs{&body, string_type, a.generic_args, nil},
+                )
+                if key_value == nil {
+                    return nil
+                }
+                key_comptime, is_comptime := key_value.(CompileTimeValue)
+                if !is_comptime {
+                    diagnostic(s, arg.pos, "Key must be comptile-time known value")
+                    return nil
+                }
+                assert(len(body) == 0)
+                key := string(key_comptime.(StringLiteralValue))
+                if key in compile_time_items || key in runtime_items {
+                    diagnostic(s, arg.pos, "The key `%s` is already specified in this map", key)
+                }
+
+                // Check value
+                value := check_value(
+                    s,
+                    Unit {
+                        arg.extra_units[0].unit.pos,
+                        arg.extra_units[0].unit.unit,
+                        arg.extra_units[1:],
+                    },
+                    CheckValueArgs{a.body, type_value.value_type, a.generic_args, nil},
+                )
+                if value == nil {
+                    return nil
+                }
+
+                // Insert
+                if value_comptime, value_is_comptime := value.(CompileTimeValue);
+                   value_is_comptime {
+                    compile_time_items[key] = value_comptime
+                } else {
+                    runtime_items[key] = value
+                }
+                append_elem(&order, key)
+            }
+            if len(runtime_items) == 0 {
+                return finish_checking_value(
+                    s,
+                    pos,
+                    a.type,
+                    CompileTimeOrderedHashMapInitialisation{type, compile_time_items, order[:]},
+                    type,
+                    "",
+                )
+            }
+            return finish_checking_value(
+                s,
+                pos,
+                a.type,
+                OrderedHashMapInitialisation{type, compile_time_items, runtime_items, order[:]},
+                type,
+                "",
+            )
         }
         if len(value.args) != 1 {
             diagnostic(
@@ -3090,11 +3290,25 @@ check_initial_value :: proc(
             )
             return nil
         }
+        if being_called_type == string_type {
+            index := check_index(s, value.args[0], a.body, a.generic_args)
+            if index.start_index == nil {
+                return nil
+            }
+            return finish_checking_value(
+                s,
+                pos,
+                a.type,
+                CheckedIndexedAccess{.String, new_clone(being_called_value), index},
+                index.end_index == nil ? u8_type : string_type,
+                "",
+            )
+        }
         #partial switch t in get_type(s.types, being_called_type).key {
         case ArrayType:
             diagnostic(s, pos, bounds_checks_warning, type = .Warning)
-            index_value := check_runtime_value(s, value.args[0], a.body, i64_type, a.generic_args)
-            if index_value == nil {
+            index := check_index(s, value.args[0], a.body, a.generic_args)
+            if index.start_index == nil {
                 return nil
             }
             //if t.length == 0 {
@@ -3109,8 +3323,9 @@ check_initial_value :: proc(
                 s,
                 pos,
                 a.type,
-                CheckedArrayAccess{new_clone(being_called_value), new_clone(index_value)},
-                t.item_type,
+                CheckedIndexedAccess{.Array, new_clone(being_called_value), index},
+                // TODO: Gives wrong type if being_called is a fixed-size array
+                index.end_index == nil ? t.item_type : being_called_type,
                 "",
             )
         case OrderedHashMapTypeWithI64Key:
@@ -3127,11 +3342,12 @@ check_initial_value :: proc(
                 CheckedOrderedHashMapAccess{new_clone(being_called_value), new_clone(key_value)},
                 t.value_type,
                 "",
-            )}
+            )
+        }
         diagnostic(
             s,
             value.unit_being_called.pos,
-            "The value is of type `%s`\nExpected an array type or an `OrderedHashMap` type",
+            "The value is of type `%s`\nExpected a string type, an array type or an `OrderedHashMap` type for indexed/keyed access",
             type_to_string(s, being_called_type),
         )
         return nil
@@ -3483,15 +3699,12 @@ check_anonymous_func_body :: proc(s: ^CheckerState, ref: CheckedFuncRef) -> bool
 check_global_value_without_generic :: proc(
     s: ^CheckerState,
     ref: GlobalValueWithoutGenericRef,
-) -> (
-    out: CheckedGlobalValue,
-) {
+) -> CheckedGlobalValue {
     global := &s.global_values_without_generic[ref.index]
     if global.v.type != unknown_type {
-        out = global.v
-        return
+        return global.v
     }
-    defer global.v = out
+    // defer global.v = out
     value := global.ast_node
     //if func_ref, is_func := value.unit.value.(FuncDefinitionRef); is_func {
     //    // func := s.func_defs[func_ref.index]
@@ -3504,11 +3717,11 @@ check_global_value_without_generic :: proc(
     //    return check_anonymous_func_body(s, func, func_type, ref, no_generic_args)
     //}
     if import_value, is_import := value.unit.first_unit.(Import); is_import {
-        out = CheckedGlobalValue{imported_file_type, import_value}
-        return
+        global.v = CheckedGlobalValue{imported_file_type, import_value}
+        return global.v
     }
     body: [dynamic]CheckedStatement = nil
-    early_exit_if_value_is_type: TypeKey = nil // TODO: Do not use nil to prevent infinite cycles with global types without generics
+    early_exit_if_value_is_type: TypeKey = GlobalType{ref}
     type: Type = unknown_type
     old_scope_state := s.scope_state
     s.scope_state = CheckerScopeState{}
@@ -3526,18 +3739,33 @@ check_global_value_without_generic :: proc(
         )
     }
     if checked_value == nil {
-        out = CheckedGlobalValue{invalid_type, nil}
-        return
+        global.v = CheckedGlobalValue{invalid_type, nil}
+        return global.v
     }
     comptime_value, ok := checked_value.(CompileTimeValue)
     if !ok {
         diagnostic(s, value.unit.pos, non_compiletime_global_err)
-        out = CheckedGlobalValue{invalid_type, nil}
-        return
+        global.v = CheckedGlobalValue{invalid_type, nil}
+        return global.v
     }
     assert(len(body) == 0)
-    out = CheckedGlobalValue{type, comptime_value}
-    return
+    global.v = CheckedGlobalValue{type, comptime_value}
+    if type == type_type {
+        type_value := comptime_value.(Type)
+        assert(
+            type_key_is_equal(s.types.m.keys[type_value.index].key, early_exit_if_value_is_type),
+        )
+        initialised_type := check_value(
+            s,
+            value.unit,
+            CheckValueArgs{nil, AnyType{&type}, no_generic_args, nil},
+        )
+        assert(type == type_type)
+        if initialised_type != nil {
+            s.types.values.d[type_value.index].type = initialised_type.(CompileTimeValue).(Type)
+        }
+    }
+    return global.v
 }
 
 length_of_array :: proc(type: ArrayType, value: CheckedValue) -> CheckedValue {
@@ -3622,11 +3850,12 @@ EntryFuncType :: enum {
 }
 
 CheckerOutput :: struct {
-    reporter:      DiagnosticReporter,
-    func_ref:      CheckedFuncRef,
-    globals:       []GlobalValueWithGeneric,
-    checked_funcs: []CheckedFunction,
-    types:         Types,
+    reporter:                DiagnosticReporter,
+    func_ref:                CheckedFuncRef,
+    globals_without_generic: []GlobalValueWithoutGeneric,
+    globals_with_generic:    []GlobalValueWithGeneric,
+    checked_funcs:           []CheckedFunction,
+    types:                   Types,
 }
 
 check :: proc(
@@ -3750,6 +3979,7 @@ check :: proc(
     return CheckerOutput {
         state.r,
         func_ref,
+        state.global_values_without_generic.ast_node[:len(state.global_values_without_generic)],
         state.global_values_with_generics,
         state.checked_functions[:],
         state.types,

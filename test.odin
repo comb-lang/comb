@@ -45,6 +45,7 @@ run_example_via_c :: proc(
     compiler_pipe := pipe_mock(a)
     executable: string
     status := compile(
+        a,
         FunctionRef{absolute_path, "main"},
         compiler_pipe,
         BuildC{&executable},
@@ -104,6 +105,7 @@ interpret_example :: proc(
     compiler_pipe := pipe_mock(a)
     program_pipe := pipe_mock(a)
     status := compile(
+        a,
         func,
         compiler_pipe,
         Run{program_pipe, new(LongLivedInterpState)},
@@ -358,7 +360,7 @@ buffered_pipe_test :: proc(t: ^testing.T) {
 
 @(test)
 example_06_counter :: proc(t: ^testing.T) {
-    file :: #directory + "examples/gitignore_counter.html"
+    file :: #directory + "examples/gitignore_counter/index.html"
     err := os.remove_all(file)
     testing.expect(t, err == nil || err.(os.General_Error) == .Not_Exist)
 
@@ -372,7 +374,7 @@ example_06_counter :: proc(t: ^testing.T) {
 
 @(test)
 example_07_conways_game_of_life :: proc(t: ^testing.T) {
-    file :: #directory + "examples/gitignore_conways_game_of_life.html"
+    file :: #directory + "examples/gitignore_conways_game_of_life/index.html"
     err := os.remove_all(file)
     testing.expect(t, err == nil || err.(os.General_Error) == .Not_Exist)
 
@@ -416,7 +418,7 @@ basic_fuzz_test :: proc(t: ^testing.T) {
 
         pipe := pipe_mock(&a)
         defer get_output(pipe)
-        compile(FunctionRef{tmp_file, "main"}, pipe, BuildC{}, panic_reader, NeverExitEarly{})
+        compile(&a, FunctionRef{tmp_file, "main"}, pipe, BuildC{}, panic_reader, NeverExitEarly{})
     }
 }
 
@@ -445,13 +447,17 @@ example_08_result :: proc(t: ^testing.T) {
     // TODO: Test inputs other than `dog`
     a: Arena
     defer delete_arena(&a, expect_empty = false)
-    ran := run_example_via_c(t, &a, #directory + "examples/08_result.code", "dog\n")
-    if ran == nil {return}
-    out := ran.(CompilationSuccessful)
-    testing.expect(t, out.compiler.stderr == c_warning)
-    testing.expect(t, out.program.stderr == "")
-    if out.program.stdout != "Enter the name of an animal: You entered the animal dog\n" {
-        testing.fail_now(t, fmt.aprintf("Got the stdout `%s`", out.program.stdout))
+    ran := interpret_example(
+        t,
+        &a,
+        FunctionRef{#directory + "examples/08_result.code", "main"},
+        "dog\n",
+    )
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.compiler.stderr == "")
+    testing.expect(t, ran.program.stderr == "")
+    if ran.program.stdout != "Enter the name of an animal: You entered the animal dog\n" {
+        testing.fail_now(t, fmt.aprintf("Got the stdout `%s`", ran.program.stdout))
     }
 }
 

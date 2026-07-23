@@ -188,14 +188,13 @@ EarlyExitInfo :: union #no_nil {
 }
 
 compile :: proc(
+    a: ^Arena,
     func: FunctionRef,
     compiler: Pipe(io.Writer),
     command: Command,
     stdin: io.Reader,
     exit_early: EarlyExitInfo,
 ) -> int {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
     start := time.now()
     if exit_early_info, exiting_early := exit_early.(^ExitEarly); exiting_early {
         exit_early_info^ = ExitEarlyAwaitingSourceCodeChange{start, nil, time.Time{}}
@@ -208,7 +207,7 @@ compile :: proc(
         )
     }
 
-    parsed, ok := parse_project(&a, func.file_name, compiler, exit_early)
+    parsed, ok := parse_project(a, func.file_name, compiler, exit_early)
     if !ok {
         return 1
     }
@@ -226,7 +225,7 @@ compile :: proc(
     }
 
     fmt.wprintfln(compiler.stdout, "Checking...")
-    checker_output := check(&a, parsed, func.func_name, compiler)
+    checker_output := check(a, parsed, func.func_name, compiler)
     function_type := unknown_type
     if checker_output.func_ref.index < len(checker_output.checked_funcs) {
         function_type = checker_output.checked_funcs[checker_output.func_ref.index].type
@@ -241,12 +240,14 @@ compile :: proc(
                         "Got the type `%s`\nExpected the type `%s`",
                         type_to_string2(
                             checker_output.types,
-                            checker_output.globals,
+                            checker_output.globals_without_generic,
+                            checker_output.globals_with_generic,
                             function_type,
                         ),
                         type_to_string2(
                             checker_output.types,
-                            checker_output.globals,
+                            checker_output.globals_without_generic,
+                            checker_output.globals_with_generic,
                             no_args_to_i64_type,
                         ),
                     )
@@ -259,17 +260,20 @@ compile :: proc(
                         "Got the type `%s`\nExpected the type `%s` or `%s`",
                         type_to_string2(
                             checker_output.types,
-                            checker_output.globals,
+                            checker_output.globals_without_generic,
+                            checker_output.globals_with_generic,
                             function_type,
                         ),
                         type_to_string2(
                             checker_output.types,
-                            checker_output.globals,
+                            checker_output.globals_without_generic,
+                            checker_output.globals_with_generic,
                             no_args_to_i64_type,
                         ),
                         type_to_string2(
                             checker_output.types,
-                            checker_output.globals,
+                            checker_output.globals_without_generic,
+                            checker_output.globals_with_generic,
                             compiler_to_i64_type,
                         ),
                     )
@@ -343,14 +347,15 @@ compile :: proc(
 
     absolute_file_dir := filepath.dir(absolute_file_name)
     state := ShortLivedInterpState {
-        types           = checker_output.types,
-        globals         = checker_output.globals,
-        checked_funcs   = checker_output.checked_funcs,
-        builtin_handler = BuiltinHandler {
+        types                   = checker_output.types,
+        globals_with_generic    = checker_output.globals_with_generic,
+        globals_without_generic = checker_output.globals_without_generic,
+        checked_funcs           = checker_output.checked_funcs,
+        builtin_handler         = BuiltinHandler {
             &DefaultBuiltinHandlerData{absolute_file_dir, run.program_io, stdin},
             default_builtin_handler_procedure,
         },
-        exit_early      = exit_early,
+        exit_early              = exit_early,
     }
     args: []RuntimeValue
     if function_type == compiler_to_i64_type {
@@ -640,7 +645,10 @@ main :: proc() {
     ref, watch := parse_args_after_command(os.args[2:])
     early_exit_info: EarlyExitInfo = watch ? new(ExitEarly) : NeverExitEarly{}
     for {
+        a: Arena
+        defer delete_arena(&a, expect_empty = false)
         ret := compile(
+            &a,
             ref,
             std_pipe,
             command,

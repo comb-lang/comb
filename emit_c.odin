@@ -86,6 +86,8 @@ emit_c_func_call :: proc(s: ^CEmitterState, c: CheckedFunctionCall) {
 
 emit_c_comptime_value :: proc(s: ^CEmitterState, value: CompileTimeValue) {
     switch comptime in value {
+    case CompileTimeOrderedHashMapInitialisation:
+        panic("TODO")
     case CastFunction:
         panic("TODO")
     case BuiltinFunction:
@@ -139,12 +141,14 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: CompileTimeValue) {
 
 emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
     switch value in v {
+    case LengthOfString:
+        panic("TODO")
+    case OrderedHashMapInitialisation:
+        panic("TODO")
     case ArrayLiteral:
         panic("TODO: Handle array literal in C emitter")
     case CheckedDerivation:
         panic("TODO: Handle checked derivation in C emitter")
-    case OrderedHashMapInitFunc:
-        panic("TODO")
     case CheckedOrderedHashMapAccess,
          KeysOfOrderedHashMapWithStringKey,
          KeysOfOrderedHashMapWithI64Key:
@@ -191,10 +195,16 @@ emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
         panic("TODO")
     case LengthOfOrderedHashMapWithI64Key:
         panic("TODO")
-    case CheckedArrayAccess:
-        emit_c_value(s, value.array^)
+    case CheckedIndexedAccess:
+        if value.base_type == .String {
+            panic("TODO")
+        }
+        emit_c_value(s, value.base^)
         strings.write_string(&s.b, ".elems[")
-        emit_c_value(s, value.index^)
+        emit_c_value(s, value.i.start_index^)
+        if value.i.end_index != nil {
+            panic("TODO")
+        }
         strings.write_byte(&s.b, ']')
     case CheckedFunctionCall:
         emit_c_func_call(s, value)
@@ -472,6 +482,8 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
     name := fmt.aprintf("Type%d", index)
     defer delete(name)
     switch type in s.types.m.keys[index].key {
+    case GlobalType:
+        panic("TODO")
     case ArrayType:
         strings.write_string(&s.other_type_definitions, "struct ")
         strings.write_string(&s.other_type_definitions, name)

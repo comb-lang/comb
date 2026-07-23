@@ -17,8 +17,17 @@ emit_js_func_call :: proc(s: ^GeneralEmitterState, c: CheckedFunctionCall) {
 
 emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: CompileTimeValue) {
     switch comptime in v {
+    case CompileTimeOrderedHashMapInitialisation:
+        strings.write_string(&s.b, "new Map()")
+        for key in comptime.order {
+            strings.write_string(&s.b, ".set(\"")
+            strings.write_string(&s.b, key)
+            strings.write_string(&s.b, "\", ")
+            emit_js_comptime_value(s, comptime.value[key])
+            strings.write_byte(&s.b, ')')
+        }
     case CastFunction:
-        panic("TODO")
+        strings.write_string(&s.b, "/* TODO: Implement cast in JS emitter */ undefined")
     case BuiltinFunction:
         strings.write_string(&s.b, "builtin")
         strings.write_uint(&s.b, uint(comptime))
@@ -81,11 +90,18 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: CompileTimeValue) {
 // TODO: Deduplicate code between `emit_js_runtime_value` and `emit_js_value` / `emit_js_comptime_value`
 
 emit_js_runtime_value :: proc(b: ^strings.Builder, value: RuntimeValue) {
-    #partial switch v in value {
+    switch v in value {
     case RuntimeFunc:
         strings.write_string(b, "func")
         strings.write_uint(b, v.ref.index)
-        assert(v.lambda_args == nil)
+        if len(v.lambda_args) != 0 {
+            strings.write_byte(b, '(')
+            for arg in v.lambda_args {
+                emit_js_runtime_value(b, arg)
+                strings.write_byte(b, ',')
+            }
+            strings.write_byte(b, ')')
+        }
     case RuntimeStruct:
         strings.write_byte(b, '{')
         for field, i in v.field_values {
@@ -107,11 +123,48 @@ emit_js_runtime_value :: proc(b: ^strings.Builder, value: RuntimeValue) {
         strings.write_i64(b, v)
     case bool:
         strings.write_string(b, v ? "true" : "false")
+    case i32,
+         i16,
+         i8,
+         u64,
+         u32,
+         u16,
+         u8,
+         CastFunction,
+         RuntimeI64OrderedHashMap,
+         StructTypeInitFunc,
+         SumTypeInitFunc,
+         BuiltinFunction,
+         SetHttpServerHandler,
+         HttpServerListenAndServe:
+        panic("TODO")
+    case RuntimeSumType:
+        strings.write_string(b, "{variant:")
+        strings.write_uint(b, uint(v.variant_index))
+        strings.write_byte(b, ',')
+        for field, i in v.payload {
+            strings.write_string(b, "field")
+            strings.write_int(b, i)
+            strings.write_byte(b, ':')
+            emit_js_runtime_value(b, field)
+            strings.write_byte(b, ',')
+        }
+        strings.write_byte(b, '}')
+    case RuntimeStringOrderedHashMap:
+        strings.write_string(b, "new Map()")
+        for key in v.order {
+            strings.write_string(b, ".set(\"")
+            strings.write_string(b, key)
+            strings.write_string(b, "\", ")
+            emit_js_runtime_value(b, v.hashmap[key])
+            strings.write_byte(b, ')')
+        }
+    case RuntimeString:
+        strings.write_byte(b, '"')
+        strings.write_string(b, v.value)
+        strings.write_byte(b, '"')
     case:
-        strings.write_string(
-            b,
-            "undefined /* TODO: Be able to emit more kinds of RuntimeValue as javascript */",
-        )
+        panic("Unreachable")
     }
 }
 
@@ -167,6 +220,22 @@ emit_js_derivation :: proc(
 
 emit_js_value :: proc(s: ^GeneralEmitterState, value: CheckedValue) {
     switch v in value {
+    case LengthOfString:
+        emit_js_value(s, v.str^)
+        strings.write_string(&s.b, ".length")
+    case OrderedHashMapInitialisation:
+        strings.write_string(&s.b, "new Map()")
+        for key in v.order {
+            strings.write_string(&s.b, ".set(\"")
+            strings.write_string(&s.b, key)
+            strings.write_string(&s.b, "\", ")
+            if key in v.compile_time_values {
+                emit_js_comptime_value(s, v.compile_time_values[key])
+            } else {
+                emit_js_value(s, v.runtime_values[key])
+            }
+            strings.write_byte(&s.b, ')')
+        }
     case CheckedDerivation:
         emit_js_derivation(s, v.base^, v.subset.elements, v.alteration)
     case ArrayLiteral:
@@ -175,17 +244,15 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: CheckedValue) {
             switch seg in segment {
             case SingleElemSegment:
                 emit_js_value(s, seg.elem)
-                strings.write_byte(&s.b, ',')
             case InlineArraySegment:
+                strings.write_string(&s.b, "...")
                 emit_js_value(s, seg.array)
-                strings.write_string(&s.b, "...,")
             case:
                 panic("Unreachable")
             }
+            strings.write_byte(&s.b, ',')
         }
         strings.write_byte(&s.b, ']')
-    case OrderedHashMapInitFunc:
-        strings.write_string(&s.b, "new Map")
     case KeysOfOrderedHashMapWithStringKey:
         emit_js_map_keys_func(s, v.hash_map^)
     case KeysOfOrderedHashMapWithI64Key:
@@ -213,11 +280,19 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: CheckedValue) {
         panic("TODO")
     case LengthOfOrderedHashMapWithI64Key:
         panic("TODO")
-    case CheckedArrayAccess:
-        emit_js_value(s, v.array^)
-        strings.write_byte(&s.b, '[')
-        emit_js_value(s, v.index^)
-        strings.write_byte(&s.b, ']')
+    case CheckedIndexedAccess:
+        emit_js_value(s, v.base^)
+        if v.i.end_index != nil {
+            strings.write_string(&s.b, ".slice(")
+            emit_js_value(s, v.i.start_index^)
+            strings.write_byte(&s.b, ',')
+            emit_js_value(s, v.i.end_index^)
+            strings.write_byte(&s.b, ')')
+        } else {
+            strings.write_byte(&s.b, '[')
+            emit_js_value(s, v.i.start_index^)
+            strings.write_byte(&s.b, ']')
+        }
     case CheckedFunctionCall:
         emit_js_func_call(s, v)
     case StructTypeInitFunc:
@@ -291,6 +366,7 @@ emit_js_global_type :: proc(s: ^GeneralEmitterState, index: int) {
     name := fmt.aprintf("Type%d", index)
     defer delete(name)
     switch t in s.types.m.keys[index].key {
+    case GlobalType:
     case OrderedHashMapTypeWithStringKey:
     case OrderedHashMapTypeWithI64Key:
     case ArrayType:
@@ -529,9 +605,9 @@ emit_javascript :: proc(types: Types, checked_functions: []CheckedFunction) -> s
             }
             emit_variable(&s.b, VariableRef{1, uint(i)})
         }
-        strings.write_string(&s.b, ") {")
+        strings.write_string(&s.b, ") => {")
         emit_js_block(&s, 2, func.variables, func.body)
-        strings.write_byte(&s.b, '}')
+        strings.write_string(&s.b, "};")
     }
 
     return s.b

@@ -1,0 +1,48 @@
+get_http_server = |cache: CompilerCache, cache_name: String| -> HttpServer {
+    if cache.contains(cache_name) {
+        return cast[HttpServer](cache.get(cache_name))
+    } else {
+        server = init_http_server()
+        cache.set(cache_name, server)
+        return server
+    }
+}
+
+// TODO: Implement using a replace function
+
+get_char_replacement = |c: U8| -> String {
+    if c == '&' {
+        return "&amp;"
+    } else if c == '<' {
+        return "&lt;"
+    } else if c == '>' {
+        return "&gt;"
+    } else if c == '"' {
+        return "&quot;"
+    } else if c == '\'' {
+        return "&#39;"  // &#x27; also valid
+    } else if c == '/' {
+        return "&#x2F;"
+    } else {
+        return ""
+    }
+}
+
+// TODO: Add a unit test for this code
+escape_for_html = |s: String| -> String {
+    re out$ = ""
+    re segment_start$ = 0
+    re index$ = 0
+    while index$ < s.len {
+        r = get_char_replacement(s[index$])
+        if r == "" {
+            index$ = index$ + 1
+        } else {
+            out$ = out$ & s[segment_start$:index$] & r
+            index$ = index$ + 1
+            segment_start$ = index$
+        }
+    }
+    out$ = out$ & s[segment_start$:index$]
+    return out$
+}

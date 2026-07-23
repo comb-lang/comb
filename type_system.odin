@@ -108,6 +108,10 @@ http_server_type :: Type{22}
 // () -> HttpServer
 no_args_to_http_server_type :: Type{23}
 
+GlobalType :: struct {
+    global: GlobalValueWithoutGenericRef,
+}
+
 GenericTypeValue :: struct {
     global:       GlobalValueWithGenericRef,
     generic_args: []Type,
@@ -126,9 +130,12 @@ TypeKey :: union {
     OrderedHashMapTypeWithStringKey,
     OrderedHashMapTypeWithI64Key,
     FuncType,
-    GenericTypeValue, // The `TypeValue.type` is the initialised type, which is set to `unknown_type` when the generic is not initialised yet
-    SumType, // The type is always a struct
+    SumType,
     StructType, // The `TypeValue.type` is the initialisation function
+
+    // Both of these are included to be able to prevent cycles
+    GlobalType, // The `TypeValue.type` is the initialised type, which is set to `unknown_type` when the global is not initialised yet
+    GenericTypeValue, // The `TypeValue.type` is the initialised type, which is set to `unknown_type` when the generic is not initialised yet
 }
 
 init_struct_type :: proc(types: ^Types, type: Type, fields: []Type) {
@@ -441,6 +448,8 @@ hash_type_value :: proc(value: TypeKey) -> u32 {
         return hash_func_type(v)
     case GenericTypeValue:
         return v.global.index ~ get_hash_of_array_of_types(v.generic_args)
+    case GlobalType:
+        return u32(v.global.index)
     }
     panic("Unreachable")
 }
@@ -524,6 +533,12 @@ type_key_is_equal :: proc(a: TypeKey, b: TypeKey) -> bool {
             }
         }
         return true
+    case GlobalType:
+        vb, ok := b.(GlobalType)
+        if !ok {
+            return false
+        }
+        return va.global == vb.global
     case:
         panic("Unreachable")
     }

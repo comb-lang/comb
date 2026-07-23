@@ -166,6 +166,7 @@ A new language for the web, because it's time to stop working around javascript.
 
 # The syntax
 
+- Instead of something like `OrderedHashMap[String, I64]["a" = 5]` to create an ordered hash map value, I would rather use something like `{"a": 5}`
 - Instead of `<>`, I would rather use `[]` for union/sum types, but that conflicts with array types
 - Instead of `[]Type(elem1, elem2, ...)`, I would rather use `[elem1, elem2, ...]` for array literals, but that is harder to type check
 - Instead of `|args| -> ReturnType {...}`, I would rather use `(args) -> ReturnType {}` for function definitions, but that syntax conflicts with order of operations grouping

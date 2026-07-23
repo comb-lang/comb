@@ -1,4 +1,5 @@
 h = import "html.code"
+http = import "http.code"
 
 game_width = 15
 game_height = 15
@@ -42,50 +43,60 @@ run_tick = |s: [game_size]Bool| -> [game_size]Bool {
     return new_state$
 }
 
-game_of_life = |s: [game_size]Bool| -> h.UI[[game_size]Bool] {
-    re grid_pixels$ = []h.HtmlElem[[game_size]Bool]()
+game_of_life = |s: [game_size]Bool| -> h.UI {
+    re grid_pixels$ = []h.HtmlElem()
     for pixel in s {
         if pixel {
-	        grid_pixels$ = grid_pixels$ :: .Div("background: #FFFFFF;", []h.HtmlElem[[game_size]Bool]())
+	        grid_pixels$ = grid_pixels$ :: .Div("background: #FFFFFF;", []h.HtmlElem())
         } else {
-	        grid_pixels$ = grid_pixels$ :: .Div("background: #000000;", []h.HtmlElem[[game_size]Bool]())
+	        grid_pixels$ = grid_pixels$ :: .Div("background: #000000;", []h.HtmlElem())
         }
     }
 	grid_style =
         "display: grid;"
         "grid-template-columns: repeat(" & game_width.to_str & ", 1fr);"
         "aspect-ratio: 1 / 1;"
-	ui_contents = []h.HtmlElem[[game_size]Bool](
-        .Button([]h.HtmlElem[[game_size]Bool](.Text("Run tick")), run_tick),
+	ui_contents = []h.HtmlElem(
+        .Button([]h.HtmlElem(
+			.Text("Run tick")),
+			|| -> h.UI { return game_of_life(run_tick(s)) },
+		),
         .Div(grid_style, grid_pixels$),
     )
-	return h.UI[[game_size]Bool](main_title, ui_contents)
+	return h.UI(main_title, ui_contents, |_: h.Key| -> h.UI { return game_of_life(s) })
 }
 
+site = h.Site(OrderedHashMap[String, () -> h.UI][
+	"/" = || -> h.UI {
+		pulsar_initial_state = [game_size]Bool(
+		    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+		    false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
+		    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
+		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
+		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
+		    false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
+		    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+		    false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
+		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
+		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
+		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
+		    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+		    false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
+		    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+		)
+		return game_of_life(pulsar_initial_state)
+	},
+])
+
 build = |c: Compiler| -> I64 {
-    pulsar_initial_state = [game_size]Bool(
-        false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-        false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
-        false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-        false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-        false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-        false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-        false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
-        false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-        false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
-        false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-        false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-        false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-        false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-        false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
-        false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-    )
-	html = h.reactive_page[[game_size]Bool](
-	    c,
-		game_of_life,
-		pulsar_initial_state,
-		h.ignore_keypress[[game_size]Bool],
-	)
-    write_file("gitignore_conways_game_of_life.html", html)
+	h.build_reactive_site(c, site, "gitignore_conways_game_of_life")
     return 0
+}
+
+// TODO: Add unit test for this
+serve = |c: Compiler| -> I64 {
+	server = http.get_http_server(c.cache, "server")
+    h.serve_reactive_site(c, server, site)
+	return 0
 }

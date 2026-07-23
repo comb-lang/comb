@@ -129,7 +129,11 @@ iterate_array :: proc(
         },
         CheckedAssignment {
             value_variable,
-            CheckedArrayAccess{new_clone(array_value), new_clone(CheckedValue(index_variable))},
+            CheckedIndexedAccess {
+                .Array,
+                new_clone(array_value),
+                CheckedIndex{new_clone(CheckedValue(index_variable)), nil},
+            },
         },
     )
     continue_code := make([]CheckedStatement, 1)

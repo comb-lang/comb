@@ -39,6 +39,7 @@ BuiltinFunction :: enum u8 {
     save_cursor_pos,
     restore_cursor_pos,
     clear_after_cursor,
+    make_dir_all,
     invalid_builtin = max(u8),
 }
 
@@ -76,6 +77,8 @@ get_builtin_func_from_name :: proc(name: string) -> (BuiltinFunction, Type) {
         return .restore_cursor_pos, no_args_to_nil_type
     case "clear_after_cursor":
         return .clear_after_cursor, no_args_to_nil_type
+    case "make_dir_all":
+        return .make_dir_all, string_to_nil_type
     case:
         return .invalid_builtin, invalid_type
     }
@@ -199,6 +202,7 @@ is_builtin :: proc(name: string) -> bool {
          "save_cursor_pos",
          "restore_cursor_pos",
          "clear_after_cursor",
+         "make_dir_all",
          "I64",
          "I32",
          "I16",

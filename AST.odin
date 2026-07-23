@@ -200,7 +200,7 @@ HierarchyJoinedUnits :: struct {
 
 Call :: struct {
     unit_being_called: ^Unit,
-    args:              []Unit, // TODO: Add named arguments
+    args:              []Unit,
 }
 
 CallWithBrackets :: distinct Call // A(B, C, D)

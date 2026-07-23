@@ -22,7 +22,7 @@ main = || -> I64 {
 	println("`remove` - remove from shopping list")
 	save_cursor_pos()
 
-    re shopping$ = Shopping()
+    re shopping$ = Shopping[]
     while true {
 		restore_cursor_pos()
 		clear_after_cursor()

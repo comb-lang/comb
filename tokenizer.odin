@@ -118,7 +118,7 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
     token := cast(^TokenContents)arg.data
     switch value in token {
     case Error:
-        fmt.wprintf(fi.writer, "the tokenizer error \"%s\"", value)
+        fmt.wprintf(fi.writer, "the tokenizer error:\n%s", value)
     case NewlineToken:
         fmt.wprint(fi.writer, "a newline")
     case OpenBracketToken:

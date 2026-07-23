@@ -1,6 +1,4 @@
-// let state = ...
-// let state_to_ui = ...
-// let on_key_down = ...
+// let ui = ...
 
 const svgNS = "http://www.w3.org/2000/svg"
 
@@ -25,7 +23,7 @@ function create_html_elem(elem) {
     case 0:
       const button = document.createElement("button")
       button.onclick = () => {
-        state = elem.field1(state)
+        ui = elem.field1()
         render_ui()
       }
       for (const child of elem.field0) {
@@ -53,7 +51,6 @@ function create_html_elem(elem) {
 }
 
 function render_ui() {
-  ui = state_to_ui(state)
   document.body.innerHTML = ""
   document.title = ui.field0
   for (const elem of ui.field1) {
@@ -62,7 +59,7 @@ function render_ui() {
 }
 
 window.onkeydown = (e) => {
-  state = on_key_down(state, {field0: e.key})
+  ui = ui.field2({field0: e.key})
   render_ui()
 }
 

@@ -8,6 +8,9 @@
 //                 |--|
 // Implemented in the programming language 
 
+h = import "http.code"
+p = import "path.code"
+
 SvgElem = <
     Line {
         // TODO: Use U64 instead of I64
@@ -21,9 +24,9 @@ SvgElem = <
     },
 >
 
-HtmlElem[State] = <
-    Button {children: []HtmlElem[State], onclick: (State) -> State},
-    Div {style: String, children: []HtmlElem[State]},
+HtmlElem = <
+    Button {children: []HtmlElem, onclick: () -> UI},
+    Div {style: String, children: []HtmlElem},
     Text {text: String},
     Svg {style: String, width: I64, height: I64, contents: []SvgElem}, // TODO: Be able to use `U64` instead of `I64`
 >
@@ -32,30 +35,33 @@ Key = {
     key: String,
 }
 
-UI[State] = {
+UI = {
     page_title: String,
-    ui_contents: []HtmlElem[State],
+    ui_contents: []HtmlElem,
+    on_key_down: (Key) -> UI,
 }
 
-ignore_keypress[T] = |old_state: T, _: Key| -> T {
-    return old_state
+Site = {
+    // TODO: Use `UI` rather than `() -> UI`
+    // Currently this isn't useful because you can't interpret a call to a
+    // render function like `(State) -> UI` at compile time so using `UI` rather
+    // than `() -> UI` would make it impractical to construct a compile-time
+    // known `Site`
+    pages: OrderedHashMap[String, () -> UI], // TODO: Be able to use a unordered hash map
 }
 
-// TODO: Implement state-preserving hot-reload using the `-watch` flag and compiler cache
-reactive_page[T] = |
-    c: Compiler,
-	reactivity_function: (T) -> UI[T],
-	initial_state: T,
-    on_key_down: (T, Key) -> T,
-| -> String {
+reactive_page = |c: Compiler, ui: () -> UI| -> String {
     glue = #load "./html.js"
-    // TODO: Be able to define the map like `{"state_to_ui": reactivity_function, "state": initial_state}`
-    re map$ = OrderedHashMap[String, Any]()
-    map$ = map$ ~ ["state_to_ui"] = reactivity_function
-    map$ = map$ ~ ["state"] = initial_state
-    map$ = map$ ~ ["on_key_down"] = on_key_down
-    // Maybe there could be an argument with the type `<.Minify{}, .LeaveNames{}>` in the future
-    js = c.emit_js_code(map$, glue)
+    // TODO: Be able to define the map something like `{"ui": ui()}`
+    map = OrderedHashMap[String, Any]["ui" = ui()]
+    // TODO: Add minification:
+    // - Maybe there could be an argument with the type
+    //   `<Minify{}, LeaveNames{}>` in the future
+    // - Alternatively, named arguments and default arguments could be added so
+    //   the type of emit_js_code is
+    //   `(OrderedHashMap[String, Any], String, minify = true)`, and then you
+    //   call it like `emit_js_code(map, glue, minify = true)`
+    js = c.emit_js_code(map, glue)
     // The close tags are split up so that the browser interprets them as JS strings rather than HTML close tags
 	// TODO: JS should be tree-shaked so the `reactive_page` function shouldn't even be included in the emitted JS code
     return
@@ -68,5 +74,26 @@ reactive_page[T] = |
             "</" & "head>"
             "<body></" & "body>"
         "</" & "html>"
+}
+
+build_reactive_site = |c: Compiler, s: Site, path: String| {
+    for rel_page_path, ui in s.pages {
+        page_path = path & "/" & p.normalize_path(rel_page_path) & ".html"
+        make_dir_all(p.dir(page_path))
+        write_file(page_path, reactive_page(c, ui))
+    }
+}
+
+// TODO: Implement state-preserving hot-reload using the `-watch` flag and compiler cache and a websocket
+serve_reactive_site = |c: Compiler, server: HttpServer, s: Site| {
+    println("Serving reactive site on port " & server.port.to_str)
+    server.set_handler(|req: HttpRequest| -> HttpResponse {
+        // TODO: Add path normalisation
+        if req.url in s.pages {
+            return .Html(reactive_page(c, s.pages[req.url]))
+        }
+        return .Html("The page " & h.escape_for_html(req.url) & " is not defined")
+    })
+    server.listen_and_serve()
 }
 

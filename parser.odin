@@ -339,9 +339,6 @@ maybe_parse_initial_unit :: proc(
             return UnitsInSquareBrackets{args}, true
         }
         assert(ok)
-        if unit == nil {
-            return nil, false
-        }
         // TODO: Update the syntax so that this exception to the parsed order of operations is not necersarry
         if _, is_open_square_bracket := s.last_token.(OpenSquareBracketToken);
            is_open_square_bracket {
@@ -364,6 +361,7 @@ maybe_parse_initial_unit :: proc(
         if !is_ident {
             append_dynamic(&s.last_token_descriptions_of_other_possible_tokens, "an identifier")
             wrong_token_err(s)
+            return nil, false
         }
         get_next_token(s, true)
         return IdentNode{ident, true}, true

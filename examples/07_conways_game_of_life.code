@@ -1,5 +1,5 @@
-h = import "html.code"
-http = import "http.code"
+h = import "std/html.code"
+http = import "std/http.code"
 
 game_width = 15
 game_height = 15

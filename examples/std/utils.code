@@ -1,0 +1,9 @@
+// TODO: Include these utils in some standard library
+// You should not have to define `assert` in every program you write that uses assert
+assert = |cond: Bool| {
+	if cond == false {
+		unreachable
+	}
+}
+
+// TODO: Add utils for converting values of any type to strings

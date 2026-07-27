@@ -363,12 +363,12 @@ expect_camel_case :: proc(s: ^CheckerState, expected: string, ident: TextAndPos)
         )
         return
     }
-    for c, i in ident.text[1:] {
-        switch get_character_group(u8(c)) {
+    for i: uint = 1; i < len(ident.text); i += 1 {
+        switch get_character_group(ident.text[i]) {
         case .Underscore:
             diagnostic(
                 s,
-                Pos{ident.pos.index + uint(i) + 1, ident.pos.file},
+                Pos{ident.pos.index + i, ident.pos.file},
                 "Expected %s to be `CamelCase`, got `%s`\nCannot have `_` in a camel case identifier",
                 expected,
                 ident.text,
@@ -381,7 +381,7 @@ expect_camel_case :: proc(s: ^CheckerState, expected: string, ident: TextAndPos)
             assert(ident.text[i] == '$')
             diagnostic(
                 s,
-                Pos{ident.pos.index + uint(i) + 1, ident.pos.file},
+                Pos{ident.pos.index + i, ident.pos.file},
                 "Cannot have '$' post fix in `CamalCase` identifier `%s`",
                 ident.text,
                 type = .Warning,
@@ -3202,7 +3202,7 @@ check_initial_value :: proc(
                     diagnostic(
                         s,
                         arg.pos,
-                        "Expected `key = value` so there is an extra `= value` after this",
+                        "Expected `key = value` so there is an extra %d `= value` after this",
                         len(arg.extra_units),
                     )
                     return nil
@@ -3237,6 +3237,7 @@ check_initial_value :: proc(
                 key := string(key_comptime.(StringLiteralValue))
                 if key in compile_time_items || key in runtime_items {
                     diagnostic(s, arg.pos, "The key `%s` is already specified in this map", key)
+                    return nil
                 }
 
                 // Check value
@@ -3662,6 +3663,9 @@ check_anonymous_func_body :: proc(s: ^CheckerState, ref: CheckedFuncRef) -> bool
     s.parent_loop_index = max(uint)
     assert(len(s.scopes) == 0)
     assert(len(s.variables_map) == 0)
+    // We do not need to shallow clone
+    // `checked_func.inline_stuff.variables_from_outer_scope` because we are the
+    // only consumer of `checked_func.inline_stuff.variables_from_outer_scope`
     s.variables_map = checked_func.inline_stuff.variables_from_outer_scope
     assert(len(s.labels_map) == 0)
     for return_type, i in func_type.return_types {

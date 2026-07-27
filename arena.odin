@@ -194,6 +194,7 @@ resize :: proc(allocation: rawptr, new_size: int, loc := #caller_location) {
     when debug_arena {
         print_call(loc, "resize")
     }
+    assert(new_size >= 0)
     info := get_info(allocation)
     assert(is_resizable(info))
     // Dependent on https://github.com/odin-lang/Odin/pull/7049

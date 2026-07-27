@@ -1,3 +1,5 @@
+// Removes extra slashes before and after a path
+// Replaces an empty path with `index`
 normalize_path = |p: String| -> String {
     if p.len == 0 {
         return "index"

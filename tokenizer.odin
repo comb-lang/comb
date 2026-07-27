@@ -522,7 +522,7 @@ get_next_token :: proc(
             )
         }
 
-    case '_', 'a' ..< 'z', 'A' ..< 'Z':
+    case '_', 'a' ..= 'z', 'A' ..= 'Z':
         skip_ignore_first(state, is_alphanumeric_char)
         ident := state.last_token_pos.file.code[state.last_token_pos.index:state.index]
         switch ident {

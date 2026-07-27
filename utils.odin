@@ -39,8 +39,10 @@ reader_stream_proc :: proc(
     return i64(end), .None
 }
 
-make_reader :: proc(s: string) -> io.Reader {
-    return io.Reader{reader_stream_proc, new_clone(transmute([]byte)s)}
+make_reader :: proc(a: ^Arena, s: string) -> io.Reader {
+    data := arena_new(a, []byte)
+    data^ = transmute([]byte)s
+    return io.Reader{reader_stream_proc, data}
 }
 
 panic_stream_proc :: proc(

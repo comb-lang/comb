@@ -1,0 +1,25 @@
+u = import "../std/utils.code"
+
+main = || -> I64 {
+	// Reassignable declared first
+	re hello$ = "hello1"
+	u.assert(hello$ == "hello1")
+	hello = "hello2"
+	u.assert(hello$ == "hello1" and hello == "hello2")
+
+	// Constant declared first
+	hi = "hello3"
+	u.assert(hello$ == "hello1" and hello == "hello2" and hi == "hello3")
+	re hi$ = "hello4"
+	u.assert(hello$ == "hello1" and hello == "hello2" and hi == "hello3" and hi$ == "hello4")
+
+	// Reassign reassignables
+	hello$ = "hello5"
+	u.assert(hello$ == "hello5" and hello == "hello2" and hi == "hello3" and hi$ == "hello4")
+	hi$ = "hello6"
+	u.assert(hello$ == "hello5" and hello == "hello2" and hi == "hello3" and hi$ == "hello6")
+	hello$ = "hello7"
+	u.assert(hello$ == "hello7" and hello == "hello2" and hi == "hello3" and hi$ == "hello6")
+	
+	return 0
+}

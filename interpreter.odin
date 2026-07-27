@@ -1155,6 +1155,9 @@ default_builtin_handler_procedure :: proc(
             if b == '\n' {
                 break
             }
+            if b == '\r' {
+                continue
+            }
             append_elem(&bytes, b)
         }
         return RuntimeString{true, string(bytes[:])}
@@ -1172,6 +1175,7 @@ default_builtin_handler_procedure :: proc(
     case .make_dir_all:
         assert(len(args) == 1)
         path := handle_path(data.working_dir, args[0].(RuntimeString).value)
+        defer delete(path)
         err := os.make_directory_all(path)
         if err != nil && err != .Exist {
             panic(fmt.aprintf("Failed to make directory all `%s`: %v", path, err))

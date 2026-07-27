@@ -289,7 +289,6 @@ add_variable :: proc(
             alt_ident,
             type = .Warning,
         )
-        return VariableRef{}, false
     }
     var_ref := add_unnamed_variable(s, variable_type, variable.has_dollar_at_end)
     if variable.ident != "" {

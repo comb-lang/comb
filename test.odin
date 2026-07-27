@@ -108,8 +108,8 @@ interpret_example :: proc(
         a,
         func,
         compiler_pipe,
-        Run{program_pipe, new(LongLivedInterpState)},
-        make_reader(stdin),
+        Run{program_pipe, arena_new(a, LongLivedInterpState)},
+        make_reader(a, stdin),
         NeverExitEarly{},
     )
     return InterpretedExample{get_output(compiler_pipe), get_output(program_pipe), status}
@@ -743,6 +743,42 @@ example_12_lambda_functions :: proc(t: ^testing.T) {
     testing.expect(t, ran.program.stdout == "")
     testing.expect(t, ran.program.stderr == "")
     testing.expect(t, ran.compiler.stderr == "")
+}
+
+@(test)
+invalid_example_03_constants_and_reassignables_with_same_name :: proc(t: ^testing.T) {
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    path :: #directory + "examples/invalid/03_constants_and_reassignables_with_same_name.code"
+    ran := interpret_example(t, &a, FunctionRef{path, "main"})
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.program.stderr == "")
+    testing.expect(t, ran.program.stdout == "")
+    testing.expect(t, ran.compiler.stderr == "")
+    e := TestingTextExpecter{0, ran.compiler.stdout, t}
+    expect_string(&e, "Reading `" + path + "`...\n")
+    expect_string(&e, "Checking...\n")
+    expect_string(&e, "\n")
+    expect_string(&e, "Warning compiling `" + path + "` (7:2)\n")
+    expect_string(
+        &e,
+        "Declaring variable called `hello` when variable called `hello$` is already declared\n",
+    )
+    expect_string(&e, "\n")
+    expect_string(&e, "Warning compiling `" + path + "` (13:5)\n")
+    expect_string(
+        &e,
+        "Declaring variable called `hi$` when variable called `hi` is already declared\n",
+    )
+    expect_string(&e, "\n")
+    expect_string(&e, "Successfully checked with 0 errors and 2 warnings in ")
+    expect_digits(&e)
+    expect_string(&e, ".")
+    expect_digits(&e)
+    expect_string(&e, " ms\n")
+    expect_string(&e, "Interpreting `main`...\n")
+    expect_done_message(&e)
+    expect_finished(&e)
 }
 
 // TODO: Add a fuzz test where the code that gets compiled never has any syntax errors

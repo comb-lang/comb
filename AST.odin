@@ -450,6 +450,9 @@ debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
     case String:
         debug("string: %v", v)
     }
+    for _ in unit.extra_units {
+        debug("TODO: Handle extra unit")
+    }
     debug_nesting -= 1
 }
 

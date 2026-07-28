@@ -86,6 +86,8 @@ emit_c_func_call :: proc(s: ^CEmitterState, c: CheckedFunctionCall) {
 
 emit_c_comptime_value :: proc(s: ^CEmitterState, value: CompileTimeValue) {
     switch comptime in value {
+    case CompileTimeOrderedHashMapInitialisation:
+        panic("TODO")
     case CastFunction:
         panic("TODO")
     case BuiltinFunction:
@@ -104,9 +106,10 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: CompileTimeValue) {
             first_arg = false
         }
         strings.write_string(&s.b, ")")
-    case CheckedFuncRef:
+    case Func:
+        // TODO: Handle comptime.lambda_args
         strings.write_string(&s.b, "func")
-        strings.write_uint(&s.b, comptime.index)
+        strings.write_uint(&s.b, comptime.ref.index)
     case NumberValue:
         if comptime.value.is_negated {
             strings.write_byte(&s.b, '-')
@@ -138,8 +141,14 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: CompileTimeValue) {
 
 emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
     switch value in v {
-    case OrderedHashMapInitFunc:
+    case LengthOfString:
         panic("TODO")
+    case OrderedHashMapInitialisation:
+        panic("TODO")
+    case ArrayLiteral:
+        panic("TODO: Handle array literal in C emitter")
+    case CheckedDerivation:
+        panic("TODO: Handle checked derivation in C emitter")
     case CheckedOrderedHashMapAccess,
          KeysOfOrderedHashMapWithStringKey,
          KeysOfOrderedHashMapWithI64Key:
@@ -186,10 +195,16 @@ emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
         panic("TODO")
     case LengthOfOrderedHashMapWithI64Key:
         panic("TODO")
-    case CheckedArrayAccess:
-        emit_c_value(s, value.array^)
+    case CheckedIndexedAccess:
+        if value.base_type == .String {
+            panic("TODO")
+        }
+        emit_c_value(s, value.base^)
         strings.write_string(&s.b, ".elems[")
-        emit_c_value(s, value.index^)
+        emit_c_value(s, value.i.start_index^)
+        if value.i.end_index != nil {
+            panic("TODO")
+        }
         strings.write_byte(&s.b, ']')
     case CheckedFunctionCall:
         emit_c_func_call(s, value)
@@ -379,6 +394,7 @@ emit_c_block_body :: proc(
             strings.write_string(&s.b, "goto loop")
             strings.write_uint(&s.b, stmt.loop_index)
             strings.write_string(&s.b, "end;")
+        /*
         case CheckedArrayMutation:
             if stmt.variable_type.length == 0 {
                 emit_variable(&s.b, stmt.variable)
@@ -427,8 +443,9 @@ emit_c_block_body :: proc(
                 }
             }
             strings.write_byte(&s.b, '}')
-        case CheckedMutation:
-            emit_c_value(s, stmt.destination)
+            */
+        case CheckedAssignment:
+            emit_variable(&s.b, stmt.dest)
             strings.write_byte(&s.b, '=')
             emit_c_value(s, stmt.value)
             strings.write_byte(&s.b, ';')
@@ -465,6 +482,8 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
     name := fmt.aprintf("Type%d", index)
     defer delete(name)
     switch type in s.types.m.keys[index].key {
+    case GlobalType:
+        panic("TODO")
     case ArrayType:
         strings.write_string(&s.other_type_definitions, "struct ")
         strings.write_string(&s.other_type_definitions, name)
@@ -651,7 +670,7 @@ emit_function_head :: proc(s: ^CEmitterState, func_index: int, type: Type) {
         if !first_arg {
             strings.write_byte(&s.b, ',')
         }
-        name := fmt.aprintf(variable_format, 0, i)
+        name := fmt.aprintf(variable_format, 1, i)
         emit_type(&s.b, name, arg)
         delete_string(name)
         first_arg = false
@@ -684,7 +703,7 @@ emit_c :: proc(
     for func, index in checked_funcs {
         emit_function_head(&s, index, func.type)
         strings.write_byte(&s.b, '{')
-        emit_c_block(&s, 1, func.variables, func.body)
+        emit_c_block(&s, 2, func.variables, func.body)
         strings.write_byte(&s.b, '}')
     }
 

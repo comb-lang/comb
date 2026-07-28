@@ -2,15 +2,30 @@
 package main
 
 import "core:fmt"
+import "core:io"
 import "core:mem"
 import "core:os"
 import "core:path/filepath"
-import "core:strings"
 
-FileRef :: ^CompilerFile
+plain_ident_base :: "n identifier with one segment and no `$` sign at the end"
+plain_ident_capitalised :: "A" + plain_ident_base
+plain_ident_normal :: "a" + plain_ident_base
 
-get_file_index :: proc(files: Multi(CompilerFile), ref: FileRef, loc := #caller_location) -> int {
+get_file_index :: proc(
+    files: Multi(CompilerFile),
+    ref: ^CompilerFile,
+    loc := #caller_location,
+) -> int {
     return mem.ptr_sub(ref, &files.d[0])
+}
+
+ParsingContext :: struct {
+    pos:  Pos,
+    kind: enum {
+        StructFieldType,
+        StructType,
+        FuncDefinition,
+    },
 }
 
 // The index of the first unparsed file is always `ParserState.file_ref.index + 1`
@@ -19,9 +34,12 @@ ParserState :: struct {
     // Updated every time the parser starts parsing a different file
     using tokenizer_state:          TokenizerState,
 
+    // Grows and shirnks as the nesting increases and decreases
+    parser_context:                 []ParsingContext,
+
     // Grow as the project is parsed
     using r:                        DiagnosticReporter,
-    files_map:                      map[string]FileRef,
+    files_map:                      map[string]^CompilerFile,
     parsed_files:                   []map[string]ParsedGlobal,
     global_values_without_generics: [dynamic]GlobalValueWithoutGeneric,
     global_values_with_generics:    [dynamic]GlobalValueWithGeneric,
@@ -30,6 +48,8 @@ ParserState :: struct {
 
 // Does not include the `{`
 parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
+    append_dynamic(&s.parser_context, ParsingContext{s.last_token_pos, .StructType})
+    defer pop_dynamic(&s.parser_context)
     out := StructUnit {
         make_key_to_index(s.a, KeyToIndex(string)),
         arena_make_multi(s.a, Multi(Pos), 0, resizable = true),
@@ -41,26 +61,26 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
         fix_resizable_multi(out.positions)
     }
     for {
-        field: IdentAndPos = ---
+        field: TextAndPos = ---
         get_next_token(s, true)
         wrong_token :: proc(s: ^ParserState) -> (StructUnit, bool) {
             clear_dynamic(&s.last_token_descriptions_of_other_possible_tokens)
             append_dynamic_elems(
                 &s.last_token_descriptions_of_other_possible_tokens,
-                "an identifier with one segment",
+                plain_ident_capitalised,
                 "`}`",
             )
-            wrong_token_err(s, "While parsing struct type")
+            wrong_token_err(s)
             return StructUnit{}, false
         }
         #partial switch token in s.last_token {
         case CloseBraceToken:
             return out, true
         case IdentToken:
-            if len(token) != 1 {
+            if len(token) != 1 || token[0].has_dollar_at_end {
                 return wrong_token(s)
             }
-            field = IdentAndPos{token[0].ident, token[0].pos}
+            field = TextAndPos{token[0].ident, token[0].pos}
         case:
             return wrong_token(s)
         }
@@ -71,7 +91,7 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
             clear_dynamic(&s.last_token_descriptions_of_other_possible_tokens)
             append_dynamic(
                 &s.last_token_descriptions_of_other_possible_tokens,
-                fmt.aprintf("`:` to specify the type of the `%s` field", field.ident),
+                fmt.aprintf("`:` to specify the type of the `%s` field", field.text),
             )
             wrong_token_err(s)
             return StructUnit{}, false
@@ -79,17 +99,19 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
         }
 
         get_next_token(s, true)
-        parsed := parse_unit(s)
-        if !parsed.ok {
+        append_dynamic(&s.parser_context, ParsingContext{s.last_token_pos, .StructFieldType})
+        defer pop_dynamic(&s.parser_context)
+        parsed, parsed_ok := parse_unit(s)
+        if !parsed_ok {
             return StructUnit{}, false
         }
-        i, result := lookup_or_insert(&out.m, field.ident, string_to_index_procs)
+        i, result := lookup_or_insert(&out.m, field.text, string_to_index_procs)
         if result == .LookedUp {
             diagnostic(
                 &s.r,
                 field.pos,
                 "There is already a field called `%s` defined in this struct at %v",
-                field.ident,
+                field.text,
                 out.positions.d[i.index],
             )
             return StructUnit{}, false
@@ -97,7 +119,7 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
         resize_multi(&out.positions, len(out.m.keys))
         resize_multi(&out.types, len(out.m.keys))
         out.positions.d[i.index] = field.pos
-        out.types.d[i.index] = parsed.unit
+        out.types.d[i.index] = parsed
 
         #partial switch _ in s.last_token {
         case:
@@ -115,11 +137,20 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
     }
 }
 
-parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
-    out := Unit {
-        pos = Pos{s.last_token_pos, s.file_ref},
+// Returns `nil, false` on failure
+// Returns `nil, true` if there wasn't an initial unit to parse
+// Returns something other than `nil`, and `true` on success
+maybe_parse_initial_unit :: proc(
+    s: ^ParserState,
+    loc := #caller_location,
+) -> (
+    UnitWithoutPos,
+    bool,
+) {
+    when debug_parser {
+        print_call(loc, "maybe_parse_initial_unit")
     }
-    e :: proc(s: ^ParserState) -> (Unit, bool) {
+    e :: proc(s: ^ParserState) -> (UnitWithoutPos, bool) {
         append_dynamic_elems(
             &s.last_token_descriptions_of_other_possible_tokens,
             "`true`",
@@ -134,10 +165,10 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
             "`<` to create a sum type",
             "`[` to create an array type",
             "`{` to create a struct type",
+            "`re`",
             // "`dynamic` for a dynamic type",
         )
-        wrong_token_err(s, "While passing either a value or a type")
-        return Unit{}, false
+        return nil, true
     }
     #partial switch token in s.last_token {
     case:
@@ -150,29 +181,24 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
             clear_dynamic(&s.last_token_descriptions_of_other_possible_tokens)
             append_dynamic(&s.last_token_descriptions_of_other_possible_tokens, "A string literal")
             wrong_token_err(s)
-            return Unit{}, false
+            return nil, false
         }
         joined, join_err := filepath.join(
-            []string{s.file_ref.dir_path, string(path)},
+            []string{s.last_token_pos.file.dir_path, string(path)},
             context.allocator,
         )
         if join_err != nil {
             diagnostic(&s.r, unknown_pos, "Failed to join filepath: %v", join_err)
-            return Unit{}, false
+            return nil, false
         }
         if file_ref, exists := s.files_map[joined]; exists {
-            out.value = Import{file_ref}
+            get_next_token(s, true)
+            return Import{file_ref}, true
         } else {
             data, data_err := os.read_entire_file(joined, context.allocator)
             if data_err != nil {
-                diagnostic(
-                    &s.r,
-                    Pos{s.last_token_pos, s.file_ref},
-                    "Failed to read `%s`: %#v",
-                    joined,
-                    data_err,
-                )
-                return Unit{}, false
+                diagnostic(&s.r, s.last_token_pos, "Failed to read `%s`: %#v", joined, data_err)
+                return nil, false
             }
             append_multi_dynamic(
                 &s.files,
@@ -181,16 +207,18 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
             )
             ref := &s.files.d[len(s.parsed_files)]
             append_dynamic(&s.parsed_files, nil)
-            out.value = Import{ref}
+            get_next_token(s, true)
             s.files_map[joined] = ref
+            return Import{ref}, true
         }
 
     case OpenBracketToken:
         elements, ok := parse_units_until(s, is_close_bracket, "`)` to end the tuple")
         if !ok {
-            return Unit{}, false
+            return nil, false
         }
-        out.value = Tuple{elements}
+        get_next_token(s, true)
+        return Tuple{elements}, true
 
     // case DynamicToken:
     //     get_next_token(state, false)
@@ -201,11 +229,12 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
     //     return Unit{type_pos, DynamicUnit(new_clone(type))}, other_possible_tokens, true
 
     case OpenBraceToken:
-        ok: bool = ---
-        out.value, ok = parse_struct(s)
+        out, ok := parse_struct(s)
         if !ok {
-            return Unit{}, false
+            return nil, false
         }
+        get_next_token(s, true)
+        return out, true
 
     case OpenAngleBracketToken:
         sum_type := SumUnit {
@@ -223,19 +252,19 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
             clear_dynamic(&s.last_token_descriptions_of_other_possible_tokens)
             append_dynamic_elems(
                 &s.last_token_descriptions_of_other_possible_tokens,
-                "an identifier with one segment",
+                plain_ident_capitalised,
                 "`>`",
             )
             #partial switch token2 in s.last_token {
             case:
                 wrong_token_err(s)
-                return Unit{}, false
+                return nil, false
             case CloseAngleBracketToken:
                 break loop
             case IdentToken:
-                if len(token2) != 1 {
+                if len(token2) != 1 || token2[0].has_dollar_at_end {
                     wrong_token_err(s)
-                    return Unit{}, false
+                    return nil, false
                 }
                 variant_name := token2[0]
                 variant_payload := StructUnit{}
@@ -244,7 +273,7 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
                 if has_payload {
                     variant_payload, has_payload = parse_struct(s)
                     if !has_payload {
-                        return Unit{}, false
+                        return nil, false
                     }
                     get_next_token(s, false)
                 }
@@ -261,7 +290,7 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
                         variant_name.ident,
                         sum_type.positions.d[i.index],
                     )
-                    return Unit{}, false
+                    return nil, false
                 }
                 resize_multi(&sum_type.positions, len(sum_type.m.keys))
                 resize_multi(&sum_type.payloads, len(sum_type.m.keys))
@@ -285,66 +314,86 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
                         )
                     }
                     wrong_token_err(s)
-                    return Unit{}, false
+                    return nil, false
                 case CommaToken:
                 case CloseAngleBracketToken:
                     break loop
                 }
             }
         }
-        out.value = sum_type
+        get_next_token(s, true)
+        return sum_type, true
 
     case OpenSquareBracketToken:
         args, args_ok := parse_units_until(s, is_close_square_bracket, "`]`")
         if !args_ok {
-            return Unit{}, false
+            return nil, false
         }
         get_next_token(s, false)
-        unit, ok2 := parse_initial_unit(s)
-        if !ok2 {
-            return Unit{}, false
+        unit_pos := s.last_token_pos
+        unit, ok := maybe_parse_initial_unit(s)
+        if unit == nil {
+            if !ok {
+                return nil, false
+            }
+            return UnitsInSquareBrackets{args}, true
         }
+        assert(ok)
         // TODO: Update the syntax so that this exception to the parsed order of operations is not necersarry
         if _, is_open_square_bracket := s.last_token.(OpenSquareBracketToken);
            is_open_square_bracket {
             args2, args2_ok := parse_units_until(s, is_close_square_bracket, "`]`")
             if !args2_ok {
-                return Unit{}, false
+                return nil, false
             }
-            unit.value = CallWithSquareBrackets{new_clone(unit), args2}
+            unit = CallWithSquareBrackets{new_clone(Unit{unit_pos, unit, nil}), args2}
             get_next_token(s, true)
         }
-        out.value = CallWithFrontedSquareBrackets{new_clone(unit), args}
-        return out, true
+        return CallWithFrontedSquareBrackets{new_clone(Unit{unit_pos, unit, nil}), args}, true
 
     case IdentToken:
-        out.value = Ident{token}
+        get_next_token(s, true)
+        return IdentNode{token, false}, true
+
+    case ReToken:
+        get_next_token(s, false)
+        ident, is_ident := s.last_token.(IdentToken)
+        if !is_ident {
+            append_dynamic(&s.last_token_descriptions_of_other_possible_tokens, "an identifier")
+            wrong_token_err(s)
+            return nil, false
+        }
+        get_next_token(s, true)
+        return IdentNode{ident, true}, true
 
     case MarkerToken:
-        markers := [dynamic]IdentAndPos{{string(token), Pos{s.last_token_pos, s.file_ref}}}
+        markers := [dynamic]TextAndPos{{string(token), s.last_token_pos}}
         for {
             get_next_token(s, false)
             marker, is_marker := s.last_token.(MarkerToken)
             if !is_marker {
                 break
             }
-            append_elem(&markers, IdentAndPos{string(marker), Pos{s.last_token_pos, s.file_ref}})
+            append_elem(&markers, TextAndPos{string(marker), s.last_token_pos})
         }
-        val, ok := parse_initial_unit(s)
-        if !ok {
-            return Unit{}, false
+        val_pos := s.last_token_pos
+        val := parse_initial_unit(s)
+        if val == nil {
+            return nil, false
         }
-        out.value = MarkedUnit{new_clone(val), markers[:]}
-        return out, true
+        return MarkedUnit{new_clone(Unit{val_pos, val, nil}), markers[:]}, true
 
     case TrueToken:
-        out.value = Bool(true)
+        get_next_token(s, true)
+        return Bool(true), true
 
     case FalseToken:
-        out.value = Bool(false)
+        get_next_token(s, true)
+        return Bool(false), true
 
     case DigitsToken:
-        out.value = Number{false, string(token)}
+        get_next_token(s, true)
+        return Number{false, string(token)}, true
 
     case SymbolsToken:
         if token != "-" {
@@ -355,9 +404,10 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
         if !is_digits {
             append_dynamic(&s.last_token_descriptions_of_other_possible_tokens, "A digits token")
             wrong_token_err(s)
-            return Unit{}, false
+            return nil, false
         }
-        out.value = Number{true, string(digits)}
+        get_next_token(s, true)
+        return Number{true, string(digits)}, true
 
     case StringToken:
         strings := [dynamic]string{string(token)}
@@ -365,32 +415,47 @@ parse_initial_unit :: proc(s: ^ParserState) -> (Unit, bool) {
             get_next_token(s, true)
             #partial switch token2 in s.last_token {
             case:
-                out.value = String(strings[:])
                 append_dynamic(
                     &s.last_token_descriptions_of_other_possible_tokens,
                     "a string token",
                 )
-                return out, true
+                return String(strings[:]), true
             case StringToken:
                 append_elem(&strings, string(token2))
             }
         }
 
     case CharToken:
-        out.value = Char(token)
+        get_next_token(s, true)
+        return Char(token), true
 
     case BarToken:
         func, ok := parse_function_def(s)
         if !ok {
-            return Unit{}, false
+            return nil, false
         }
-        out.value = FuncDefinitionRef{uint(len(s.function_defs))}
+        get_next_token(s, true)
+        out := FuncDefinitionRef{uint(len(s.function_defs))}
         append_elem(&s.function_defs, func)
+        return out, true
 
     }
+}
 
-    get_next_token(s, true)
-    return out, true
+parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWithoutPos {
+    when debug_parser {
+        print_call(loc, "parse_initial_unit")
+    }
+    out, ok := maybe_parse_initial_unit(s)
+    if out == nil {
+        if ok {
+            wrong_token_err(s)
+        }
+        return nil
+    } else {
+        assert(ok)
+        return out
+    }
 }
 
 parse_units_until :: proc(
@@ -408,11 +473,11 @@ parse_units_until :: proc(
             return units[:], true
         }
         append_dynamic(&s.last_token_descriptions_of_other_possible_tokens, end_description)
-        v := parse_unit(s)
-        if !v.ok {
+        unit, ok := parse_unit(s)
+        if !ok {
             return nil, false
         }
-        append_elem(&units, v.unit)
+        append_elem(&units, unit)
 
         if is_end(s.last_token) {
             return units[:], true
@@ -432,33 +497,32 @@ parse_units_until :: proc(
     }
 }
 
-ParsedUnit :: struct {
-    ok:   bool,
-    unit: Unit,
-}
-
 create_joined_unit :: proc(
-    join_method: UnitJoinMethod,
+    join_method: HierarchyUnitJoinMethod,
     unit0: Unit,
     unit1: ^Unit,
 ) -> UnitWithoutPos {
-    joined_values, is_joined_values := unit1.value.(JoinedUnits)
+    joined_values, is_joined_values := unit1.first_unit.(HierarchyJoinedUnits)
     if is_joined_values && get_prioraty(joined_values.join_method) <= get_prioraty(join_method) {
         val0 := create_joined_unit(join_method, unit0, joined_values.unit0)
-        return JoinedUnits {
+        return HierarchyJoinedUnits {
             joined_values.join_method,
-            new_clone(Unit{unit0.pos, val0}),
+            new_clone(Unit{unit0.pos, val0, nil}),
             joined_values.unit1,
         }
     }
-    return JoinedUnits{join_method, new_clone(unit0), unit1}
+    return HierarchyJoinedUnits{join_method, new_clone(unit0), unit1}
 }
 
-parse_unit :: proc(s: ^ParserState) -> ParsedUnit {
-    value_pos := Pos{s.last_token_pos, s.file_ref}
-    val, ok := parse_initial_unit(s)
-    if !ok {
-        return ParsedUnit{ok = false}
+// Returns `nil` on failure
+parse_unit_with_pos :: proc(s: ^ParserState, loc := #caller_location) -> UnitWithoutPos {
+    when debug_parser {
+        print_call(loc, "parse_unit_without_pos")
+    }
+    pos := s.last_token_pos
+    unit := parse_initial_unit(s)
+    if unit == nil {
+        return nil
     }
 
     // Parse possible calls
@@ -475,16 +539,16 @@ parse_unit :: proc(s: ^ParserState) -> ParsedUnit {
         case OpenBracketToken:
             args, args_ok := parse_units_until(s, is_close_bracket, "`)`")
             if !args_ok {
-                return ParsedUnit{ok = false}
+                return nil
             }
-            val = Unit{value_pos, CallWithBrackets{new_clone(val), args}}
+            unit = CallWithBrackets{new_clone(Unit{pos, unit, nil}), args}
             get_next_token(s, true)
         case OpenSquareBracketToken:
             args, args_ok := parse_units_until(s, is_close_square_bracket, "`]`")
             if !args_ok {
-                return ParsedUnit{ok = false}
+                return nil
             }
-            val = Unit{value_pos, CallWithSquareBrackets{new_clone(val), args}}
+            unit = CallWithSquareBrackets{new_clone(Unit{pos, unit, nil}), args}
             get_next_token(s, true)
         }
     }
@@ -492,12 +556,12 @@ parse_unit :: proc(s: ^ParserState) -> ParsedUnit {
     // Parse possible arithmetic
     append_dynamic(
         &s.last_token_descriptions_of_other_possible_tokens,
-        "a value joiner (`and`, `or`, `==`, `!=`, `>`, `>=`, `<`, `<=`, `*`, `/`, `+`, `-`, `%`, `::`, `:`, `->`, `in`)",
+        "A hierarchical value joiner (`and`, `or`, `==`, `!=`, `>`, `>=`, `<`, `<=`, `*`, `/`, `+`, `-`, `%`, `::`, `:`, `->`, `in`)",
     )
-    value_type: UnitJoinMethod
+    value_type: HierarchyUnitJoinMethod
     #partial switch token in s.last_token {
     case:
-        return ParsedUnit{true, val}
+        return unit
     case InToken:
         value_type = .In
     case AndToken:
@@ -521,7 +585,7 @@ parse_unit :: proc(s: ^ParserState) -> ParsedUnit {
     case SymbolsToken:
         switch token {
         case:
-            return ParsedUnit{true, val}
+            return unit
         case "==":
             value_type = .IsEqual
         case "!=":
@@ -543,21 +607,63 @@ parse_unit :: proc(s: ^ParserState) -> ParsedUnit {
         }
     }
     get_next_token(s, true)
-    next_value := parse_unit(s)
-    if !next_value.ok {
-        return ParsedUnit{ok = false}
+    next_value_pos := s.last_token_pos
+    next_value := parse_unit_with_pos(s)
+    if next_value == nil {
+        return nil
     }
-    return ParsedUnit {
-        true,
-        Unit{value_pos, create_joined_unit(value_type, val, new_clone(next_value.unit))},
+    return create_joined_unit(
+        value_type,
+        Unit{pos, unit, nil},
+        new_clone(Unit{next_value_pos, next_value, nil}),
+    )
+}
+
+// Returns `Unit{}, false` on failure
+parse_unit :: proc(s: ^ParserState) -> (Unit, bool) {
+    pos := s.last_token_pos
+    first_unit := parse_unit_with_pos(s)
+    if first_unit == nil {
+        return Unit{}, false
+    }
+    extra_units := arena_make(s.a, []ExtraUnit, 0, resizable = true)
+    defer fix_resizable_dynamic(extra_units)
+    for {
+        join_method_pos := s.last_token_pos
+        append_dynamic(
+            &s.last_token_descriptions_of_other_possible_tokens,
+            "A left to right value joiner (`~`, `=`)",
+        )
+        join_method: LeftToRightUnitJoinMethod
+        #partial switch v in s.last_token {
+        case AssignToken:
+            join_method = .Assign
+        case SymbolsToken:
+            if v != "~" {
+                return Unit{pos, first_unit, extra_units}, true
+            }
+            join_method = .Tilde
+        case:
+            return Unit{pos, first_unit, extra_units}, true
+        }
+        get_next_token(s, true)
+        extra_unit_pos := s.last_token_pos
+        extra_unit := parse_unit_with_pos(s)
+        if extra_unit == nil {
+            return Unit{}, false
+        }
+        append_dynamic(
+            &extra_units,
+            ExtraUnit{join_method_pos, join_method, UnitWithPos{extra_unit, extra_unit_pos}},
+        )
     }
 }
 
 // Returns `nil` if there was an error
 parse_iterator :: proc(s: ^ParserState) -> Iterator {
     get_next_token(s, false)
-    value1 := parse_unit(s)
-    if !value1.ok {
+    value1, value1_ok := parse_unit(s)
+    if !value1_ok {
         return nil
     }
 
@@ -569,46 +675,46 @@ parse_iterator :: proc(s: ^ParserState) -> Iterator {
         type = .ExcludeEndValue
     } else {
         append_dynamic_elems(&s.last_token_descriptions_of_other_possible_tokens, "`..=`", "`..<`")
-        return value1.unit
+        return value1
     }
 
     get_next_token(s, false)
-    value2 := parse_unit(s)
-    if !value2.ok {
+    value2, value2_ok := parse_unit(s)
+    if !value2_ok {
         return nil
     }
 
     _, is_step_token := s.last_token.(StepToken)
     if is_step_token {
         get_next_token(s, false)
-        step := parse_unit(s)
-        if !step.ok {
+        step, step_ok := parse_unit(s)
+        if !step_ok {
             return nil
         }
-        return NumericIterator{value1.unit, value2.unit, new_clone(step.unit), type}
+        return NumericIterator{value1, value2, new_clone(step), type}
     }
     append_dynamic(&s.last_token_descriptions_of_other_possible_tokens, "`step`")
-    return NumericIterator{value1.unit, value2.unit, nil, type}
+    return NumericIterator{value1, value2, nil, type}
 }
 
 at_description := "`@` to set the label of the loop"
-parse_possible_loop_label :: proc(s: ^ParserState) -> (IdentAndPos, bool) {
+parse_possible_loop_label :: proc(s: ^ParserState) -> (TextAndPos, bool) {
     get_next_token(s, false)
     if _, is_at_token := s.last_token.(AtToken); is_at_token {
         get_next_token(s, false)
         ident, is_ident := s.last_token.(IdentToken)
-        if !is_ident || len(ident) != 1 {
+        if !is_ident || len(ident) != 1 || ident[0].has_dollar_at_end {
             append_dynamic(
                 &s.last_token_descriptions_of_other_possible_tokens,
-                "An identifier with one segment for the label of the loop",
+                plain_ident_capitalised + " for the label of the loop",
             )
             wrong_token_err(s)
-            return IdentAndPos{}, false
+            return TextAndPos{}, false
         }
         get_next_token(s, false)
-        return IdentAndPos{ident[0].ident, ident[0].pos}, true
+        return TextAndPos{ident[0].ident, ident[0].pos}, true
     }
-    return IdentAndPos{}, true
+    return TextAndPos{}, true
 }
 
 // Does not include the `for`
@@ -617,22 +723,22 @@ parse_for_loop :: proc(s: ^ParserState) -> (ForInLoop, bool) {
     if !ok {
         return ForInLoop{}, false
     }
-    variables: [3]IdentAndPos
+    variables: [3]TextAndPos
     variable_index := 0
     variables_loop: for {
         ident, is_ident := s.last_token.(IdentToken)
-        if !is_ident || len(ident) != 1 {
+        if !is_ident || len(ident) != 1 || ident[0].has_dollar_at_end {
             append_dynamic(
                 &s.last_token_descriptions_of_other_possible_tokens,
-                "the name of the variable in a for loop (an identifier with one segment)",
+                "the name of the variable in a for loop (an identifier with one segment and no dollar sign at the end)",
             )
-            if can_be_at := label.ident == ""; can_be_at {
+            if can_be_at := label.text == ""; can_be_at {
                 append_dynamic(&s.last_token_descriptions_of_other_possible_tokens, at_description)
             }
             wrong_token_err(s)
             return ForInLoop{}, false
         }
-        variables[variable_index] = IdentAndPos{ident[0].ident, ident[0].pos}
+        variables[variable_index] = TextAndPos{ident[0].ident, ident[0].pos}
         variable_index += 1
 
         get_next_token(s, false)
@@ -651,7 +757,7 @@ parse_for_loop :: proc(s: ^ParserState) -> (ForInLoop, bool) {
             if variable_index >= 3 {
                 diagnostic(
                     &s.r,
-                    Pos{s.last_token_pos, s.file_ref},
+                    s.last_token_pos,
                     "There cannot be more than 3 variables in a for loop head (the iteration the for loop is on, the key of the thing being iterated over, and the value of the thing being iterated over)",
                 )
                 return ForInLoop{}, false
@@ -686,8 +792,8 @@ parse_for_loop :: proc(s: ^ParserState) -> (ForInLoop, bool) {
 // Does not include the `if`
 parse_if :: proc(s: ^ParserState) -> (^IfElseStatement, bool) {
     get_next_token(s, true)
-    condition := parse_unit(s)
-    if !condition.ok {
+    condition, condition_ok := parse_unit(s)
+    if !condition_ok {
         return nil, false
     }
     #partial switch _ in s.last_token {
@@ -709,7 +815,7 @@ parse_if :: proc(s: ^ParserState) -> (^IfElseStatement, bool) {
     get_next_token(s, true)
     #partial switch _ in s.last_token {
     case ElseToken:
-        else_pos := Pos{s.last_token_pos, s.file_ref}
+        else_pos := s.last_token_pos
         get_next_token(s, true)
         #partial switch _ in s.last_token {
         case:
@@ -726,7 +832,7 @@ parse_if :: proc(s: ^ParserState) -> (^IfElseStatement, bool) {
                 return nil, false
             }
             get_next_token(s, true)
-            return new_clone(IfElseStatement{condition.unit, block, else_block}), true
+            return new_clone(IfElseStatement{condition, block, else_block}), true
 
         case IfToken:
             else_block := make([]Statement, 1)
@@ -735,14 +841,15 @@ parse_if :: proc(s: ^ParserState) -> (^IfElseStatement, bool) {
                 return nil, false
             }
             else_block[0] = Statement{else_pos, else_statement^}
-            return new_clone(IfElseStatement{condition.unit, block, else_block}), true
+            return new_clone(IfElseStatement{condition, block, else_block}), true
         }
     case:
         append_dynamic(&s.last_token_descriptions_of_other_possible_tokens, "`else`")
-        return new_clone(IfElseStatement{condition.unit, block, []Statement{}}), true
+        return new_clone(IfElseStatement{condition, block, []Statement{}}), true
     }
 }
 
+/*
 get_identifier :: proc(
     s: ^ParserState,
     variable_dest_type: VariableDestType,
@@ -764,11 +871,11 @@ get_identifier :: proc(
     _, is_open_square_brace := s.last_token.(OpenSquareBracketToken)
     if !is_open_square_brace {
         append_dynamic(&s.last_token_descriptions_of_other_possible_tokens, "`[`")
-        return VariableDest{IdentAndPos{ident.ident, ident.pos}, variable_dest_type, nil}, true
+        return VariableDest{ident, variable_dest_type, nil}, true
     }
     get_next_token(s, true)
-    value := parse_unit(s)
-    if !value.ok {
+    value, value_ok := parse_unit(s)
+    if !value_ok {
         return VariableDest{}, false
     }
     _, is_close_square_brace := s.last_token.(CloseSquareBracketToken)
@@ -778,12 +885,7 @@ get_identifier :: proc(
         return VariableDest{}, false
     }
     get_next_token(s, true)
-    return VariableDest {
-            IdentAndPos{ident.ident, ident.pos},
-            variable_dest_type,
-            new_clone(value.unit),
-        },
-        true
+    return VariableDest{ident, variable_dest_type, new_clone(value)}, true
 }
 
 
@@ -830,13 +932,14 @@ parse_managed_variable :: proc(s: ^ParserState) -> (VariableDest, bool) {
     wrong_token_err(s)
     return VariableDest{}, false
 }
+*/
 
 // Does not include the `{`
 parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
     out := [dynamic]Statement{}
     get_next_token(s, true)
     for {
-        pos := Pos{s.last_token_pos, s.file_ref}
+        pos := s.last_token_pos
         #partial switch_stmt: switch token in s.last_token {
         case:
             // TODO: I would like to remove this mingling of expected tokens as it makes the error messages less clear
@@ -853,18 +956,11 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
                 "`unreachable`",
                 "`}`",
             )
-            ok: bool = ---
-            var: VariableDest = ---
-            var, ok = parse_managed_variable(s)
+            unit, ok := parse_unit(s)
             if !ok {
                 return nil, false
             }
-            stmt: VariableManagement
-            stmt, ok = parse_variable_management_after_first_var(s, var)
-            if !ok {
-                return nil, false
-            }
-            append_elem(&out, Statement{pos, stmt})
+            append_elem(&out, Statement{pos, unit})
         case DoToken:
             // TODO: Support specifying label with @
             get_next_token(s, false)
@@ -886,19 +982,19 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
                 return nil, false
             }
             get_next_token(s, false)
-            condition := parse_unit(s)
-            if !condition.ok {
+            condition, condition_ok := parse_unit(s)
+            if !condition_ok {
                 return nil, false
             }
             append_elem(
                 &out,
-                Statement{pos, ConditionControlledLoop{.DoWhileLoop, condition.unit, body}},
+                Statement{pos, ConditionControlledLoop{.DoWhileLoop, condition, body}},
             )
         case WhileToken:
             // TODO: Support specifying label with @
             get_next_token(s, false)
-            condition := parse_unit(s)
-            if !condition.ok {
+            condition, condition_ok := parse_unit(s)
+            if !condition_ok {
                 return nil, false
             }
             _, is_open_brace := s.last_token.(OpenBraceToken)
@@ -912,10 +1008,8 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
                 return nil, false
             }
             get_next_token(s, true)
-            append_elem(
-                &out,
-                Statement{pos, ConditionControlledLoop{.WhileLoop, condition.unit, body}},
-            )
+            append_elem(&out, Statement{pos, ConditionControlledLoop{.WhileLoop, condition, body}})
+        /*
         case IdentToken:
             get_next_token(s, true)
             #partial switch token2 in s.last_token {
@@ -939,7 +1033,10 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
                 get_next_token(s, true)
                 append_elem(
                     &out,
-                    Statement{pos, CallWithBrackets{new_clone(Unit{pos, Ident{token}}), args}},
+                    Statement {
+                        pos,
+                        CallWithBrackets{new_clone(Unit{pos, IdentNode{token}, nil}), args},
+                    },
                 )
                 break switch_stmt
             case CommaToken:
@@ -964,6 +1061,7 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
                 return nil, false
             }
             append_elem(&out, Statement{pos, stmt})
+            */
         case IfToken:
             if_else: ^IfElseStatement
             ok: bool
@@ -974,20 +1072,20 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
             append_elem(&out, Statement{pos, if_else^})
         case ContinueToken:
             get_next_token(s, true)
-            label := IdentAndPos{}
+            label := TextAndPos{}
             _, is_at := s.last_token.(AtToken)
             if is_at {
                 get_next_token(s, true)
                 ident, is_ident := s.last_token.(IdentToken)
-                if !is_ident || len(ident) != 1 {
+                if !is_ident || len(ident) != 1 || ident[0].has_dollar_at_end {
                     append_dynamic(
                         &s.last_token_descriptions_of_other_possible_tokens,
-                        "An identifier with one segment",
+                        plain_ident_capitalised,
                     )
                     wrong_token_err(s)
                     return nil, false
                 }
-                label = IdentAndPos{ident[0].ident, ident[0].pos}
+                label = TextAndPos{ident[0].ident, ident[0].pos}
                 get_next_token(s, true)
             }
             append_elem(&out, Statement{pos, ContinueStatement{label}})
@@ -996,8 +1094,8 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
             append_elem(&out, Statement{pos, UnreachableStatement{}})
         case MatchToken:
             get_next_token(s, true)
-            value := parse_unit(s)
-            if !value.ok {
+            value, value_ok := parse_unit(s)
+            if !value_ok {
                 return nil, false
             }
 
@@ -1019,8 +1117,8 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
                     &s.last_token_descriptions_of_other_possible_tokens,
                     "`}` to finish the match statement",
                 )
-                branch_label := parse_unit(s)
-                if !branch_label.ok {
+                branch_label, branch_label_ok := parse_unit(s)
+                if !branch_label_ok {
                     return nil, false
                 }
 
@@ -1035,9 +1133,9 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
                     return nil, false
                 }
 
-                append_elem(&branches, MatchBranch{branch_label.unit, body})
+                append_elem(&branches, MatchBranch{branch_label, body})
             }
-            append_elem(&out, Statement{pos, MatchStatement{value.unit, branches[:]}})
+            append_elem(&out, Statement{pos, MatchStatement{value, branches[:]}})
             get_next_token(s, true)
         case ForToken:
             loop, ok := parse_for_loop(s)
@@ -1077,6 +1175,7 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
     }
 }
 
+/*
 parse_variable_management_after_first_var :: proc(
     s: ^ParserState,
     first_var: VariableDest,
@@ -1130,12 +1229,13 @@ parse_variable_management_after_first_var :: proc(
         append_elem(&variables, var)
     }
     get_next_token(s, true)
-    value := parse_unit(s)
-    if !value.ok {
+    value, value_ok := parse_unit(s)
+    if !value_ok {
         return VariableManagement{}, false
     }
-    return VariableManagement{value.unit, variables[:], type}, true
+    return VariableManagement{value, variables[:], type}, true
 }
+*/
 
 // Does not include the `(`
 //parse_name_and_type_list :: proc(
@@ -1175,6 +1275,8 @@ parse_variable_management_after_first_var :: proc(
 
 // The boolean returned is whether the function passed successfully
 parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
+    append_dynamic(&s.parser_context, ParsingContext{s.last_token_pos, .FuncDefinition})
+    defer pop_dynamic(&s.parser_context)
     args := make(#soa[dynamic]FunctionArg)
     loop: for {
         arg: FunctionArg
@@ -1182,9 +1284,7 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
 
         append_dynamic_elems(
             &s.last_token_descriptions_of_other_possible_tokens,
-            "an identifier for the name of a normal function argument",
-            "`~` to add a mutable function argument",
-            "`-` to add a function argument which is deallocated from the PCS during the execution of this function",
+            "an identifier with one segment and no dollar sign at the end for the name of a normal function argument",
             "`|`",
         )
         #partial switch token in s.last_token {
@@ -1193,34 +1293,12 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
             return FunctionDefinition{}, false
         case BarToken:
             break loop
-        case SymbolsToken:
-            switch token {
-            case "~":
-                arg.arg_type = .Mutable
-            case "-":
-                arg.arg_type = .RemovedFromStack
-            case:
-                wrong_token_err(s)
-                return FunctionDefinition{}, false
-            }
-            get_next_token(s, true)
-            #partial switch token2 in s.last_token {
-            case:
-                wrong_token_err(s)
-                return FunctionDefinition{}, false
-            case IdentToken:
-                if len(token2) != 1 {
-                    wrong_token_err(s)
-                    return FunctionDefinition{}, false
-                }
-                arg.name = IdentAndPos{token2[0].ident, token2[0].pos}
-            }
         case IdentToken:
-            if len(token) != 1 {
+            if len(token) != 1 || token[0].has_dollar_at_end {
                 wrong_token_err(s)
                 return FunctionDefinition{}, false
             }
-            arg.name = IdentAndPos{token[0].ident, token[0].pos}
+            arg.name = TextAndPos{token[0].ident, token[0].pos}
         }
 
         get_next_token(s, true)
@@ -1233,11 +1311,11 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
         }
 
         get_next_token(s, true)
-        arg_value_type := parse_unit(s)
-        if !arg_value_type.ok {
+        arg_value_type, arg_value_type_ok := parse_unit(s)
+        if !arg_value_type_ok {
             return FunctionDefinition{}, false
         }
-        arg.value_type = arg_value_type.unit
+        arg.value_type = arg_value_type
         append_soa_elem(&args, arg)
 
         #partial switch token in s.last_token {
@@ -1266,8 +1344,8 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
         return FunctionDefinition{}, false
     case ArrowToken:
         get_next_token(s, true)
-        parsed_return_type := parse_unit(s)
-        if !parsed_return_type.ok {
+        parsed_return_type, parsed_return_type_ok := parse_unit(s)
+        if !parsed_return_type_ok {
             return FunctionDefinition{}, false
         }
         _, is_open_brace := s.last_token.(OpenBraceToken)
@@ -1276,7 +1354,7 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
             wrong_token_err(s)
             return FunctionDefinition{}, false
         }
-        return_type = new_clone(parsed_return_type.unit)
+        return_type = new_clone(parsed_return_type)
     case OpenBraceToken:
     }
 
@@ -1289,15 +1367,15 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
 
 GlobalValueWithGeneric :: struct {
     name:     string,
-    generics: []IdentAndPos, // The parser checks that the name of each generic argument is unique
+    generics: []TextAndPos, // The parser checks that the name of each generic argument is unique
     value:    Unit,
-    file:     FileRef,
+    file:     ^CompilerFile,
 }
 
 GlobalValueWithoutGeneric :: struct {
     name: string,
     unit: Unit,
-    file: FileRef,
+    file: ^CompilerFile,
 }
 
 GlobalValueWithGenericRef :: struct {
@@ -1309,7 +1387,7 @@ GlobalValueWithoutGenericRef :: struct {
 }
 
 Import :: struct {
-    file: FileRef,
+    file: ^CompilerFile,
 }
 
 ParsedGlobal :: struct {
@@ -1325,7 +1403,7 @@ parse_file :: proc(s: ^ParserState) -> bool {
             &s.last_token_descriptions_of_other_possible_tokens,
             "a newline",
             "a comment",
-            "an identifier with one segment to define a global",
+            "an identifier with one segment and no `$` sign at the end to define a global",
         )
         #partial switch token in s.last_token {
         case:
@@ -1334,34 +1412,35 @@ parse_file :: proc(s: ^ParserState) -> bool {
         case EndOfFileToken:
             return true
         case IdentToken:
-            position := Pos{s.last_token_pos, s.file_ref}
-            if len(token) != 1 {
+            position := s.last_token_pos
+            if len(token) != 1 || token[0].has_dollar_at_end {
                 wrong_token_err(s)
                 return false
             }
             name := token[0].ident
-            if def, exists := s.parsed_files[get_file_index(s.files, s.file_ref)][name]; exists {
+            if def, exists := s.parsed_files[get_file_index(s.files, s.last_token_pos.file)][name];
+               exists {
                 diagnostic(
                     &s.r,
                     position,
                     "The global `%s` is already declared at %v",
                     name,
-                    Pos{def.pos, s.file_ref},
+                    Pos{def.pos, s.last_token_pos.file},
                 )
                 return false
             }
             get_next_token(s, false)
             generic_map := make(map[string]Pos) // The key is the position of the generic arg
-            generic := make([dynamic]IdentAndPos)
+            generic := make([dynamic]TextAndPos)
             _, is_open_square_bracket := s.last_token.(OpenSquareBracketToken)
             if is_open_square_bracket {
                 for {
                     get_next_token(s, false)
                     segments, is_ident := s.last_token.(IdentToken)
-                    if !is_ident || len(segments) != 1 {
+                    if !is_ident || len(segments) != 1 || segments[0].has_dollar_at_end {
                         append_dynamic(
                             &s.last_token_descriptions_of_other_possible_tokens,
-                            "An identifier with one segment",
+                            "An identifier with one segment and no dollar sign at the end",
                         )
                         break
                     }
@@ -1370,7 +1449,7 @@ parse_file :: proc(s: ^ParserState) -> bool {
                         pos := generic_map[segments[0].ident]
                         diagnostic(
                             &s.r,
-                            Pos{s.last_token_pos, s.file_ref},
+                            s.last_token_pos,
                             "There is already a generic argument called `%s` defined on %v in this global type",
                             segments[0].ident,
                             pos,
@@ -1378,7 +1457,7 @@ parse_file :: proc(s: ^ParserState) -> bool {
                         return false
                     }
                     pos := segments[0].pos
-                    append_elem(&generic, IdentAndPos{segments[0].ident, pos})
+                    append_elem(&generic, TextAndPos{segments[0].ident, pos})
                     generic_map[segments[0].ident] = pos
 
                     get_next_token(s, false)
@@ -1425,29 +1504,27 @@ parse_file :: proc(s: ^ParserState) -> bool {
                 return false
             case AssignToken:
                 get_next_token(s, false)
-                type := parse_unit(s)
-                if !type.ok {
+                type, ok := parse_unit(s)
+                if !ok {
                     return false
                 }
                 if len(generic) == 0 {
-                    s.parsed_files[get_file_index(s.files, s.file_ref)][name] = ParsedGlobal {
-                        position.index,
-                        u32(len(s.global_values_without_generics)),
-                        false,
-                    }
+                    s.parsed_files[get_file_index(s.files, s.last_token_pos.file)][name] =
+                        ParsedGlobal {
+                            position.index,
+                            u32(len(s.global_values_without_generics)),
+                            false,
+                        }
                     append_elem(
                         &s.global_values_without_generics,
-                        GlobalValueWithoutGeneric{name, type.unit, s.file_ref},
+                        GlobalValueWithoutGeneric{name, type, s.last_token_pos.file},
                     )
                 } else {
-                    s.parsed_files[get_file_index(s.files, s.file_ref)][name] = ParsedGlobal {
-                        position.index,
-                        u32(len(s.global_values_with_generics)),
-                        true,
-                    }
+                    s.parsed_files[get_file_index(s.files, s.last_token_pos.file)][name] =
+                        ParsedGlobal{position.index, u32(len(s.global_values_with_generics)), true}
                     append_elem(
                         &s.global_values_with_generics,
-                        GlobalValueWithGeneric{name, generic[:], type.unit, s.file_ref},
+                        GlobalValueWithGeneric{name, generic[:], type, s.last_token_pos.file},
                     )
                 }
             }
@@ -1456,7 +1533,7 @@ parse_file :: proc(s: ^ParserState) -> bool {
 }
 
 ParsedProject :: struct {
-    files_map:                     map[string]FileRef,
+    files_map:                     map[string]^CompilerFile,
     parsed_files:                  []map[string]ParsedGlobal,
     files:                         Multi(CompilerFile),
     global_values_without_generic: []GlobalValueWithoutGeneric,
@@ -1467,7 +1544,7 @@ ParsedProject :: struct {
 parse_project :: proc(
     a: ^Arena,
     first_file_relative_path: string,
-    io: Pipe(^os.File),
+    io: Pipe(io.Writer),
     exit_early: EarlyExitInfo,
 ) -> (
     ParsedProject,
@@ -1477,7 +1554,7 @@ parse_project :: proc(
     // therefore the `-watch` flag does not auto reload
     first_file_absolute_path, err := filepath.abs(first_file_relative_path, context.allocator)
     if err != nil {
-        fmt.fprintfln(
+        fmt.wprintfln(
             io.stderr,
             "Failed to make filepath `%s` absolute: %v",
             first_file_relative_path,
@@ -1486,23 +1563,25 @@ parse_project :: proc(
         return ParsedProject{}, false
     }
 
-    fmt.fprintfln(io.stdout, "Reading `%s`...", first_file_absolute_path)
+    fmt.wprintfln(io.stdout, "Reading `%s`...", first_file_absolute_path)
     data, data_err := os.read_entire_file(first_file_absolute_path, context.allocator)
     if data_err != nil {
-        fmt.fprintfln(io.stderr, "Failed to read `%s`: %#v", first_file_absolute_path, data_err)
+        fmt.wprintfln(io.stderr, "Failed to read `%s`: %#v", first_file_absolute_path, data_err)
         return ParsedProject{}, false
     }
 
     state := ParserState {
-        r = DiagnosticReporter {
-            io = io,
-            files = arena_make_multi(a, Multi(CompilerFile), 1, resizable = true),
-        },
-        parsed_files = arena_make(a, []map[string]ParsedGlobal, 1, resizable = true),
-        a = a,
-    }
+            r = DiagnosticReporter {
+                io = io,
+                files = arena_make_multi(a, Multi(CompilerFile), 1, resizable = true),
+            },
+            parser_context = arena_make(a, []ParsingContext, 0, resizable = true),
+            parsed_files = arena_make(a, []map[string]ParsedGlobal, 1, resizable = true),
+            a = a,
+        }
     defer {
         fix_resizable_dynamic(state.parsed_files)
+        fix_resizable_dynamic(state.parser_context)
         fix_resizable_multi(state.r.files)
     }
     state.parsed_files[0] = nil
@@ -1512,11 +1591,11 @@ parse_project :: proc(
         filepath.dir(first_file_absolute_path),
     }
     state.files_map[first_file_absolute_path] = &state.files.d[0]
-    state.file_ref = &state.files.d[0]
+    state.last_token_pos.file = &state.files.d[0]
 
     ok := true
     for {
-        file_path := state.file_ref.file_path
+        file_path := state.last_token_pos.file.file_path
         fmt.printfln("Parsing `%s`...", file_path)
         state.tokenizer_state = TokenizerState {
             last_token_descriptions_of_other_possible_tokens = arena_make(
@@ -1525,7 +1604,7 @@ parse_project :: proc(
                 0,
                 resizable = true,
             ),
-            file_ref                                         = state.file_ref,
+            last_token_pos                                   = Pos{0, state.last_token_pos.file},
         }
         defer fix_resizable_dynamic(
             state.tokenizer_state.last_token_descriptions_of_other_possible_tokens,
@@ -1534,11 +1613,11 @@ parse_project :: proc(
         if !file_ok {
             ok = false
         }
-        next_index := get_file_index(state.files, state.file_ref) + 1
+        next_index := get_file_index(state.files, state.last_token_pos.file) + 1
         if next_index >= len(state.parsed_files) {
             break
         }
-        state.file_ref = &state.files.d[next_index]
+        state.last_token_pos.file = &state.files.d[next_index]
     }
     if exit_early_info, exiting_early := exit_early.(^ExitEarly); exiting_early {
         #partial switch &exit_early_info_value in exit_early_info {

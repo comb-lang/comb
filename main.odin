@@ -1,7 +1,9 @@
 package main
 
 import "base:runtime"
+import "core:bufio"
 import "core:fmt"
+import "core:io"
 import "core:mem"
 import "core:os"
 import "core:path/filepath"
@@ -9,6 +11,7 @@ import "core:strings"
 import "core:time"
 
 debug_tokenizer :: false // You can use this to debug the parser
+debug_parser :: false
 debug_parser_output :: false
 debug_checker :: false
 debug_emitter :: false
@@ -18,14 +21,12 @@ debug_diagnostics :: false
 debug_arena :: false
 debug_dynamic_array :: false
 
-position_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
-    if verb != 'v' {
-        return false
-    }
-    pos := cast(^Pos)arg.data
-    if pos^ == unknown_pos {
-        fmt.wprint(fi.writer, "unknown_pos")
-        return true
+c_warning :: "WARNING: The C emitter is basically unmaintained at this point, and there are many things which it does not implement\n"
+
+write_position :: proc(w: io.Writer, pos: Pos) {
+    if pos == unknown_pos {
+        fmt.wprint(w, "unknown_pos")
+        return
     }
     line := 1
     column := 1
@@ -37,7 +38,15 @@ position_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
             column += 1
         }
     }
-    fmt.wprintf(fi.writer, "`%s` (%d:%d)", pos.file.file_path, line, column)
+    fmt.wprintf(w, "`%s` (%d:%d)", pos.file.file_path, line, column, flush = false)
+}
+
+position_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+    if verb != 'v' {
+        return false
+    }
+    pos := cast(^Pos)arg.data
+    write_position(fi.writer, pos^)
     return true
 }
 
@@ -62,6 +71,7 @@ init :: proc "contextless" () {
 
 @(fini)
 fini :: proc "contextless" () {
+    // TODO: Check if there are any `Arena` allocators which have not been deleted when `ODIN_DEBUG == true`
     context = runtime.default_context()
     delete_map(fmt._user_formatters^)
     free(fmt._user_formatters)
@@ -104,7 +114,7 @@ BuildC :: struct {
 }
 
 Run :: struct {
-    program_io:              Pipe(^os.File),
+    program_io:              Pipe(io.Writer),
     long_lived_interp_state: ^LongLivedInterpState,
 }
 
@@ -178,26 +188,26 @@ EarlyExitInfo :: union #no_nil {
 }
 
 compile :: proc(
+    a: ^Arena,
     func: FunctionRef,
-    compiler: Pipe(^os.File),
+    compiler: Pipe(io.Writer),
     command: Command,
+    stdin: io.Reader,
     exit_early: EarlyExitInfo,
 ) -> int {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
     start := time.now()
     if exit_early_info, exiting_early := exit_early.(^ExitEarly); exiting_early {
         exit_early_info^ = ExitEarlyAwaitingSourceCodeChange{start, nil, time.Time{}}
     }
     defer {
-        fmt.fprintfln(
+        fmt.wprintfln(
             compiler.stdout,
             "Done in %f ms!",
             time.duration_milliseconds(time.since(start)),
         )
     }
 
-    parsed, ok := parse_project(&a, func.file_name, compiler, exit_early)
+    parsed, ok := parse_project(a, func.file_name, compiler, exit_early)
     if !ok {
         return 1
     }
@@ -214,8 +224,8 @@ compile :: proc(
         debug_nesting -= 1
     }
 
-    fmt.fprintfln(compiler.stdout, "Checking...")
-    checker_output := check(&a, parsed, func.func_name, compiler)
+    fmt.wprintfln(compiler.stdout, "Checking...")
+    checker_output := check(a, parsed, func.func_name, compiler)
     function_type := unknown_type
     if checker_output.func_ref.index < len(checker_output.checked_funcs) {
         function_type = checker_output.checked_funcs[checker_output.func_ref.index].type
@@ -230,12 +240,14 @@ compile :: proc(
                         "Got the type `%s`\nExpected the type `%s`",
                         type_to_string2(
                             checker_output.types,
-                            checker_output.globals,
+                            checker_output.globals_without_generic,
+                            checker_output.globals_with_generic,
                             function_type,
                         ),
                         type_to_string2(
                             checker_output.types,
-                            checker_output.globals,
+                            checker_output.globals_without_generic,
+                            checker_output.globals_with_generic,
                             no_args_to_i64_type,
                         ),
                     )
@@ -248,17 +260,20 @@ compile :: proc(
                         "Got the type `%s`\nExpected the type `%s` or `%s`",
                         type_to_string2(
                             checker_output.types,
-                            checker_output.globals,
+                            checker_output.globals_without_generic,
+                            checker_output.globals_with_generic,
                             function_type,
                         ),
                         type_to_string2(
                             checker_output.types,
-                            checker_output.globals,
+                            checker_output.globals_without_generic,
+                            checker_output.globals_with_generic,
                             no_args_to_i64_type,
                         ),
                         type_to_string2(
                             checker_output.types,
-                            checker_output.globals,
+                            checker_output.globals_without_generic,
+                            checker_output.globals_with_generic,
                             compiler_to_i64_type,
                         ),
                     )
@@ -288,7 +303,7 @@ compile :: proc(
     elapsed_ms := time.duration_milliseconds(time.since(start))
 
     if checker_output.reporter.number_of[.Error] > 0 {
-        fmt.fprintfln(
+        fmt.wprintfln(
             compiler.stderr,
             "Erroneously checked with %s and %s in %f ms",
             errors,
@@ -298,7 +313,7 @@ compile :: proc(
         return 1
     }
 
-    fmt.fprintfln(
+    fmt.wprintfln(
         compiler.stdout,
         "Successfully checked with %s and %s in %f ms",
         errors,
@@ -307,7 +322,8 @@ compile :: proc(
     )
 
     if build_c, is_build_c := command.(BuildC); is_build_c {
-        fmt.fprintfln(compiler.stdout, "Emitting C code...")
+        fmt.wprintfln(compiler.stdout, "Emitting C code...")
+        fmt.wprintf(compiler.stderr, c_warning)
         c := emit_c(checker_output.types, checker_output.checked_funcs, checker_output.func_ref)
         executable_path, ok2 := write_and_compile_c(c, func.file_name)
         if !ok2 {
@@ -322,23 +338,24 @@ compile :: proc(
 
     absolute_file_name, err := filepath.abs(func.file_name, context.allocator)
     if err != nil {
-        fmt.fprintfln(compiler.stderr, "Failed make path absolute: %#v", err)
+        fmt.wprintfln(compiler.stderr, "Failed make path absolute: %#v", err)
         return 1
     }
     defer delete(absolute_file_name)
 
-    fmt.fprintfln(compiler.stdout, "Interpreting `%s`...", func.func_name)
+    fmt.wprintfln(compiler.stdout, "Interpreting `%s`...", func.func_name)
 
     absolute_file_dir := filepath.dir(absolute_file_name)
     state := ShortLivedInterpState {
-        types           = checker_output.types,
-        globals         = checker_output.globals,
-        checked_funcs   = checker_output.checked_funcs,
-        builtin_handler = BuiltinHandler {
-            &DefaultBuiltinHandlerData{absolute_file_dir, run.program_io},
+        types                   = checker_output.types,
+        globals_with_generic    = checker_output.globals_with_generic,
+        globals_without_generic = checker_output.globals_without_generic,
+        checked_funcs           = checker_output.checked_funcs,
+        builtin_handler         = BuiltinHandler {
+            &DefaultBuiltinHandlerData{absolute_file_dir, run.program_io, stdin},
             default_builtin_handler_procedure,
         },
-        exit_early      = exit_early,
+        exit_early              = exit_early,
     }
     args: []RuntimeValue
     if function_type == compiler_to_i64_type {
@@ -360,7 +377,7 @@ compile :: proc(
     }
     result := interp_execute_function2(
         InterpState{&state, run.long_lived_interp_state},
-        checker_output.func_ref,
+        RuntimeFunc{checker_output.func_ref, nil},
         args,
     )
     if should_exit_early(exit_early) {
@@ -596,7 +613,16 @@ main :: proc() {
         }
     }
 
-    std_pipe := Pipe(^os.File){os.stdout, os.stderr}
+    stdout_buf: [1024]byte
+    stderr_buf: [1024]byte
+    stdout_writer: bufio.Writer
+    stderr_writer: bufio.Writer
+    bufio.writer_init_with_buf(&stdout_writer, os.to_stream(os.stdout), stdout_buf[:])
+    bufio.writer_init_with_buf(&stderr_writer, os.to_stream(os.stderr), stderr_buf[:])
+    std_pipe := Pipe(io.Writer) {
+        bufio.writer_to_writer(&stdout_writer),
+        bufio.writer_to_writer(&stderr_writer),
+    }
 
     if len(os.args) < 2 {
         fmt.eprintfln("Expected at least one argument for the command to run")
@@ -619,7 +645,16 @@ main :: proc() {
     ref, watch := parse_args_after_command(os.args[2:])
     early_exit_info: EarlyExitInfo = watch ? new(ExitEarly) : NeverExitEarly{}
     for {
-        ret := compile(ref, std_pipe, command, early_exit_info)
+        a: Arena
+        defer delete_arena(&a, expect_empty = false)
+        ret := compile(
+            &a,
+            ref,
+            std_pipe,
+            command,
+            io.to_reader(os.to_stream(os.stdin)),
+            early_exit_info,
+        )
         switch exit_early in early_exit_info {
         case NeverExitEarly:
             os.exit(ret)

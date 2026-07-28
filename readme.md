@@ -39,6 +39,7 @@ A new language for the web, because it's time to stop working around javascript.
 # Todo
 
 - Choose a name
+- Make the `examples/std` standard library accessible from source code in any directory
 - Consider using a different syntax for generics, where `$` is used to specify a generic, and the type of that generic is inferred:
   - For functions, something like `typeof(append) = ([]$T, []$T) -> []$T`
   - For types, something like `Result = <Ok{value: $Ok}, Err{value: $Error}>`
@@ -65,7 +66,7 @@ A new language for the web, because it's time to stop working around javascript.
 - Add a `delete` function for ordered hash maps, where `typeof(delete[K, V]) = (OrderedHashMap[K, V], K) -> OrderedHashMap[K, V]`
 - Remove unnecersarry array copies from the C backend
   - Once this is done, arrays should grow by a multiple of 2 when they overflow rather than growing the minimum amount to be able to fit their new contents
-- Add reference counting or garbage collection to the emitted C code to stop it from leaking memory
+- Add reference counting to the emitted C code to stop it from leaking memory
 - Do not leak memory in the compiler and interpreter
   - Especially important since the `-watch` flag was added
   - For the interpreter, any http server in `LongLivedInterpState.http_servers` should be cleaned up once it is no longer accessible through in-scope variables or the compiler cache
@@ -111,6 +112,9 @@ A new language for the web, because it's time to stop working around javascript.
 - Support length based strings as well as null terminated strings
 - Always output error messages and warnings in the order that they appear in the program, rather than a somewhat random order
 - Check that functions which return a value have a `return` statement in all control flow paths
+- Maybe there should be a distinction between functions that do not use any values from the outer scope and functions that do because a value from the outer scope may be outdated
+  - `->` could be used for functions that don't use values from the outer scope
+  - `=>` could be used for functions that do
 
 # Stuff that may be added
 
@@ -163,6 +167,7 @@ A new language for the web, because it's time to stop working around javascript.
 
 # The syntax
 
+- Instead of something like `OrderedHashMap[String, I64]["a" = 5]` to create an ordered hash map value, I would rather use something like `{"a": 5}`
 - Instead of `<>`, I would rather use `[]` for union/sum types, but that conflicts with array types
 - Instead of `[]Type(elem1, elem2, ...)`, I would rather use `[elem1, elem2, ...]` for array literals, but that is harder to type check
 - Instead of `|args| -> ReturnType {...}`, I would rather use `(args) -> ReturnType {}` for function definitions, but that syntax conflicts with order of operations grouping
@@ -283,9 +288,43 @@ Considering all of this, these design principles are tentative and subject to ch
 
 # Programming language memory model
 
+## Current memory model
+
+(subject to change)
+
+- TODO: Decide if/how closures that call themselves should be supported
+  - By a "closure that calls itself", I mean something like
+    ```
+    str_repeat = |str: String| -> (I64) -> String {
+      internal = |reps: I64| -> String {
+        if reps <= 0 {
+          return ""
+        }
+        return str & internal(reps-1)
+      }
+      return internal
+    }
+    ```
+  - Problematic because:
+    - In the above example, `internal` refers to itself, so reference counting could not trivially free `internal`
+    - Currently variables become accessible on the line after they are declared, so `internal` is not defined when it is referenced in `return str & internal(reps-1)`
+- Every value is immutable
+  - This means that with reference counting, garbage collection should be completely unnecersarry, because if every value is immutable then it is impossible to create a circular reference
+- Procedural programming is supported through a combination of:
+  - **Builtin procedural control flow structures**, including `for`, `while` and `do while`
+  - **Reassignable variables** - Being able to define a variable which can be reassigned a different value in nested scopes
+    - The `$` postfix means that a variable is reassignable
+  - **Derivations** - A way to create a slightly altered copy of a value (see [docs.md](./docs.md#derivations))
+- In the future, an optimisation may be implemented where if the base of a derivation is not referenced again in the code, then it can be mutated rather than copying it and mutating
+  - Reference counting might need to be implemented in all backends for this optimisation
+  - Maybe there could be optimisation tools to debug why alterations aren't being optimised into mutations
+  - TODO: Implement this optimisation and remove unnecersarry copies from all backends
+
+## Notes
+
 - For stack based memory models, stack resizes should be deduplicated
 
-## Criteria for a memory model
+### Criteria for a memory model
 
 - Safety:
   - No dereferencing invalid pointers:
@@ -300,7 +339,7 @@ Considering all of this, these design principles are tentative and subject to ch
 - Conciseness
 - Performance
 
-## Levels of performance for a memory model
+### Levels of performance for a memory model
 
 1. Every piece of data is stored on either registers, or the CMS, or the PMS
 2. Most data is stored on registers or the stack, some data is stored on the heap and managed manually
@@ -308,7 +347,7 @@ Considering all of this, these design principles are tentative and subject to ch
 4. Most data is stored on registers or the stack, some data is stored on the heap and managed using garbage collection
 5. Data is unnecessarily copied
 
-## Other memory models
+### Other memory models
 
 - Borrow checker (like in rust)
 - Linear types (like in austral)

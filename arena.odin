@@ -7,7 +7,7 @@ package main
 
 import "base:runtime"
 import "core:mem"
-import "core:mem/virtual"
+import "virtual"
 
 // For every `virtual.Memory_Block` the `.base` field points to an `ArenaBlockData`
 
@@ -75,6 +75,7 @@ alloc :: proc(
     size: uint,
     alignment: uint,
     resizable: bool,
+    zero: bool,
     loc: runtime.Source_Code_Location,
 ) -> rawptr {
     if a.last_resizable_block == nil {
@@ -115,6 +116,10 @@ alloc :: proc(
 
     out := raw_data(data)
 
+    if zero {
+        mem.zero(out, len(data))
+    }
+
     info := get_info(out)
     assert(info.allocation == arena_allocation)
     assert(info.block == last_resizable_block_info)
@@ -126,7 +131,7 @@ arena_new :: proc(a: ^Arena, $T: typeid, resizable := false, loc := #caller_loca
     when debug_arena {
         print_call(loc, "arena_new")
     }
-    allocated := alloc(a, size_of(T), align_of(T), resizable, loc)
+    allocated := alloc(a, size_of(T), align_of(T), resizable, true, loc)
     return (^T)(allocated)
 }
 
@@ -142,7 +147,7 @@ arena_make :: proc(
     }
     out: T = ---
     out_raw := (^runtime.Raw_Slice)(&out)
-    out_raw.data = alloc(a, uint(size_of(E) * len), align_of(E), resizable, loc)
+    out_raw.data = alloc(a, uint(size_of(E) * len), align_of(E), resizable, true, loc)
     out_raw.len = len
     return out
 }
@@ -160,7 +165,7 @@ arena_make_multi :: proc(
     when ODIN_DEBUG {
         return T{arena_make(a, []E, len, resizable, loc)}
     } else {
-        allocated := alloc(a, uint(size_of(E) * len), align_of(E), resizable, loc)
+        allocated := alloc(a, uint(size_of(E) * len), align_of(E), resizable, true, loc)
         return T{([^]E)(allocated)}
     }
 }
@@ -194,9 +199,9 @@ resize :: proc(allocation: rawptr, new_size: int, loc := #caller_location) {
     when debug_arena {
         print_call(loc, "resize")
     }
+    assert(new_size >= 0)
     info := get_info(allocation)
     assert(is_resizable(info))
-    // Dependent on https://github.com/odin-lang/Odin/pull/7049
     err := virtual.memory_block_resize(
         info.allocation.block,
         uint(mem.ptr_sub(([^]byte)(allocation), info.allocation.block.base) + new_size),
@@ -275,54 +280,4 @@ delete_arena :: proc(a: ^Arena, expect_empty := true, loc := #caller_location) {
         block = prev_block
     }
 }
-
-/*
-
-allocator := Allocator{}
-
-AllocatorScope :: struct {
-    last_scope: ^AllocatorScope,
-    kind:       enum {
-        GeneralScope,
-        DynamicArrayScope,
-    },
-}
-
-Allocator :: struct {
-    block:     ^virtual.Memory_Block,
-    top_scope: ^AllocatorScope,
-}
-
-Dynamic :: struct(T: typeid) {
-    
-}
-
-init_allocator :: proc() {
-    err: virtual.Allocator_Error = ---
-    allocator.block, err = virtual.memory_block_alloc(0, virtual.DEFAULT_ARENA_STATIC_RESERVE_SIZE)
-    if err != nil {
-        panic("Failed to allocate memory block")
-    }
-}
-
-allocate :: proc($T: typeid) -> ^T {
-    data, err := virtual.alloc_from_memory_block(allocator.block, size_of(T), align_of(T))
-    if err != nil {
-        panic("Failed to allocate from memory block")
-    }
-    return (^T)(raw_data(data))
-}
-
-create_scope :: proc() {
-    scope := allocate(AllocatorScope)
-    scope.last_scope = allocator.top_scope
-    scope.kind = .GeneralScope
-    allocator.top_scope = scope
-}
-
-fini_allocator :: proc() {
-    virtual.memory_block_dealloc(allocator.block)
-}
-
-*/
 

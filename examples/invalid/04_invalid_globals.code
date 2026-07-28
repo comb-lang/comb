@@ -1,0 +1,21 @@
+u = import "../std/utils.code"
+
+byte = 8
+kilobyte = 1024 & byte // `&` should be `*`
+megabyte = 1000 * kilobyte
+gigabyte = 1000 * megabyte
+
+Array[Elem] = []E // `E` should be `Elem`
+
+add = |a: Array[I64], b: Array[I64]| -> Array[I64] {
+	u.assert(a.len == b.len)
+	re out$ = []I64()
+	for a_elem, i in a {
+		out$ = out$ :: a_elem + b[i]
+	}
+	return out$
+}
+
+main = || -> I64 {
+	u.assert(1000 * kilobyte == megabyte)
+}

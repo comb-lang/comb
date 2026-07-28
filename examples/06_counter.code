@@ -1,4 +1,5 @@
-h = import "html.code"
+h = import "std/html.code"
+http = import "std/http.code"
 
 CounterState = {
     count: I64,
@@ -6,24 +7,32 @@ CounterState = {
 
 counter_initial_state = CounterState(1)
 
-increment_counter = |s: CounterState| -> CounterState {
+increment_count = |s: CounterState| -> CounterState {
 	return CounterState(s.count + 1)
 }
 
-counter = |s: CounterState| -> h.UI[CounterState] {
-    contents = []h.HtmlElem[CounterState](
-        .Button([]h.HtmlElem[CounterState](.Text("The count is " & s.count.to_str)), increment_counter),
+counter = |s: CounterState| -> h.UI {
+    contents = []h.HtmlElem(
+        .Button(
+            []h.HtmlElem(.Text("The count is " & s.count.to_str)),
+            || -> h.UI { return counter(increment_count(s)) }, // TODO: Cleanup syntax
+        ),
     )
-    return h.UI[CounterState]("Counter", contents)
+    return h.UI("Counter", contents, |_: h.Key| -> h.UI {return counter(s)})
 }
 
+site = h.Site(OrderedHashMap[String, () -> h.UI][
+    "/" = || -> h.UI {return counter(counter_initial_state)},
+])
+
 build = |c: Compiler| -> I64 {
-    html = h.reactive_page[CounterState](
-        c,
-        counter,
-        counter_initial_state,
-        h.ignore_keypress[CounterState],
-    )
-    write_file("gitignore_counter.html", html)
+    h.build_reactive_site(c, site, "gitignore_counter")
+    return 0
+}
+
+// TODO: Add unit test for this
+serve = |c: Compiler| -> I64 {
+    server = http.get_http_server(c.cache, "server")
+    h.serve_reactive_site(c, server, site)
     return 0
 }

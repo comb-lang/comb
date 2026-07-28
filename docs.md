@@ -1,11 +1,14 @@
 > [!NOTE]
 > This programming language is pre-alpha, and almost everything may change as the language evolves.
 
+<!--
+
 # Markers
 
 - When a function is marked with `#comptime`, it means that it can only be ran at compile time because it interacts with the compiler
 - All `#comptime` functions either use another `#comptime` function or use a function in the `compiler` namespace
 - You cannot call a `#comptime` function from a function that isn't marked with `#comptime`
+-->
 
 <!--
 - When a function is marked with `#comptime`, it means that it can only be ran at compile time because it interacts with the compiler
@@ -17,31 +20,82 @@
 
 # General
 
+- See [the memory model](./readme.md#current-memory-model)
+
+<!--
 - `~` means that something is being mutated
 - `+` means that something is being allocated onto the PCS
 - `-` means that something is being deallocated from the PCS
+-->
+
+# Functions
+
+```
+increment_by = |in: []I64, delta: I64| -> []I64 {
+	re out$ = in
+	for _, i in out$ {
+	  // TODO: support something like `out$ = out$ ~ [i] += delta`
+		out$ = out$ ~ [i] = out$[i] + delta
+	}
+	return out$
+}
+```
 
 # Variables
 
-## Create constant
+## Declare constant
 
 ```
 my_constant = "hello world"
 ```
 
-## Create mutable
+## Declare reassignable
 
 ```
-mut my_number = 10
+re my_number$ = 10
+re my_array$ = []I64(1, 2, 3)
 ```
 
-## Update mutable
+## Update reassignable
 
 ```
-~my_number += 5
-// OR
-~my_number = my_number + 5
+my_number$ = my_number$ + 5
+my_array$ = my_array$ ++ []I64(4, 5)
+my_array$ = increment_by(my_array$, 1)
+my_array$ = my_array$ ~ [3] = square_root(my_array$[3])
+my_array$ = my_array$ ~ [3] = my_array$[3] + 1
+// OR (TODO: Support syntaxes roughly like the following)
+my_number$ += 5
+my_array$ ++= []I64(4, 5)
+my_array$ |= increment_by(1)
+my_array$ ~ [3] |= sqrt()
+my_array$ ~ [3] += 1
 ```
+
+# Derivations
+
+Derivations create a slightly altered copy of a value
+
+There are 3 parts of a derivation:
+
+- The base
+- The subset - the part of the base which is being altered
+- The alteration - the way that the subset is being altered:
+  - Replace
+  - Increment/decrement
+  - ...
+
+```
+Person = {
+  age: U64,
+}
+
+age_up = |p: Person| -> Person {
+	return p ~ .age += 1
+}
+```
+
+<!--
 
 # The two types of type
 
@@ -99,10 +153,16 @@ ParsedMath<in A> : < // Part of `A` stores part of `ParsedMath`
 >
 ```
 
+-->
+
 # Footnotes
+
+<!--
 
 [^1]: Provided that recursion isn't used, the maximum size of the CMS could be calculated at compile time to make stack overflows impossible.
 
 [^2]: In initial implementations, the maximum size of the PMS may be a fixed massive number like 64GB rather than being the size of system's memory.
 
 [^3]: TODO: Add a way to create extra programmer controlled stacks which are implemented using arenas
+
+-->

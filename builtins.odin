@@ -36,6 +36,10 @@ BuiltinFunction :: enum u8 {
     cache_get,
     init_http_server,
     cast_func,
+    save_cursor_pos,
+    restore_cursor_pos,
+    clear_after_cursor,
+    make_dir_all,
     invalid_builtin = max(u8),
 }
 
@@ -67,6 +71,14 @@ get_builtin_func_from_name :: proc(name: string) -> (BuiltinFunction, Type) {
         return .init_http_server, no_args_to_http_server_type
     case "cast":
         return .cast_func, unknown_type
+    case "save_cursor_pos":
+        return .save_cursor_pos, no_args_to_nil_type
+    case "restore_cursor_pos":
+        return .restore_cursor_pos, no_args_to_nil_type
+    case "clear_after_cursor":
+        return .clear_after_cursor, no_args_to_nil_type
+    case "make_dir_all":
+        return .make_dir_all, string_to_nil_type
     case:
         return .invalid_builtin, invalid_type
     }
@@ -187,6 +199,10 @@ is_builtin :: proc(name: string) -> bool {
          "clear",
          "run_executable",
          "exit",
+         "save_cursor_pos",
+         "restore_cursor_pos",
+         "clear_after_cursor",
+         "make_dir_all",
          "I64",
          "I32",
          "I16",
@@ -216,7 +232,7 @@ is_builtin :: proc(name: string) -> bool {
 add_unnamed_variable :: proc(
     s: ^CheckerState,
     variable_type: Type,
-    variable_is_mut: bool,
+    variable_is_re: bool,
     loc := #caller_location,
 ) -> VariableRef {
     when debug_checker {
@@ -225,7 +241,7 @@ add_unnamed_variable :: proc(
     var_ref := VariableRef{len(s.scopes) - 1, len(s.scopes[len(s.scopes) - 1].variables)}
     append_soa_elem(
         &s.scopes[len(s.scopes) - 1].variables,
-        ScopeVariable{variable_type, variable_is_mut},
+        ScopeVariable{variable_type, variable_is_re},
     )
     return var_ref
 }
@@ -234,8 +250,7 @@ add_unnamed_variable :: proc(
 add_variable :: proc(
     s: ^CheckerState,
     variable_type: Type,
-    variable_is_mut: bool,
-    variable: IdentAndPos,
+    variable: Ident, // if `variable.has_dollar_at_end`, then the variable is created as mutable
     loc := #caller_location,
 ) -> (
     VariableRef,
@@ -245,7 +260,12 @@ add_variable :: proc(
         print_call(loc, "add_variable")
     }
     // TODO: Add a warning for unused variables
-    expect_snake_case(s, "variable names", variable)
+    expect_snake_case(
+        s,
+        "variable names",
+        TextAndPos{variable.ident, variable.pos},
+        can_have_dollar_postfix = true,
+    )
     if is_builtin(variable.ident) {
         diagnostic(s, variable.pos, builtins_err, variable.ident)
         return VariableRef{}, false
@@ -254,7 +274,23 @@ add_variable :: proc(
         diagnostic(s, variable.pos, "Redeclaration of variable `%s`", variable.ident)
         return VariableRef{}, false
     }
-    var_ref := add_unnamed_variable(s, variable_type, variable_is_mut)
+    alt_ident := ""
+    if variable.has_dollar_at_end {
+        alt_ident = variable.ident[:len(variable.ident) - 1]
+    } else {
+        alt_ident = aprintf(s.a, "%s$", variable.ident)
+    }
+    if alt_ident in s.variables_map {
+        diagnostic(
+            s,
+            variable.pos,
+            "Declaring variable called `%s` when variable called `%s` is already declared",
+            variable.ident,
+            alt_ident,
+            type = .Warning,
+        )
+    }
+    var_ref := add_unnamed_variable(s, variable_type, variable.has_dollar_at_end)
     if variable.ident != "" {
         s.variables_map[variable.ident] = var_ref
     }

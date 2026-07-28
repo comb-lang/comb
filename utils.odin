@@ -4,7 +4,6 @@ import "base:runtime"
 import "core:fmt"
 import "core:io"
 import "core:math/rand"
-import "core:os"
 import "core:strings"
 import "core:testing"
 
@@ -12,15 +11,64 @@ panicf :: proc(format: string, args: ..any) -> ! {
     panic(fmt.aprintf(format, ..args))
 }
 
-resizable_array_stream_proc :: proc(
+reader_stream_proc :: proc(
     data: rawptr,
     mode: io.Stream_Mode,
     p: []byte,
     offset: i64,
     whence: io.Seek_From,
 ) -> (
-    n: i64,
-    err: io.Error,
+    i64,
+    io.Error,
+) {
+    assert(offset == 0 && whence == nil)
+    if mode == .Close {
+        assert(len(p) == 0)
+        return 0, nil
+    }
+    assert(mode == .Read)
+    d := (^[]byte)(data)
+    end := min(len(d), len(p))
+    for b, i in d[:end] {
+        p[i] = b
+    }
+    d^ = d[end:]
+    if len(p) > end {
+        return i64(end), .EOF
+    }
+    return i64(end), .None
+}
+
+make_reader :: proc(a: ^Arena, s: string) -> io.Reader {
+    data := arena_new(a, []byte)
+    data^ = transmute([]byte)s
+    return io.Reader{reader_stream_proc, data}
+}
+
+panic_stream_proc :: proc(
+    _: rawptr,
+    _: io.Stream_Mode,
+    _: []byte,
+    _: i64,
+    _: io.Seek_From,
+) -> (
+    i64,
+    io.Error,
+) {
+    panic("Unreachable")
+}
+
+panic_reader :: io.Reader{panic_stream_proc, nil}
+
+string_builder_stream_proc :: proc(
+    data: rawptr,
+    mode: io.Stream_Mode,
+    p: []byte,
+    offset: i64,
+    whence: io.Seek_From,
+) -> (
+    i64,
+    io.Error,
 ) {
     assert(offset == 0 && whence == nil)
     if mode == .Close || mode == .Flush {
@@ -35,9 +83,23 @@ resizable_array_stream_proc :: proc(
     return i64(len(p)), nil
 }
 
+StringBuilder :: io.Writer
+
+make_builder :: proc(a: ^Arena) -> StringBuilder {
+    data := arena_new(a, []byte)
+    data^ = arena_make(a, []byte, 0, resizable = true)
+    return StringBuilder{string_builder_stream_proc, data}
+}
+
+finish_building :: proc(s: StringBuilder) -> string {
+    data := (^[]byte)(s.data)
+    fix_resizable_dynamic(data^)
+    return string(data^)
+}
+
 aprintf :: proc(a: ^Arena, format: string, args: ..any) -> string {
     array := arena_make(a, []byte, 0)
-    fmt.wprintf(io.Writer{resizable_array_stream_proc, &array}, format, ..args)
+    fmt.wprintf(io.Writer{string_builder_stream_proc, &array}, format, ..args)
     return string(array)
 }
 
@@ -54,6 +116,7 @@ simple_hash_string :: proc(data: string) -> u32 {
     return simple_hash(transmute([]byte)data)
 }
 
+/*
 file_mock :: proc() -> (^os.File, ^strings.Builder) {
     builder := new_clone(strings.builder_make())
     stream_proc: os.File_Stream_Proc : proc(
@@ -77,17 +140,16 @@ file_mock :: proc() -> (^os.File, ^strings.Builder) {
     }
     return new_clone(os.File{nil, os.File_Stream{stream_proc, builder}}), builder
 }
+*/
 
-pipe_mock :: proc() -> (Pipe(^os.File), Pipe(^strings.Builder)) {
-    stdout_writer, stdout_builder := file_mock()
-    stderr_writer, stderr_builder := file_mock()
-    writers := Pipe(^os.File){stdout_writer, stderr_writer}
-    builders := Pipe(^strings.Builder){stdout_builder, stderr_builder}
-    return writers, builders
+pipe_mock :: proc(a: ^Arena) -> Pipe(StringBuilder) {
+    stdout_writer := make_builder(a)
+    stderr_writer := make_builder(a)
+    return Pipe(io.Writer){stdout_writer, stderr_writer}
 }
 
-get_output :: proc(p: Pipe(^strings.Builder)) -> Pipe(string) {
-    return Pipe(string){strings.to_string(p.stdout^), strings.to_string(p.stderr^)}
+get_output :: proc(p: Pipe(StringBuilder)) -> Pipe(string) {
+    return Pipe(string){finish_building(p.stdout), finish_building(p.stderr)}
 }
 
 random_string :: proc(max_length: int, gen := context.random_generator) -> string {
@@ -385,8 +447,36 @@ DiagnosticType :: enum {
 
 DiagnosticReporter :: struct {
     files:     Multi(CompilerFile),
-    io:        Pipe(^os.File),
+    io:        Pipe(io.Writer),
     number_of: [DiagnosticType]uint,
+}
+
+diagnostic_header :: proc(r: ^DiagnosticReporter, pos: Pos, type: DiagnosticType) -> io.Writer {
+    w := type == .Error ? r.io.stderr : r.io.stdout
+    if r.number_of[.Error] + r.number_of[.Warning] == 0 {
+        io.write_byte(w, '\n')
+    }
+    r.number_of[type] += 1
+    // TODO: use bold text for header
+    switch type {
+    case .Error:
+        io.write_string(w, "Error")
+    case .Warning:
+        io.write_string(w, "Warning")
+    case:
+        panic("Unreachable")
+    }
+    io.write_string(w, " compiling")
+    if pos != unknown_pos {
+        fmt.wprintf(w, " %v", pos, flush = false)
+    }
+    io.write_byte(w, '\n')
+    return w
+}
+
+diagnostic_footer :: proc(w: io.Writer) {
+    io.write_string(w, "\n\n")
+    io.flush(w)
 }
 
 // Set the position to `unknown_pos` to not have a position for the error message
@@ -401,35 +491,9 @@ diagnostic :: proc(
     when debug_diagnostics {
         print_call(loc, "diagnostic")
     }
-
-    message := strings.builder_make()
-    defer strings.builder_destroy(&message)
-
-    if r.number_of[.Error] + r.number_of[.Warning] == 0 {
-        strings.write_byte(&message, '\n')
-    }
-
-    r.number_of[type] += 1
-
-    // TODO: use bold text for header
-    switch type {
-    case .Error:
-        strings.write_string(&message, "Error")
-    case .Warning:
-        strings.write_string(&message, "Warning")
-    case:
-        panic("Unreachable")
-    }
-    strings.write_string(&message, " compiling")
-    if position != unknown_pos {
-        fmt.sbprintf(&message, " %v", position)
-    }
-    strings.write_byte(&message, '\n')
-
-    fmt.sbprintf(&message, message_fmt, ..message_args)
-    strings.write_string(&message, "\n\n")
-
-    fmt.fprint(type == .Error ? r.io.stderr : r.io.stdout, strings.to_string(message))
+    w := diagnostic_header(r, position, type)
+    fmt.wprintf(w, message_fmt, ..message_args)
+    diagnostic_footer(w)
 }
 
 /*

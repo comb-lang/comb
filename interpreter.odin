@@ -3,9 +3,8 @@ package main
 // This file is mostly AI generated
 // TODO: Proper memory management (garbage collector?)
 
-import "base:runtime"
-import "core:bufio"
 import "core:fmt"
+import "core:io"
 import "core:net"
 import "core:os"
 import "core:path/filepath"
@@ -26,14 +25,12 @@ RuntimeValue :: union {
     RuntimeString,
     RuntimeArray,
     RuntimeStringOrderedHashMap,
-    RuntimeStringOrderedHashMapInitFunc,
     RuntimeI64OrderedHashMap,
-    RuntimeI64OrderedHashMapInitFunc,
     RuntimeStruct,
     StructTypeInitFunc,
     RuntimeSumType,
     SumTypeInitFunc,
-    CheckedFuncRef,
+    RuntimeFunc,
     BuiltinFunction,
     CastFunction,
     SetHttpServerHandler,
@@ -68,14 +65,6 @@ get_value_type :: proc(s: InterpState, value: RuntimeValue) -> Type {
         return v.type
     case RuntimeI64OrderedHashMap:
         return v.type
-    case RuntimeStringOrderedHashMapInitFunc:
-        return_types := make([]Type, 1)
-        return_types[0] = v.return_type
-        return create_type(&s.types, FuncType{nil, return_types}).type
-    case RuntimeI64OrderedHashMapInitFunc:
-        return_types := make([]Type, 1)
-        return_types[0] = v.return_type
-        return create_type(&s.types, FuncType{nil, return_types}).type
     case RuntimeStruct:
         return v.type
     case StructTypeInitFunc:
@@ -86,8 +75,8 @@ get_value_type :: proc(s: InterpState, value: RuntimeValue) -> Type {
         return v.type
     case SumTypeInitFunc:
         panic("TODO")
-    case CheckedFuncRef:
-        return s.checked_funcs[v.index].type
+    case RuntimeFunc:
+        return s.checked_funcs[v.ref.index].type
     case BuiltinFunction:
         panic("TODO")
     case CastFunction:
@@ -99,6 +88,11 @@ get_value_type :: proc(s: InterpState, value: RuntimeValue) -> Type {
     case:
         panic("Unreachable")
     }
+}
+
+RuntimeFunc :: struct {
+    ref:         CheckedFuncRef,
+    lambda_args: []RuntimeValue,
 }
 
 SetHttpServerHandler :: struct {
@@ -117,26 +111,20 @@ RuntimeString :: struct {
 RuntimeArray :: struct {
     type:          Type,
     needs_freeing: bool,
-    elems:         [dynamic]RuntimeValue,
+    elems:         []RuntimeValue,
 }
 
 RuntimeStringOrderedHashMap :: struct {
     type:          Type,
     needs_freeing: bool,
     hashmap:       map[string]RuntimeValue,
-    order:         [dynamic]string,
+    order:         []string,
 }
 RuntimeI64OrderedHashMap :: struct {
     type:          Type,
     needs_freeing: bool,
     hashmap:       map[i64]RuntimeValue,
     order:         [dynamic]i64,
-}
-RuntimeStringOrderedHashMapInitFunc :: struct {
-    return_type: Type,
-}
-RuntimeI64OrderedHashMapInitFunc :: struct {
-    return_type: Type,
 }
 RuntimeStruct :: struct {
     needs_freeing: bool,
@@ -172,7 +160,7 @@ ControlFlowOperation :: union {
 
 HttpServer :: struct {
     socket:  net.TCP_Socket,
-    handler: CheckedFuncRef,
+    handler: RuntimeFunc,
 }
 
 // Interpreter state that lasts when the program is restarted by the `-watch` flag
@@ -183,14 +171,15 @@ LongLivedInterpState :: struct {
 
 // Interpreter state that is reset when the program is restarted by the `-watch` flag
 ShortLivedInterpState :: struct {
-    types:           Types,
-    globals:         []GlobalValueWithGeneric,
-    checked_funcs:   []CheckedFunction,
-    builtin_handler: BuiltinHandler,
-    frames:          [dynamic]Frame,
-    current_loop:    uint,
-    control_flow_op: ControlFlowOperation,
-    exit_early:      EarlyExitInfo,
+    types:                   Types,
+    globals_without_generic: []GlobalValueWithoutGeneric,
+    globals_with_generic:    []GlobalValueWithGeneric,
+    checked_funcs:           []CheckedFunction,
+    builtin_handler:         BuiltinHandler,
+    frames:                  [dynamic]Frame,
+    current_loop:            uint,
+    control_flow_op:         ControlFlowOperation,
+    exit_early:              EarlyExitInfo,
 }
 
 InterpState :: struct {
@@ -236,8 +225,18 @@ interp_execute_function :: proc(s: InterpState, c: CheckedFunctionCall) -> Runti
             panic(
                 fmt.aprintf(
                     "Expected the type `%s`\nGot the type `%s`",
-                    type_to_string2(s.types, s.globals, val.type),
-                    type_to_string2(s.types, s.globals, got_type),
+                    type_to_string2(
+                        s.types,
+                        s.globals_without_generic,
+                        s.globals_with_generic,
+                        val.type,
+                    ),
+                    type_to_string2(
+                        s.types,
+                        s.globals_without_generic,
+                        s.globals_with_generic,
+                        got_type,
+                    ),
                 ),
             )
         }
@@ -256,22 +255,16 @@ interp_execute_function :: proc(s: InterpState, c: CheckedFunctionCall) -> Runti
     #partial switch val in fn_val {
     case BuiltinFunction:
         return s.builtin_handler.procedure(s, val, args)
-    case CheckedFuncRef:
+    case RuntimeFunc:
         return interp_execute_function2(s, val, args)
-    case RuntimeI64OrderedHashMapInitFunc:
-        assert(len(args) == 0)
-        return RuntimeI64OrderedHashMap{val.return_type, false, nil, nil}
-    case RuntimeStringOrderedHashMapInitFunc:
-        assert(len(args) == 0)
-        return RuntimeStringOrderedHashMap{val.return_type, false, nil, nil}
     case SetHttpServerHandler:
         assert(len(args) == 1)
-        s.l.http_servers[val.server].handler = args[0].(CheckedFuncRef)
+        s.l.http_servers[val.server].handler = args[0].(RuntimeFunc)
         return nil
     case HttpServerListenAndServe:
         assert(len(args) == 0)
         server := s.l.http_servers[val.server]
-        if server.handler.index == max(uint) {
+        if server.handler.ref.index == max(uint) {
             panic("`listen_and_serve` called when handler has not been set")
         }
         buf: [65536]byte
@@ -300,6 +293,7 @@ interp_execute_function :: proc(s: InterpState, c: CheckedFunctionCall) -> Runti
                 if !ok {
                     err := webserver.send_error(client, 400, "Bad Request")
                     if err != nil {
+                        // TODO: Better error handling
                         panic("Failed to send error")
                     }
                     continue
@@ -327,6 +321,7 @@ interp_execute_function :: proc(s: InterpState, c: CheckedFunctionCall) -> Runti
                     transmute([]byte)(response.payload[0].(RuntimeString).value),
                 )
                 if err != nil {
+                    // TODO: Better error handling
                     panic("Failed to send response")
                 }
             }
@@ -339,17 +334,17 @@ interp_execute_function :: proc(s: InterpState, c: CheckedFunctionCall) -> Runti
 
 interp_execute_function2 :: proc(
     state: InterpState,
-    func_ref: CheckedFuncRef,
+    func: RuntimeFunc,
     args: []RuntimeValue,
 ) -> RuntimeValue {
-    checked_func := state.checked_funcs[func_ref.index]
+    checked_func := state.checked_funcs[func.ref.index]
 
     frame := Frame {
-        func_index = func_ref.index,
+        func_index = func.ref.index,
         scopes     = make([dynamic][]RuntimeValue),
     }
+    append_elem(&frame.scopes, func.lambda_args)
     append_elem(&frame.scopes, args)
-
     append_elem(&frame.scopes, make([]RuntimeValue, len(checked_func.variables)))
     // for var_type, i in checked_func.variables {
     // frame.scopes[1][i] = interp_default_value(state, var_type)
@@ -360,11 +355,11 @@ interp_execute_function2 :: proc(
     assert(state.control_flow_op == nil)
     interp_exec_block(state, checked_func.body)
     f := pop(&state.frames)
-    assert(len(f.scopes) == 2)
-    for &v in f.scopes[1] {
+    assert(len(f.scopes) == 3)
+    for &v in f.scopes[2] {
         interp_destroy_value(&v)
     }
-    delete(f.scopes[1])
+    delete(f.scopes[2])
     delete(f.scopes)
 
     if return_data, returning := state.control_flow_op.(ReturnFromFunction); returning {
@@ -540,7 +535,7 @@ interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> Runtim
         for key, value in v.hashmap {
             out_hashmap[key] = interp_clone_value(value)
         }
-        out_order := slice.clone_to_dynamic(v.order[:])
+        out_order := slice.clone(v.order)
         return RuntimeStringOrderedHashMap{v.type, true, out_hashmap, out_order}
     case RuntimeI64OrderedHashMap:
         out_hashmap := make(map[i64]RuntimeValue, len(v.hashmap))
@@ -550,7 +545,7 @@ interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> Runtim
         out_order := slice.clone_to_dynamic(v.order[:])
         return RuntimeI64OrderedHashMap{v.type, true, out_hashmap, out_order}
     case RuntimeArray:
-        new_elems := make([dynamic]RuntimeValue, len(v.elems))
+        new_elems := make([]RuntimeValue, len(v.elems))
         for elem, i in v.elems {
             new_elems[i] = interp_clone_value(elem)
         }
@@ -578,12 +573,10 @@ interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> Runtim
          u16,
          u8,
          bool,
-         CheckedFuncRef,
+         RuntimeFunc,
          BuiltinFunction,
          StructTypeInitFunc,
          SumTypeInitFunc,
-         RuntimeStringOrderedHashMapInitFunc,
-         RuntimeI64OrderedHashMapInitFunc,
          HttpServerListenAndServe,
          SetHttpServerHandler,
          CastFunction:
@@ -663,7 +656,8 @@ interp_exec_statement :: proc(state: InterpState, stmt: CheckedStatement) {
         assert(state.control_flow_op == nil)
         state.control_flow_op = BreakLoop{s.loop_index}
 
-    case CheckedMutation:
+    case CheckedAssignment:
+        /*
         get_mutable_value :: proc(
             s: InterpState,
             value: CheckedValue,
@@ -698,8 +692,11 @@ interp_exec_statement :: proc(state: InterpState, stmt: CheckedStatement) {
         }
         mutable_value := get_mutable_value(state, s.destination)
         interp_destroy_value(mutable_value)
-        mutable_value^ = interp_clone_value(interp_eval_value(state, s.value))
+        */
+        state.frames[len(state.frames) - 1].scopes[s.dest.nesting_level][s.dest.index] =
+            interp_eval_value(state, s.value)
 
+    /*
     case CheckedArrayMutation:
         old_value :=
             state.frames[len(state.frames) - 1].scopes[s.variable.nesting_level][s.variable.index]
@@ -725,6 +722,7 @@ interp_exec_statement :: proc(state: InterpState, stmt: CheckedStatement) {
         }
         state.frames[len(state.frames) - 1].scopes[s.variable.nesting_level][s.variable.index] =
             arr
+            */
 
     case CheckedFunctionCall:
         assert(interp_execute_function(state, s) == nil)
@@ -745,21 +743,39 @@ interp_exec_statement :: proc(state: InterpState, stmt: CheckedStatement) {
     }
 }
 
+expect_number :: proc(value: RuntimeValue) -> i64 {
+    #partial switch v in value {
+    case i64:
+        return v
+    case u8:
+        return i64(v)
+    case:
+        panic("TODO/unreachable")
+    }
+}
+
 interp_is_equal :: proc(s: InterpState, lhs: RuntimeValue, val1: CheckedValue) -> bool {
     rhs := interp_eval_value(s, val1)
-    a_i64, a_is_i64 := lhs.(i64)
-    if a_is_i64 {
-        return a_i64 == rhs.(i64)
+    #partial switch lhs_value in lhs {
+    case i64:
+        return lhs_value == expect_number(rhs)
+    case u8:
+        return i64(lhs_value) == expect_number(rhs)
+    case bool:
+        return lhs_value == rhs.(bool)
+    case:
+        panic("Unreachable")
     }
-    a_bool, a_is_bool := lhs.(bool)
-    if a_is_bool {
-        return a_bool == rhs.(bool)
-    }
-    panic("Unreachable")
 }
 
 interp_eval_comptime_value :: proc(s: InterpState, value: CompileTimeValue) -> RuntimeValue {
     switch comptime in value {
+    case CompileTimeOrderedHashMapInitialisation:
+        out_map: map[string]RuntimeValue
+        for key, v in comptime.value {
+            out_map[key] = interp_eval_comptime_value(s, v)
+        }
+        return RuntimeStringOrderedHashMap{comptime.type, true, out_map, comptime.order}
     case CastFunction:
         return comptime
     case BuiltinFunction:
@@ -770,8 +786,17 @@ interp_eval_comptime_value :: proc(s: InterpState, value: CompileTimeValue) -> R
             out_args[i] = interp_eval_comptime_value(s, arg)
         }
         return RuntimeStruct{true, out_args, comptime.func.return_type}
-    case CheckedFuncRef:
-        return comptime
+    case Func:
+        lambda_args := make(
+            []RuntimeValue,
+            len(s.checked_funcs[comptime.ref.index].inline_stuff.scope0.variables),
+        )
+        for _, i in lambda_args {
+            var_ref := comptime.lambda_args.d[i]
+            lambda_args[i] =
+                s.frames[len(s.frames) - 1].scopes[var_ref.nesting_level][var_ref.index]
+        }
+        return RuntimeFunc{comptime.ref, lambda_args}
     case StringLiteralValue:
         return RuntimeString{false, string(comptime)}
     case NumberValue:
@@ -790,16 +815,78 @@ interp_eval_comptime_value :: proc(s: InterpState, value: CompileTimeValue) -> R
     }
 }
 
+interp_derive_value :: proc(
+    s: InterpState,
+    v: RuntimeValue,
+    subset_elems: []DerivationSubsetElement,
+    alteration: DerivationAlteration,
+) -> RuntimeValue {
+    if len(subset_elems) == 0 {
+        assert(alteration.kind == .Replace)
+        return interp_eval_value(s, alteration.arg^)
+    }
+
+    switch elem in subset_elems[0] {
+    case ArrayElementAccess:
+        index := interp_eval_value(s, elem.index).(i64)
+        old := v.(RuntimeArray)
+        new_elems := make([]RuntimeValue, len(old.elems))
+        for old_elem, i in old.elems {
+            new_elems[i] = old_elem
+        }
+        new_elems[index] = interp_derive_value(s, old.elems[index], subset_elems[1:], alteration)
+        return RuntimeArray{old.type, true, new_elems}
+    case StringOrderedHashMapAccess:
+        key := interp_eval_value(s, elem.key).(RuntimeString).value
+        old := v.(RuntimeStringOrderedHashMap)
+        new_hashmap := make(map[string]RuntimeValue)
+        new_order := old.order
+        if key not_in old.hashmap {
+            dyn := slice.clone_to_dynamic(old.order)
+            append_elem(&dyn, key)
+            new_order = dyn[:]
+        }
+        for k, old_elem in old.hashmap {
+            new_hashmap[k] = old_elem
+        }
+        new_hashmap[key] = interp_derive_value(s, old.hashmap[key], subset_elems[1:], alteration)
+        return RuntimeStringOrderedHashMap{old.type, true, new_hashmap, new_order}
+    case FieldAccess:
+        panic("TODO")
+    case:
+        panic("Unreachable")
+    }
+}
+
 interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
     switch value in v {
-    case OrderedHashMapInitFunc:
-        #partial switch type in get_type(s.types, value.type).key {
-        case OrderedHashMapTypeWithStringKey:
-            return RuntimeStringOrderedHashMapInitFunc{value.type}
-        case OrderedHashMapTypeWithI64Key:
-            return RuntimeI64OrderedHashMapInitFunc{value.type}
+    case LengthOfString:
+        return i64(len(interp_eval_value(s, value.str^).(RuntimeString).value))
+    case OrderedHashMapInitialisation:
+        out_map: map[string]RuntimeValue
+        for k, val in value.compile_time_values {
+            out_map[k] = interp_eval_comptime_value(s, val)
         }
-        panic("Unreachable")
+        for k, val in value.runtime_values {
+            out_map[k] = interp_eval_value(s, val)
+        }
+        return RuntimeStringOrderedHashMap{value.type, true, out_map, value.order}
+    case ArrayLiteral:
+        elems := make([dynamic]RuntimeValue)
+        for segment in value.segments {
+            switch seg in segment {
+            case InlineArraySegment:
+                append_elems(&elems, ..interp_eval_value(s, seg.array).(RuntimeArray).elems[:])
+            case SingleElemSegment:
+                append_elem(&elems, interp_eval_value(s, seg.elem))
+            case:
+                panic("Unreachable")
+            }
+        }
+        return RuntimeArray{value.type, true, elems[:]}
+    case CheckedDerivation:
+        base_value := interp_eval_value(s, value.base^)
+        return interp_derive_value(s, base_value, value.subset.elements, value.alteration)
     case CheckedOrderedHashMapAccess:
         hash_map := interp_eval_value(s, value.hash_map^)
         key := interp_eval_value(s, value.key^)
@@ -812,14 +899,14 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
         panic("Unreachable")
     case KeysOfOrderedHashMapWithStringKey:
         keys := interp_eval_value(s, value.hash_map^).(RuntimeStringOrderedHashMap).order
-        out := make([dynamic]RuntimeValue, len(keys))
+        out := make([]RuntimeValue, len(keys))
         for key, i in keys {
             out[i] = RuntimeString{false, key}
         }
         return RuntimeArray{create_type(&s.types, ArrayType{0, string_type}).type, true, out}
     case KeysOfOrderedHashMapWithI64Key:
         keys := interp_eval_value(s, value.hash_map^).(RuntimeI64OrderedHashMap).order
-        out := make([dynamic]RuntimeValue, len(keys))
+        out := make([]RuntimeValue, len(keys))
         for key, i in keys {
             out[i] = key
         }
@@ -856,14 +943,12 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
         case RuntimeArray,
              RuntimeStruct,
              RuntimeSumType,
-             CheckedFuncRef,
+             RuntimeFunc,
              BuiltinFunction,
              RuntimeStringOrderedHashMap,
              RuntimeI64OrderedHashMap,
              StructTypeInitFunc,
              SumTypeInitFunc,
-             RuntimeStringOrderedHashMapInitFunc,
-             RuntimeI64OrderedHashMapInitFunc,
              HttpServerListenAndServe,
              SetHttpServerHandler,
              CastFunction:
@@ -966,14 +1051,28 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
     case SumTypeInitFunc:
         return value
 
-    case CheckedArrayAccess:
-        arr_val := interp_eval_value(s, value.array^)
-        index_val := interp_eval_value(s, value.index^)
-        arr, arr_ok := arr_val.(RuntimeArray)
-        if !arr_ok {panic("Expected array for array access")}
-        idx, idx_ok := index_val.(i64)
-        if !idx_ok {panic("Expected i64 for array index")}
-        return arr.elems[idx]
+    case CheckedIndexedAccess:
+        base := interp_eval_value(s, value.base^)
+        start_index := interp_eval_value(s, value.i.start_index^).(i64)
+        switch value.base_type {
+        case .Array:
+            arr := base.(RuntimeArray)
+            if value.i.end_index != nil {
+                end_index := interp_eval_value(s, value.i.end_index^).(i64)
+                // TODO: Using `arr.type` means that the result has the incorrect type if `arr` is fixed-size
+                return RuntimeArray{arr.type, false, arr.elems[start_index:end_index]}
+            }
+            return base.(RuntimeArray).elems[start_index]
+        case .String:
+            str := base.(RuntimeString).value
+            if value.i.end_index != nil {
+                end_index := interp_eval_value(s, value.i.end_index^).(i64)
+                return RuntimeString{false, str[start_index:end_index]}
+            }
+            return u8(str[start_index])
+        case:
+            panic("Unreachable")
+        }
 
     case CheckedFieldAccess:
         struct_val := interp_eval_value(s, value.value^)
@@ -1004,7 +1103,20 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
 
 DefaultBuiltinHandlerData :: struct {
     working_dir: string,
-    pipe:        Pipe(^os.File),
+    pipe:        Pipe(io.Writer),
+    stdin:       io.Reader,
+}
+
+// Caller should `delete` the returned string
+handle_path :: proc(working_dir: string, path: string) -> string {
+    if filepath.is_abs(path) {
+        return strings.clone(path)
+    }
+    out, err := filepath.join([]string{working_dir, path})
+    if err != nil {
+        panic(fmt.aprintf("Failed to join path: %v", err))
+    }
+    return out
 }
 
 default_builtin_handler_procedure :: proc(
@@ -1018,51 +1130,60 @@ default_builtin_handler_procedure :: proc(
     switch index {
     case .print:
         assert(len(args) == 1)
-        fmt.fprint(data.pipe.stdout, args[0].(RuntimeString).value)
+        fmt.wprint(data.pipe.stdout, args[0].(RuntimeString).value)
         return nil
     case .println:
         assert(len(args) == 1)
-        fmt.fprintln(data.pipe.stdout, args[0].(RuntimeString).value)
+        fmt.wprintln(data.pipe.stdout, args[0].(RuntimeString).value)
         return nil
     case .eprint:
         assert(len(args) == 1)
-        fmt.fprint(data.pipe.stderr, args[0].(RuntimeString).value)
+        fmt.wprint(data.pipe.stderr, args[0].(RuntimeString).value)
         return nil
     case .eprintln:
         assert(len(args) == 1)
-        fmt.fprintln(data.pipe.stderr, args[0].(RuntimeString).value)
+        fmt.wprintln(data.pipe.stderr, args[0].(RuntimeString).value)
         return nil
     case .readline:
         assert(len(args) == 1)
-        fmt.fprint(data.pipe.stdout, args[0].(RuntimeString).value)
-        scanner: bufio.Scanner
-        bufio.scanner_init(&scanner, os.to_reader(os.stdin))
-        assert(bufio.scan(&scanner))
-        return RuntimeString{false, bufio.scanner_text(&scanner)}
+        io.write_string(data.pipe.stdout, args[0].(RuntimeString).value)
+        io.flush(data.pipe.stdout)
+        bytes := make([dynamic]byte)
+        for {
+            b, err := io.read_byte(data.stdin)
+            assert(err == nil)
+            if b == '\n' {
+                break
+            }
+            if b == '\r' {
+                continue
+            }
+            append_elem(&bytes, b)
+        }
+        return RuntimeString{true, string(bytes[:])}
     case .read_file:
         panic("TODO")
     case .write_file:
         assert(len(args) == 2)
-        file_name := args[0].(RuntimeString).value
-        path: string = ---
+        path := handle_path(data.working_dir, args[0].(RuntimeString).value)
         defer delete(path)
-        if filepath.is_abs(file_name) {
-            path = strings.clone(file_name)
-        } else {
-            err: runtime.Allocator_Error = ---
-            path, err = filepath.join([]string{data.working_dir, file_name})
-            if err != nil {
-                panic(fmt.aprintf("Failed to join path: %v", err))
-            }
+        err := os.write_entire_file(path, transmute([]u8)args[1].(RuntimeString).value)
+        if err != nil {
+            panic(fmt.aprintf("Failed to write file at `%s`: %v", path, err))
         }
-        err2 := os.write_entire_file(path, transmute([]u8)args[1].(RuntimeString).value)
-        if err2 != nil {
-            panic(fmt.aprintf("Failed to write file at `%s`: %v", path, err2))
+        return nil
+    case .make_dir_all:
+        assert(len(args) == 1)
+        path := handle_path(data.working_dir, args[0].(RuntimeString).value)
+        defer delete(path)
+        err := os.make_directory_all(path)
+        if err != nil && err != .Exist {
+            panic(fmt.aprintf("Failed to make directory all `%s`: %v", path, err))
         }
         return nil
     case .clear:
         assert(len(args) == 0)
-        fmt.fprint(data.pipe.stdout, ansi_clear)
+        fmt.wprint(data.pipe.stdout, ansi_clear)
         return nil
     case .run_executable:
         panic("TODO")
@@ -1112,7 +1233,10 @@ default_builtin_handler_procedure :: proc(
             socket, err := net.listen_tcp(endpoint)
             if err == nil {
                 fields[2] = i64(endpoint.port)
-                append(&state.l.http_servers, HttpServer{socket, CheckedFuncRef{max(uint)}})
+                append(
+                    &state.l.http_servers,
+                    HttpServer{socket, RuntimeFunc{CheckedFuncRef{max(uint)}, nil}},
+                )
                 return RuntimeStruct{true, fields, http_server_type}
             }
             if err != net.Bind_Error.Address_In_Use {
@@ -1128,6 +1252,18 @@ default_builtin_handler_procedure :: proc(
             true,
             strings.repeat(args[0].(RuntimeString).value, int(args[1].(i64))),
         }
+    case .save_cursor_pos:
+        io.write_string(data.pipe.stdout, "\033[s")
+        io.flush(data.pipe.stdout)
+        return nil
+    case .restore_cursor_pos:
+        io.write_string(data.pipe.stdout, "\033[u")
+        io.flush(data.pipe.stdout)
+        return nil
+    case .clear_after_cursor:
+        io.write_string(data.pipe.stdout, "\033[0J")
+        io.flush(data.pipe.stdout)
+        return nil
     case .invalid_builtin, .cast_func:
         panic("Unreachable")
     case:

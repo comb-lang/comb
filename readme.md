@@ -294,6 +294,7 @@ Considering all of this, these design principles are tentative and subject to ch
 
 - TODO: Decide if/how closures that call themselves should be supported
   - By a "closure that calls itself", I mean something like
+
     ```
     str_repeat = |str: String| -> (I64) -> String {
       internal = |reps: I64| -> String {

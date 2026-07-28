@@ -16,6 +16,13 @@ add = |a: Array[I64], b: Array[I64]| -> Array[I64] {
 	return out$
 }
 
+invalid_func = || -> InvalidType {}
+
+uses_invalid_func = || {
+	_ = invalid_func()
+}
+
 main = || -> I64 {
 	u.assert(1000 * kilobyte == megabyte)
+	return 0
 }

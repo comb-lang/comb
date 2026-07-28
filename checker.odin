@@ -3361,7 +3361,7 @@ check_initial_value :: proc(
             "",
         )
     case FuncDefinitionRef:
-        out_func, out_type, _ := check_anonymous_func_head(s, value, a.generic_args)
+        out_func, out_type := check_anonymous_func_head(s, value, a.generic_args)
         return finish_checking_value(s, pos, a.type, out_func, out_type, "")
     case CallWithBrackets:
         if len(value.unit_being_called.extra_units) == 0 {
@@ -3619,15 +3619,14 @@ get_inline_func_fields :: proc(s: ^CheckerState) -> (InlineFuncFields, Multi(Var
     return InlineFuncFields{variables_from_outer_scope, scope0}, lambda_args
 }
 
-// Returns `CheckedFuncRef{max(uint)}, invalid_type` on failure
+// Returns `nil, invalid_type` on failure
 check_anonymous_func_head :: proc(
     s: ^CheckerState,
     ref: FuncDefinitionRef,
     generic_args: map[string]Type,
 ) -> (
-    Func,
+    CheckedValue,
     Type,
-    FuncType,
 ) {
     func := s.func_defs[ref.index]
     inline_func_fields, lambda_args := get_inline_func_fields(s)
@@ -3638,7 +3637,7 @@ check_anonymous_func_head :: proc(
         generic_args,
     )
     if !ok {
-        return Func{CheckedFuncRef{max(uint)}, Multi(VariableRef){}}, invalid_type, FuncType{}
+        return nil, invalid_type
     }
     type := create_type(&s.types, checked_func_type).type
     checked_ref := CheckedFuncRef{len(s.checked_functions)}
@@ -3646,7 +3645,7 @@ check_anonymous_func_head :: proc(
         &s.checked_functions,
         CheckedFunction{type, ref, generic_args, nil, nil, inline_func_fields},
     )
-    return Func{checked_ref, lambda_args}, type, checked_func_type
+    return Func{checked_ref, lambda_args}, type
 }
 
 // Returns `false` on failure
@@ -3701,7 +3700,11 @@ check_anonymous_func_body :: proc(s: ^CheckerState, ref: CheckedFuncRef) -> bool
 check_global_value_without_generic :: proc(
     s: ^CheckerState,
     ref: GlobalValueWithoutGenericRef,
+    loc := #caller_location,
 ) -> CheckedGlobalValue {
+    when debug_checker {
+        print_call(loc, "check_global_value_without_generic")
+    }
     global := &s.global_values_without_generic[ref.index]
     if global.v.type != unknown_type {
         return global.v
@@ -3751,6 +3754,9 @@ check_global_value_without_generic :: proc(
         return global.v
     }
     assert(len(body) == 0)
+    if type == invalid_type {
+        assert(comptime_value == nil)
+    }
     global.v = CheckedGlobalValue{type, comptime_value}
     if type == type_type {
         type_value := comptime_value.(Type)

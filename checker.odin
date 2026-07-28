@@ -772,7 +772,7 @@ check_comptime_func_call :: proc(
     }
 
     body: [dynamic]CheckedStatement
-    value_type := unknown_type
+    value_type := invalid_type
     old_scope_state := s.scope_state
     s.scope_state = CheckerScopeState{}
     checked_value := check_value(
@@ -787,16 +787,16 @@ check_comptime_func_call :: proc(
     )
     s.scope_state = old_scope_state
     if checked_value == nil {
+        s.generic_initialisations.values.d[ref.index] = CheckedGlobalValue{invalid_type, nil}
         return nil
     }
     comptime_value, ok := checked_value.(CompileTimeValue)
+    s.generic_initialisations.values.d[ref.index] = CheckedGlobalValue{value_type, comptime_value}
     if !ok {
         diagnostic(s, generic.value.pos, non_compiletime_global_err)
         return nil
     }
     assert(len(body) == 0)
-
-    s.generic_initialisations.values.d[ref.index] = CheckedGlobalValue{value_type, comptime_value}
 
     out := finish_checking_value(s, pos, type, checked_value, value_type, "")
 
@@ -808,16 +808,14 @@ check_comptime_func_call :: proc(
             CheckValueArgs{nil, AnyType{&value_type}, generic_args_map, nil},
         )
         assert(value_type == type_type)
-        if initialised_type == nil {
-            return out
-        }
         assert(
             type_key_is_equal(
                 s.types.m.keys[type_value.index].key,
                 GenericTypeValue{global, generic_args},
             ),
         )
-        s.types.values.d[type_value.index].type = initialised_type.(CompileTimeValue).(Type)
+        s.types.values.d[type_value.index].type =
+            initialised_type == nil ? invalid_type : initialised_type.(CompileTimeValue).(Type)
     }
 
     return out
@@ -2446,7 +2444,7 @@ check_var_ref :: proc(
             diagnostic(
                 s,
                 extra_segment.pos,
-                "The value before `.len` is of type %s\nExpected a string type, an array type, or an OrderedHashSet type",
+                "The value before `.len` is of type `%s`\nExpected a string type, an array type, or an OrderedHashSet type",
                 type_to_string(s, out_type),
             )
             return nil

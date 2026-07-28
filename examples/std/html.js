@@ -6,7 +6,7 @@ const svgNS = "http://www.w3.org/2000/svg"
 
 function create_svg_elem(elem) {
   switch (elem.variant) {
-    case 0:
+    case 0: {
       const line = document.createElementNS(svgNS, "line")
       line.setAttribute("x1", elem.field0)
       line.setAttribute("y1", elem.field1)
@@ -15,12 +15,13 @@ function create_svg_elem(elem) {
       line.setAttribute("stroke-width", elem.field4)
       line.setAttribute("stroke", elem.field5)
       return line
+    }
   }
 }
 
 function create_html_elem(elem) {
   switch (elem.variant) {
-    case 0:
+    case 0: {
       const button = document.createElement("button")
       button.onclick = () => {
         ui = elem.field1()
@@ -30,16 +31,19 @@ function create_html_elem(elem) {
         button.appendChild(create_html_elem(child))
       }
       return button
-    case 1:
+    }
+    case 1: {
       const div = document.createElement("div")
       div.setAttribute("style", elem.field0)
       for (const child of elem.field1) {
         div.appendChild(create_html_elem(child))
       }
       return div
-    case 2:
+    }
+    case 2: {
       return document.createTextNode(elem.field0)
-    case 3:
+    }
+    case 3: {
       const svg = document.createElementNS(svgNS, "svg")
       svg.setAttribute("style", elem.field0)
       svg.setAttribute("viewBox", `0 0 ${elem.field1} ${elem.field2}`)
@@ -47,6 +51,7 @@ function create_html_elem(elem) {
         svg.appendChild(create_svg_elem(child))
       }
       return svg
+    }
   }
 }
 

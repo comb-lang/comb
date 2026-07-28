@@ -292,6 +292,22 @@ Considering all of this, these design principles are tentative and subject to ch
 
 (subject to change)
 
+- TODO: Decide if/how closures that call themselves should be supported
+  - By a "closure that calls itself", I mean something like
+    ```
+    str_repeat = |str: String| -> (I64) -> String {
+      internal = |reps: I64| -> String {
+        if reps <= 0 {
+          return ""
+        }
+        return str & internal(reps-1)
+      }
+      return internal
+    }
+    ```
+  - Problematic because:
+    - In the above example, `internal` refers to itself, so reference counting could not trivially free `internal`
+    - Currently variables become accessible on the line after they are declared, so `internal` is not defined when it is referenced in `return str & internal(reps-1)`
 - Every value is immutable
   - This means that with reference counting, garbage collection should be completely unnecersarry, because if every value is immutable then it is impossible to create a circular reference
 - Procedural programming is supported through a combination of:

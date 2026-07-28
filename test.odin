@@ -781,6 +781,45 @@ invalid_example_03_constants_and_reassignables_with_same_name :: proc(t: ^testin
     expect_finished(&e)
 }
 
+@(test)
+invalid_example_04_invalid_globals :: proc(t: ^testing.T) {
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    path :: #directory + "examples/invalid/04_invalid_globals.code"
+    ran := interpret_example(t, &a, FunctionRef{path, "main"})
+    testing.expect(t, ran.exit_code == 1)
+    testing.expect(t, ran.program.stdout == "")
+    testing.expect(t, ran.program.stderr == "")
+
+    e := TestingTextExpecter{0, ran.compiler.stdout, t}
+    expect_string(&e, "Reading `" + path + "`...\n")
+    expect_string(&e, "Checking...\n")
+    expect_done_message(&e)
+    expect_finished(&e)
+
+    e = TestingTextExpecter{0, ran.compiler.stderr, t}
+    expect_string(&e, "\n")
+    expect_string(&e, "Error compiling `" + path + "` (4:12)\n")
+    expect_string(&e, "Expected the type `String` but got the type `I64`\n")
+    expect_string(&e, "\n")
+    expect_string(&e, "Error compiling `" + path + "` (4:19)\n")
+    expect_string(&e, "Expected the type `String` but got the type `I64`\n")
+    expect_string(&e, "\n")
+    expect_string(&e, "Error compiling `" + path + "` (8:17)\n")
+    expect_string(&e, "The variable `E` is not defined in the file `" + path + "`\n")
+    expect_string(&e, "\n")
+    expect_string(&e, "Error compiling `" + path + "` (11:13)\n")
+    expect_string(&e, "The value before `.len` is of type `Array[I64]`\n")
+    expect_string(&e, "Expected a string type, an array type, or an OrderedHashSet type\n")
+    expect_string(&e, "\n")
+    expect_string(&e, "Erroneously checked with 4 errors and 0 warnings in ")
+    expect_digits(&e)
+    expect_string(&e, ".")
+    expect_digits(&e)
+    expect_string(&e, " ms\n")
+    expect_finished(&e)
+}
+
 // TODO: Add a fuzz test where the code that gets compiled never has any syntax errors
 
 // TODO: Add a fuzz test where the code that gets compiled has no invalid utf8 runes

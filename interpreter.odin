@@ -858,7 +858,18 @@ interp_derive_value :: proc(
         new_hashmap[key] = interp_derive_value(s, old.hashmap[key], subset_elems[1:], alteration)
         return RuntimeStringOrderedHashMap{old.type, true, new_hashmap, new_order}
     case FieldAccess:
-        panic("TODO")
+        old := v.(RuntimeStruct)
+        new_fields := make([]RuntimeValue, len(old.field_values))
+        for old_field, i in old.field_values {
+            new_fields[i] = old_field
+        }
+        new_fields[elem.field_index] = interp_derive_value(
+            s,
+            old.field_values[elem.field_index],
+            subset_elems[1:],
+            alteration,
+        )
+        return RuntimeStruct{true, new_fields, old.type}
     case:
         panic("Unreachable")
     }

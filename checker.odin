@@ -620,7 +620,7 @@ StringOrderedHashMapAccess :: struct {
 }
 
 FieldAccess :: struct {
-    field_index: uint,
+    field_index: u32,
 }
 
 DerivationSubsetElement :: union #no_nil {
@@ -3476,14 +3476,14 @@ check_derivation_subset :: proc(
     DerivationSubset,
     Type,
 ) {
-    #partial switch t in get_type(s.types, derivation_base_type).key {
+    #partial switch t in get_type(s.types, simplify_type(s, derivation_base_type)).key {
     case ArrayType:
         unit_in_square_brackets, ok := unit.unit.(UnitsInSquareBrackets)
         if !ok {
             diagnostic(
                 s,
                 unit.pos,
-                "Can only use unit in square brackets as derivation subset on array type `%s`",
+                "For array type `%s`\nCan only use unit in square brackets as derivation subset",
                 type_to_string(s, derivation_base_type),
             )
             return DerivationSubset{}, invalid_type
@@ -3515,7 +3515,7 @@ check_derivation_subset :: proc(
             diagnostic(
                 s,
                 unit.pos,
-                "Can only use unit in square brackets as derivation subset on ordered hash map type `%s`",
+                "For ordered hash map type `%s`\nCan only use unit in square brackets as derivation subset",
                 type_to_string(s, derivation_base_type),
             )
             return DerivationSubset{}, invalid_type
@@ -3540,6 +3540,35 @@ check_derivation_subset :: proc(
         elements := make([]DerivationSubsetElement, 1)
         elements[0] = StringOrderedHashMapAccess{key}
         return DerivationSubset{elements}, t.value_type
+    case StructType:
+        field, ok := unit.unit.(IdentNode)
+        if !ok ||
+           field.has_re_before ||
+           len(field.segments) != 2 ||
+           field.segments[0].ident != "" {
+            diagnostic(
+                s,
+                unit.pos,
+                "For struct type `%s`\nCan only use ident with 2 segments where first segment is empty and `re` is not before the ident as derivation subset",
+                type_to_string(s, derivation_base_type),
+            )
+            return DerivationSubset{}, invalid_type
+        }
+        field_name := field.segments[1]
+        field_index := lookup(t.m, field_name.ident, string_to_index_procs)
+        if field_index == does_not_exist {
+            diagnostic(
+                s,
+                unit.pos,
+                "The field `%s` dost not exist in the struct type `%s`",
+                field_name.ident,
+                type_to_string(s, derivation_base_type),
+            )
+            return DerivationSubset{}, invalid_type
+        }
+        elements := make([]DerivationSubsetElement, 1)
+        elements[0] = FieldAccess{field_index.index}
+        return DerivationSubset{elements}, t.types.d[field_index.index]
     case:
         diagnostic(
             s,

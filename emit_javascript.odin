@@ -221,7 +221,15 @@ emit_js_derivation :: proc(
         strings.write_byte(&s.b, ',')
         emit_js_value(s, elem.key)
     case FieldAccess:
-        panic("TODO")
+        strings.write_string(&s.b, "object_update(")
+        if v == nil {
+            strings.write_string(&s.b, "old")
+        } else {
+            emit_js_value(s, v)
+        }
+        strings.write_string(&s.b, ",\"field")
+        strings.write_uint(&s.b, uint(elem.field_index))
+        strings.write_byte(&s.b, '"')
     case:
         panic("Unreachable")
     }
@@ -569,6 +577,11 @@ emit_javascript :: proc(types: Types, checked_functions: []CheckedFunction) -> s
         &s.b,
         "function in_map(a, b) {return Map.prototype.has.call(b, a)}" +
         "function with_update(value, key, func) {return value.with(key, func(value[key]))}" +
+        "function object_update(object, field, func) {" +
+        "  const shallow_copy = {...object};" +
+        "  shallow_copy[field] = func(shallow_copy[field]);" +
+        "  return shallow_copy;" +
+        "}" +
         "function map_update(map, key, func) {return new Map(map).set(key, func(map.get(key)))}",
     )
 

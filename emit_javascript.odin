@@ -17,6 +17,13 @@ emit_js_func_call :: proc(s: ^GeneralEmitterState, c: CheckedFunctionCall) {
 
 emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: CompileTimeValue) {
     switch comptime in v {
+    case CompileTimeArray:
+        strings.write_byte(&s.b, '[')
+        for elem in comptime.elements {
+            emit_js_comptime_value(s, elem)
+            strings.write_byte(&s.b, ',')
+        }
+        strings.write_byte(&s.b, ']')
     case CompileTimeOrderedHashMapInitialisation:
         strings.write_string(&s.b, "new Map()")
         for key in comptime.order {

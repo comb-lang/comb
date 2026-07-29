@@ -201,7 +201,12 @@ OrderedHashMapInitialisation :: struct {
     runtime_values:      map[string]CheckedValue,
     order:               []string,
 }
+CompileTimeArray :: struct {
+    type:     Type,
+    elements: []CompileTimeValue,
+}
 CompileTimeValue :: union {
+    CompileTimeArray,
     StringLiteralValue,
     NumberValue,
     BoolValue,
@@ -548,7 +553,7 @@ check_runtime_value :: proc(
     if comptime_value, is_comptime_value := out.(CompileTimeValue); is_comptime_value {
         #partial switch _ in comptime_value {
         case Type, GlobalValueWithGenericRef, UninitialisedOrderedHashMapType, Import:
-            diagnostic(s, v.pos, "This value can only be used at compile time")
+            diagnostic(s, v.pos, "This value can only be used at run time")
             return nil
         }
     }
@@ -2513,13 +2518,51 @@ check_array_initialisation :: proc(
         )
         return nil
     }
-    array_segments := make([]ArraySegment, len(args))
-    for arg, i in args {
-        value := check_runtime_value(s, arg, a.body, array_type_value.item_type, a.generic_args)
+    compile_time_elems := make([dynamic]CompileTimeValue)
+    for i := 0; i < len(args); i += 1 {
+        value := check_runtime_value(
+            s,
+            args[i],
+            a.body,
+            array_type_value.item_type,
+            a.generic_args,
+        )
         if value == nil {
             ok = false
+            append_elem(&compile_time_elems, nil)
+        } else if comptime, is_comptime := value.(CompileTimeValue); is_comptime {
+            append_elem(&compile_time_elems, comptime)
         } else {
+            array_segments := make([]ArraySegment, len(args))
+            for elem, j in compile_time_elems {
+                array_segments[j] = SingleElemSegment{elem}
+            }
             array_segments[i] = SingleElemSegment{value}
+            for i += 1; i < len(args); i += 1 {
+                value = check_runtime_value(
+                    s,
+                    args[i],
+                    a.body,
+                    array_type_value.item_type,
+                    a.generic_args,
+                )
+                if value == nil {
+                    ok = false
+                } else {
+                    array_segments[i] = SingleElemSegment{value}
+                }
+            }
+            if !ok {
+                return nil
+            }
+            return finish_checking_value(
+                s,
+                array_type_pos,
+                a.type,
+                ArrayLiteral{array_type, array_segments},
+                array_type,
+                "",
+            )
         }
     }
     if !ok {
@@ -2529,7 +2572,7 @@ check_array_initialisation :: proc(
         s,
         array_type_pos,
         a.type,
-        ArrayLiteral{array_type, array_segments},
+        CompileTimeValue(CompileTimeArray{array_type, compile_time_elems[:]}),
         array_type,
         "",
     )

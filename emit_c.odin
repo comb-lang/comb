@@ -86,6 +86,8 @@ emit_c_func_call :: proc(s: ^CEmitterState, c: CheckedFunctionCall) {
 
 emit_c_comptime_value :: proc(s: ^CEmitterState, value: CompileTimeValue) {
     switch comptime in value {
+    case CompileTimeArray:
+        panic("TODO")
     case CompileTimeOrderedHashMapInitialisation:
         panic("TODO")
     case CastFunction:

@@ -66,27 +66,26 @@ game_of_life = |s: [game_size]Bool| -> h.UI {
 	return h.UI(main_title, ui_contents, |_: h.Key| -> h.UI { return game_of_life(s) })
 }
 
+pulsar_initial_state = [game_size]Bool(
+    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+    false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
+    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
+    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
+    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
+    false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
+    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+    false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
+    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
+    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
+    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
+    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+    false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
+    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+)
+
 site = h.Site(OrderedHashMap[String, () -> h.UI][
-	"/" = || -> h.UI {
-		pulsar_initial_state = [game_size]Bool(
-		    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-		    false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
-		    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-		    false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
-		    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-		    false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
-		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-		    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-		    false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
-		    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-		)
-		return game_of_life(pulsar_initial_state)
-	},
+	"/" = || -> h.UI { return game_of_life(pulsar_initial_state) },
 ])
 
 build = |c: Compiler| -> I64 {

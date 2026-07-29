@@ -770,6 +770,12 @@ interp_is_equal :: proc(s: InterpState, lhs: RuntimeValue, val1: CheckedValue) -
 
 interp_eval_comptime_value :: proc(s: InterpState, value: CompileTimeValue) -> RuntimeValue {
     switch comptime in value {
+    case CompileTimeArray:
+        elems := make([]RuntimeValue, len(comptime.elements))
+        for elem, i in comptime.elements {
+            elems[i] = interp_eval_comptime_value(s, elem)
+        }
+        return RuntimeArray{comptime.type, true, elems}
     case CompileTimeOrderedHashMapInitialisation:
         out_map: map[string]RuntimeValue
         for key, v in comptime.value {

@@ -36,8 +36,15 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: CompileTimeValue) {
     case CastFunction:
         strings.write_string(&s.b, "/* TODO: Implement cast in JS emitter */ undefined")
     case BuiltinFunction:
-        strings.write_string(&s.b, "builtin")
-        strings.write_uint(&s.b, uint(comptime))
+        #partial switch comptime {
+        case .print, .println:
+            strings.write_string(&s.b, "console.log")
+        case .eprint, .eprintln:
+            strings.write_string(&s.b, "console.error")
+        case:
+            strings.write_string(&s.b, "builtin")
+            strings.write_uint(&s.b, uint(comptime))
+        }
     case CompileTimeStructInitialisation:
         strings.write_string(&s.b, "init_Type")
         strings.write_uint(&s.b, uint(comptime.func.return_type.index))

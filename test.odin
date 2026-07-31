@@ -826,6 +826,18 @@ example_13_numbers :: proc(t: ^testing.T) {
     testing.expect(t, ran.program.stderr == "")
 }
 
+@(test)
+invalid_example_05_invalid_global_sum_type :: proc(t: ^testing.T) {
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    file :: #directory + "examples/invalid/05_invalid_global_sum_type.code"
+    ran := interpret_example(t, &a, FunctionRef{file, "main"}, "")
+    testing.expect(t, ran.exit_code == 1)
+    // TODO: Check ran.compiler
+    testing.expect(t, ran.program.stdout == "")
+    testing.expect(t, ran.program.stderr == "")
+}
+
 // TODO: Add a fuzz test where the code that gets compiled never has any syntax errors
 
 // TODO: Add a fuzz test where the code that gets compiled has no invalid utf8 runes

@@ -1,0 +1,13 @@
+InvalidSumType = <
+	A{},
+	B{value: InvalidType},
+>
+
+uses_invalid_sum_type = || {
+	_ = []InvalidSumType(.A())
+}
+
+main = || -> I64 {
+	uses_invalid_sum_type()
+	return 0
+}

@@ -41,32 +41,23 @@ emit_struct_type :: proc(b: ^strings.Builder, type: StructType, loc := #caller_l
 }
 
 emit_type :: proc(b: ^strings.Builder, name: string, type: Type) {
-    switch type {
-    case bool_type:
+    #partial switch type {
+    case .bool_type:
         strings.write_string(b, "bool")
-    case string_type:
+    case .string_type:
         strings.write_string(b, "char*")
-    case i64_type:
-        strings.write_string(b, "int64_t")
-    case i32_type:
-        strings.write_string(b, "int32_t")
-    case i16_type:
-        strings.write_string(b, "int16_t")
-    case i8_type:
-        strings.write_string(b, "int8_t")
-    case u64_type:
-        strings.write_string(b, "uint64_t")
-    case u32_type:
-        strings.write_string(b, "uint32_t")
-    case u16_type:
-        strings.write_string(b, "uint16_t")
-    case u8_type:
+    case .int_type, .uint_type, .float_type:
+        strings.write_string(b, "double")
+    case .char_type:
         strings.write_string(b, "uint8_t")
-    case any_type:
+    case .any_type:
         strings.write_string(b, "void*")
     case:
+        if type > Type.max_index {
+            panic(fmt.aprintf("Type is %v", type))
+        }
         strings.write_string(b, "Type")
-        strings.write_uint(b, uint(type.index))
+        strings.write_uint(b, uint(type))
     }
     strings.write_byte(b, ' ')
     strings.write_string(b, name)
@@ -97,7 +88,7 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: CompileTimeValue) {
         strings.write_uint(&s.b, uint(comptime))
     case CompileTimeStructInitialisation:
         strings.write_string(&s.b, "init_Type")
-        strings.write_uint(&s.b, uint(comptime.func.return_type.index))
+        strings.write_uint(&s.b, uint(comptime.func.return_type))
         strings.write_string(&s.b, "(")
         first_arg := true
         for arg in comptime.args {
@@ -113,10 +104,14 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: CompileTimeValue) {
         strings.write_string(&s.b, "func")
         strings.write_uint(&s.b, comptime.ref.index)
     case NumberValue:
-        if comptime.value.is_negated {
+        if comptime.is_negated {
             strings.write_byte(&s.b, '-')
         }
-        strings.write_string(&s.b, big_uint_to_string(comptime.value.absolute_value))
+        strings.write_string(&s.b, big_uint_to_string(comptime.whole_part))
+        if comptime.fraction_part != "" {
+            strings.write_byte(&s.b, '.')
+            strings.write_string(&s.b, comptime.fraction_part)
+        }
     case StringLiteralValue:
         strings.write_byte(&s.b, '"')
         for char in comptime {
@@ -153,7 +148,7 @@ emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
         panic("TODO: Handle checked derivation in C emitter")
     case CheckedOrderedHashMapAccess,
          KeysOfOrderedHashMapWithStringKey,
-         KeysOfOrderedHashMapWithI64Key:
+         KeysOfOrderedHashMapWithIntKey:
         panic("TODO")
     case CompileTimeValue:
         emit_c_comptime_value(s, value)
@@ -162,21 +157,10 @@ emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
         switch value.from_type {
         case .BoolType:
             strings.write_string(&s.b, "\"%b\"")
-        case .I64Type:
-            strings.write_string(&s.b, "\"%\" PRId64")
-        case .I32Type:
-            strings.write_string(&s.b, "\"%\" PRId32")
-        case .I16Type:
-            strings.write_string(&s.b, "\"%\" PRId16")
-        case .I8Type:
-            strings.write_string(&s.b, "\"%\" PRId8")
-        case .U64Type:
-            strings.write_string(&s.b, "\"%\" PRIu64")
-        case .U32Type:
-            strings.write_string(&s.b, "\"%\" PRIu32")
-        case .U16Type:
-            strings.write_string(&s.b, "\"%\" PRIu16")
-        case .U8Type:
+        case .IntType, .UIntType, .FloatType:
+            // TODO: Only include decimal when it's a float
+            strings.write_string(&s.b, "\"%f\"")
+        case .CharType:
             strings.write_string(&s.b, "\"%\" PRIu8")
         }
         strings.write_byte(&s.b, ',')
@@ -195,14 +179,14 @@ emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
         strings.write_string(&s.b, ".length")
     case LengthOfOrderedHashMapWithStringKey:
         panic("TODO")
-    case LengthOfOrderedHashMapWithI64Key:
+    case LengthOfOrderedHashMapWithIntKey:
         panic("TODO")
     case CheckedIndexedAccess:
         if value.base_type == .String {
             panic("TODO")
         }
         emit_c_value(s, value.base^)
-        strings.write_string(&s.b, ".elems[")
+        strings.write_string(&s.b, ".elems[(int)")
         emit_c_value(s, value.i.start_index^)
         if value.i.end_index != nil {
             panic("TODO")
@@ -224,10 +208,10 @@ emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
     //    strings.write_byte(&s.b, '}')
     case StructTypeInitFunc:
         strings.write_string(&s.b, "init_Type")
-        strings.write_uint(&s.b, uint(value.return_type.index))
+        strings.write_uint(&s.b, uint(value.return_type))
     case SumTypeInitFunc:
         strings.write_string(&s.b, "init_Type")
-        strings.write_uint(&s.b, uint(value.sum_type.index))
+        strings.write_uint(&s.b, uint(value.sum_type))
         strings.write_string(&s.b, "Variant")
         strings.write_uint(&s.b, uint(value.variant_index))
     case BooleanNotValue:
@@ -512,13 +496,13 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
         )
         strings.write_string(&s.other_type_definitions, name)
         strings.write_byte(&s.other_type_definitions, ';')
-    case OrderedHashMapTypeWithI64Key:
+    case OrderedHashMapTypeWithIntKey:
         emit_forward_struct_definition(s, name)
         strings.write_string(&s.other_type_definitions, "typedef struct ")
         strings.write_string(&s.other_type_definitions, name)
         strings.write_string(
             &s.other_type_definitions,
-            "Struct {/* TODO: Ordered hash map with I64 key */}",
+            "Struct {/* TODO: Ordered hash map with Int key */}",
         )
         strings.write_string(&s.other_type_definitions, name)
         strings.write_byte(&s.other_type_definitions, ';')
@@ -557,7 +541,7 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
         strings.write_string(&s.sum_type_definitions, "Struct{uint64_t variant; union {")
         for _, i in type.m.keys {
             strings.write_string(&s.sum_type_definitions, "Type")
-            strings.write_uint(&s.sum_type_definitions, uint(type.payloads.d[i].index))
+            strings.write_uint(&s.sum_type_definitions, uint(type.payloads.d[i]))
             strings.write_string(&s.sum_type_definitions, "* variant")
             strings.write_int(&s.sum_type_definitions, i)
             strings.write_byte(&s.sum_type_definitions, ';')
@@ -594,12 +578,12 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
             strings.write_string(&s.sum_type_initialisation_funcs, "; out.payload.variant")
             strings.write_int(&s.sum_type_initialisation_funcs, i)
             strings.write_string(&s.sum_type_initialisation_funcs, " = malloc(sizeof(Type")
-            strings.write_uint(&s.sum_type_initialisation_funcs, uint(payload_type.index))
+            strings.write_uint(&s.sum_type_initialisation_funcs, uint(payload_type))
             strings.write_string(&s.sum_type_initialisation_funcs, "));")
             strings.write_string(&s.sum_type_initialisation_funcs, "*out.payload.variant")
             strings.write_int(&s.sum_type_initialisation_funcs, i)
             strings.write_string(&s.sum_type_initialisation_funcs, " = init_Type")
-            strings.write_uint(&s.sum_type_initialisation_funcs, uint(payload_type.index))
+            strings.write_uint(&s.sum_type_initialisation_funcs, uint(payload_type))
             strings.write_string(&s.sum_type_initialisation_funcs, "(")
             first_arg = true
             for _, j in payload.m.keys {

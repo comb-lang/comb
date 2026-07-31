@@ -1,0 +1,76 @@
+// All numbers are stored as 64 bit floats under the hood
+
+// There are 3 number types:
+// - Int
+// - UInt
+// - Float
+
+u = import "std/utils.code"
+
+// The return type of a numeric calculation is the most general type
+
+uint_plus_uint_returns_uint = |a: UInt, b: UInt| -> UInt {
+	return a + b
+}
+
+uint_minus_uint_returns_int = |a: UInt, b: UInt| -> Int {
+	return a - b
+}
+
+uint_multiply_float_returns_float = |a: UInt, b: Float| -> Float {
+	return a * b
+}
+
+uint_divide_uint_returns_float = |a: UInt, b: UInt| -> Float {
+	return a / b
+}
+
+float_minus_float_returns_float = |a: Float, b: Float| -> Float {
+	return a - b
+}
+
+// Implicit number conversions
+
+uint_implicitly_becomes_int = |a: UInt| -> Int {
+	return a
+}
+
+uint_implicitly_becomes_float = |a: UInt| -> Float {
+	return a
+}
+
+int_implicitly_becomes_float = |a: Int| -> Float {
+	return a
+}
+
+// Main test
+
+main = || -> Int {
+	my_uint = uint_plus_uint_returns_uint(3, 5)
+	my_int = uint_minus_uint_returns_int(2, 5)
+	my_float = uint_multiply_float_returns_float(2, 0.5)
+	my_float2 = uint_divide_uint_returns_float(5, 2)
+	my_float3 = float_minus_float_returns_float(0.5, 1.25)
+
+	u.assert_with_message(my_uint == 8, "my_uint != 8")
+	u.assert_with_message(my_int == -3, "my_int != -3")
+	u.assert_with_message(my_float == 1, "my_float != 1")
+	u.assert_with_message(my_float2 == 2.5, "my_float2 != 2.5")
+	u.assert_with_message(my_float3 == -0.75, "my_float3 != -0.75")
+
+	my_int2 = uint_implicitly_becomes_int(my_uint)
+	my_float4 = uint_implicitly_becomes_float(my_uint)
+	my_float5 = int_implicitly_becomes_float(my_int2)
+
+    // numbers of different types can still be compared because any number can
+	// implicitly be converted to a float
+	u.assert_with_message(my_int2 == 8, "my_int2 != 8")
+	u.assert_with_message(my_float4 == 8, "my_float4 != 8")
+	u.assert_with_message(my_float5 == 8, "my_float5 != 8")
+	// Currently you can compare with `Float == Int`
+	// TODO: Be able to compare with `Int == Float`
+	u.assert_with_message(my_float4 == my_int2, "my_float4 != my_int2")
+	u.assert_with_message(my_float5 == my_int2, "my_float5 != my_int2")
+
+	return 0
+}

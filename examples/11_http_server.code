@@ -18,7 +18,7 @@ handler = |req: HttpRequest| -> HttpResponse {
 // This API is also missing a way to get the port of the web server
 // http_listen_and_serve(handler)
 
-main = |compiler: Compiler| -> I64 {
+main = |compiler: Compiler| -> Int {
     // - The `CompilerCache` is a place to store values across program
     //   executions when using the `-watch` flag
     // - For this demo, all saving the initialised HTTP server in the

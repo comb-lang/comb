@@ -6,4 +6,11 @@ assert = |cond: Bool| {
 	}
 }
 
+assert_with_message = |cond: Bool, message: String| {
+	if cond == false {
+		eprintln(message)
+		unreachable
+	}
+}
+
 // TODO: Add utils for converting values of any type to strings

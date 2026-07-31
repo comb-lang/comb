@@ -47,7 +47,7 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: CompileTimeValue) {
         }
     case CompileTimeStructInitialisation:
         strings.write_string(&s.b, "init_Type")
-        strings.write_uint(&s.b, uint(comptime.func.return_type.index))
+        strings.write_uint(&s.b, uint(comptime.func.return_type))
         strings.write_byte(&s.b, '(')
         first_arg := true
         for arg in comptime.args {
@@ -93,10 +93,14 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: CompileTimeValue) {
     case BoolValue:
         strings.write_string(&s.b, comptime ? "true" : "false")
     case NumberValue:
-        if comptime.value.is_negated {
+        if comptime.is_negated {
             strings.write_byte(&s.b, '-')
         }
-        strings.write_string(&s.b, big_uint_to_string(comptime.value.absolute_value))
+        strings.write_string(&s.b, big_uint_to_string(comptime.whole_part))
+        if comptime.fraction_part != "" {
+            strings.write_byte(&s.b, '.')
+            strings.write_string(&s.b, comptime.fraction_part)
+        }
     }
 
 }
@@ -133,19 +137,12 @@ emit_js_runtime_value :: proc(b: ^strings.Builder, value: RuntimeValue) {
             strings.write_byte(b, ',')
         }
         strings.write_byte(b, ']')
-    case i64:
-        strings.write_i64(b, v)
+    case f64:
+        strings.write_f64(b, v, 'f')
     case bool:
         strings.write_string(b, v ? "true" : "false")
-    case i32,
-         i16,
-         i8,
-         u64,
-         u32,
-         u16,
-         u8,
-         CastFunction,
-         RuntimeI64OrderedHashMap,
+    case CastFunction,
+         RuntimeIntOrderedHashMap,
          StructTypeInitFunc,
          SumTypeInitFunc,
          BuiltinFunction,
@@ -277,7 +274,7 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: CheckedValue) {
         strings.write_byte(&s.b, ']')
     case KeysOfOrderedHashMapWithStringKey:
         emit_js_map_keys_func(s, v.hash_map^)
-    case KeysOfOrderedHashMapWithI64Key:
+    case KeysOfOrderedHashMapWithIntKey:
         emit_js_map_keys_func(s, v.hash_map^)
     case CheckedOrderedHashMapAccess:
         strings.write_string(&s.b, "Map.prototype.get.call(")
@@ -300,7 +297,7 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: CheckedValue) {
         strings.write_string(&s.b, ".length")
     case LengthOfOrderedHashMapWithStringKey:
         panic("TODO")
-    case LengthOfOrderedHashMapWithI64Key:
+    case LengthOfOrderedHashMapWithIntKey:
         panic("TODO")
     case CheckedIndexedAccess:
         emit_js_value(s, v.base^)
@@ -319,10 +316,10 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: CheckedValue) {
         emit_js_func_call(s, v)
     case StructTypeInitFunc:
         strings.write_string(&s.b, "init_Type")
-        strings.write_uint(&s.b, uint(v.return_type.index))
+        strings.write_uint(&s.b, uint(v.return_type))
     case SumTypeInitFunc:
         strings.write_string(&s.b, "init_Type")
-        strings.write_uint(&s.b, uint(v.sum_type.index))
+        strings.write_uint(&s.b, uint(v.sum_type))
         strings.write_string(&s.b, "Variant")
         strings.write_uint(&s.b, uint(v.variant_index))
     case BooleanNotValue:
@@ -390,7 +387,7 @@ emit_js_global_type :: proc(s: ^GeneralEmitterState, index: int) {
     switch t in s.types.m.keys[index].key {
     case GlobalType:
     case OrderedHashMapTypeWithStringKey:
-    case OrderedHashMapTypeWithI64Key:
+    case OrderedHashMapTypeWithIntKey:
     case ArrayType:
     case FuncType:
     case GenericTypeValue:
@@ -575,6 +572,15 @@ emit_javascript :: proc(types: Types, checked_functions: []CheckedFunction) -> s
     s := GeneralEmitterState{strings.builder_make(), types, checked_functions}
     strings.write_string(
         &s.b,
+        "function builtin22(num) {" +
+        "  if (!Number.isInteger(num)) {" +
+        "    throw new Error(\"Attempted to convert float to UInt\")" +
+        "  }" +
+        "  if (num < 0) {" +
+        "    throw new Error(\"Attempted to convert negative number to UInt\")" +
+        "  }" +
+        "  return num" +
+        "}" +
         "function in_map(a, b) {return Map.prototype.has.call(b, a)}" +
         "function with_update(value, key, func) {return value.with(key, func(value[key]))}" +
         "function object_update(object, field, func) {" +

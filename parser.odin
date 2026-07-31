@@ -137,6 +137,30 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
     }
 }
 
+parse_non_negative_number :: proc(s: ^ParserState, whole_part: string) -> NonNegativeNumber {
+    get_next_token(s, true)
+    symbols, is_symbols := s.last_token.(SymbolsToken)
+    if !is_symbols || symbols != "." {
+        append_dynamic(
+            &s.last_token_descriptions_of_other_possible_tokens,
+            "`.` to create a decimal number",
+        )
+        return WholeNonNegativeNumber{whole_part}
+    }
+    get_next_token(s, true)
+    digits, is_digits := s.last_token.(DigitsToken)
+    if !is_digits {
+        append_dynamic(
+            &s.last_token_descriptions_of_other_possible_tokens,
+            "some digits for the fractional part of the number",
+        )
+        wrong_token_err(s)
+        return nil
+    }
+    get_next_token(s, true)
+    return DecimalNonNegativeNumber{whole_part, string(digits)}
+}
+
 // Returns `nil, false` on failure
 // Returns `nil, true` if there wasn't an initial unit to parse
 // Returns something other than `nil`, and `true` on success
@@ -346,10 +370,10 @@ maybe_parse_initial_unit :: proc(
             if !args2_ok {
                 return nil, false
             }
-            unit = CallWithSquareBrackets{new_clone(Unit{unit_pos, unit, nil}), args2}
+            unit = CallWithSquareBrackets{new_clone(UnitWithPos{unit, unit_pos}), args2}
             get_next_token(s, true)
         }
-        return CallWithFrontedSquareBrackets{new_clone(Unit{unit_pos, unit, nil}), args}, true
+        return CallWithFrontedSquareBrackets{new_clone(UnitWithPos{unit, unit_pos}), args}, true
 
     case IdentToken:
         get_next_token(s, true)
@@ -392,8 +416,11 @@ maybe_parse_initial_unit :: proc(
         return Bool(false), true
 
     case DigitsToken:
-        get_next_token(s, true)
-        return Number{false, string(token)}, true
+        number := parse_non_negative_number(s, string(token))
+        if number == nil {
+            return nil, false
+        }
+        return Number{false, number}, true
 
     case SymbolsToken:
         if token != "-" {
@@ -406,8 +433,11 @@ maybe_parse_initial_unit :: proc(
             wrong_token_err(s)
             return nil, false
         }
-        get_next_token(s, true)
-        return Number{true, string(digits)}, true
+        number := parse_non_negative_number(s, string(digits))
+        if number == nil {
+            return nil, false
+        }
+        return Number{true, number}, true
 
     case StringToken:
         strings := [dynamic]string{string(token)}
@@ -541,14 +571,14 @@ parse_unit_with_pos :: proc(s: ^ParserState, loc := #caller_location) -> UnitWit
             if !args_ok {
                 return nil
             }
-            unit = CallWithBrackets{new_clone(Unit{pos, unit, nil}), args}
+            unit = CallWithBrackets{new_clone(UnitWithPos{unit, pos}), args}
             get_next_token(s, true)
         case OpenSquareBracketToken:
             args, args_ok := parse_units_until(s, is_close_square_bracket, "`]`")
             if !args_ok {
                 return nil
             }
-            unit = CallWithSquareBrackets{new_clone(Unit{pos, unit, nil}), args}
+            unit = CallWithSquareBrackets{new_clone(UnitWithPos{unit, pos}), args}
             get_next_token(s, true)
         }
     }

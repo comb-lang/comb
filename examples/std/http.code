@@ -10,7 +10,7 @@ get_http_server = |cache: CompilerCache, cache_name: String| -> HttpServer {
 
 // TODO: Implement using a replace function
 
-get_char_replacement = |c: U8| -> String {
+get_char_replacement = |c: Char| -> String {
     if c == '&' {
         return "&amp;"
     } else if c == '<' {

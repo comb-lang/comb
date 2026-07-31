@@ -53,25 +53,25 @@ empty_list[T] = || -> LinkedList[T] {
     return .Empty()
 }
 
-debug_number = |number: I64| {
+debug_number = |number: Int| {
     println(number.to_str)
 }
 
-main = || -> I64 {
+main = || -> Int {
     // TODO: Support pipe
     // l =
 	//     .Empty
 	//     |> insert(_, 3)
 	//     |> insert(_, 2)
 	//     |> insert(_, 1)
-    re l$ = empty_list[I64]()
-    l$ = insert[I64](l$, 3)
-    l$ = insert[I64](l$, 2)
-    l$ = insert[I64](l$, 1)
-    for number in to_array[I64](l$) {
+    re l$ = empty_list[Int]()
+    l$ = insert[Int](l$, 3)
+    l$ = insert[Int](l$, 2)
+    l$ = insert[Int](l$, 1)
+    for number in to_array[Int](l$) {
         println(number.to_str)
     }
     println("Reversed:")
-    foreach[I64](reverse[I64](l$, .Empty()), debug_number)
+    foreach[Int](reverse[Int](l$, .Empty()), debug_number)
     return 0
 }

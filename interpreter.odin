@@ -5,27 +5,22 @@ package main
 
 import "core:fmt"
 import "core:io"
+import "core:math"
 import "core:net"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
+import "core:strconv"
 import "core:strings"
 import "webserver"
 
 RuntimeValue :: union {
-    i64,
-    i32,
-    i16,
-    i8,
-    u64,
-    u32,
-    u16,
-    u8,
+    f64, // TODO: Support using i64 or u64 to increase accuracy
     bool,
     RuntimeString,
     RuntimeArray,
     RuntimeStringOrderedHashMap,
-    RuntimeI64OrderedHashMap,
+    RuntimeIntOrderedHashMap,
     RuntimeStruct,
     StructTypeInitFunc,
     RuntimeSumType,
@@ -39,31 +34,23 @@ RuntimeValue :: union {
 
 get_value_type :: proc(s: InterpState, value: RuntimeValue) -> Type {
     switch v in value {
-    case i64:
-        return i64_type
-    case i32:
-        return i32_type
-    case i16:
-        return i16_type
-    case i8:
-        return i8_type
-    case u64:
-        return u64_type
-    case u32:
-        return u32_type
-    case u16:
-        return u16_type
-    case u8:
-        return u8_type
+    case f64:
+        if math.floor(v) != v {
+            return .float_type
+        } else if v < 0 {
+            return .int_type
+        } else {
+            return .uint_type
+        }
     case bool:
-        return bool_type
+        return .bool_type
     case RuntimeString:
-        return string_type
+        return .string_type
     case RuntimeArray:
         return v.type
     case RuntimeStringOrderedHashMap:
         return v.type
-    case RuntimeI64OrderedHashMap:
+    case RuntimeIntOrderedHashMap:
         return v.type
     case RuntimeStruct:
         return v.type
@@ -120,10 +107,10 @@ RuntimeStringOrderedHashMap :: struct {
     hashmap:       map[string]RuntimeValue,
     order:         []string,
 }
-RuntimeI64OrderedHashMap :: struct {
+RuntimeIntOrderedHashMap :: struct {
     type:          Type,
     needs_freeing: bool,
-    hashmap:       map[i64]RuntimeValue,
+    hashmap:       map[int]RuntimeValue,
     order:         [dynamic]i64,
 }
 RuntimeStruct :: struct {
@@ -305,7 +292,7 @@ interp_execute_function :: proc(s: InterpState, c: CheckedFunctionCall) -> Runti
                 req_fields[1] = RuntimeString{false, request.method}
 
                 handler_args := make([]RuntimeValue, 1)
-                handler_args[0] = RuntimeStruct{true, req_fields, http_request_type}
+                handler_args[0] = RuntimeStruct{true, req_fields, .http_request_type}
 
                 response_raw := interp_execute_function2(s, server.handler, handler_args)
                 if should_exit_early(s.exit_early) {
@@ -399,8 +386,8 @@ interp_default_value :: proc(state: ^InterpState, t: Type) -> RuntimeValue {
         switch v in type_val {
         case OrderedHashMapTypeWithStringKey:
             return RuntimeStringOrderedHashMap{}
-        case OrderedHashMapTypeWithI64Key:
-            return RuntimeI64OrderedHashMap{}
+        case OrderedHashMapTypeWithIntKey:
+            return RuntimeIntOrderedHashMap{}
         case ArrayType:
             return RuntimeArray{true, make([dynamic]RuntimeValue)}
         case Struct(Type, Type):
@@ -464,7 +451,7 @@ interp_destroy_value :: proc(val: ^RuntimeValue, loc := #caller_location) {
             delete(v.order)
             v.needs_freeing = false
         }
-    case RuntimeI64OrderedHashMap:
+    case RuntimeIntOrderedHashMap:
         if v.needs_freeing {
             for _, &value in v.hashmap {
                 interp_destroy_value(&value)
@@ -518,7 +505,7 @@ interp_destroy_value :: proc(val: ^RuntimeValue, loc := #caller_location) {
          StructTypeInitFunc,
          SumTypeInitFunc,
          RuntimeStringOrderedHashMapInitFunc,
-         RuntimeI64OrderedHashMapInitFunc:
+         RuntimeIntOrderedHashMapInitFunc:
     }
     */
 }
@@ -537,13 +524,13 @@ interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> Runtim
         }
         out_order := slice.clone(v.order)
         return RuntimeStringOrderedHashMap{v.type, true, out_hashmap, out_order}
-    case RuntimeI64OrderedHashMap:
-        out_hashmap := make(map[i64]RuntimeValue, len(v.hashmap))
+    case RuntimeIntOrderedHashMap:
+        out_hashmap := make(map[int]RuntimeValue, len(v.hashmap))
         for key, value in v.hashmap {
             out_hashmap[key] = interp_clone_value(value)
         }
         out_order := slice.clone_to_dynamic(v.order[:])
-        return RuntimeI64OrderedHashMap{v.type, true, out_hashmap, out_order}
+        return RuntimeIntOrderedHashMap{v.type, true, out_hashmap, out_order}
     case RuntimeArray:
         new_elems := make([]RuntimeValue, len(v.elems))
         for elem, i in v.elems {
@@ -564,14 +551,7 @@ interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> Runtim
         return RuntimeSumType{v.type, true, v.variant_index, payload}
     case RuntimeString:
         return RuntimeString{true, strings.clone(v.value)}
-    case i64,
-         i32,
-         i16,
-         i8,
-         u64,
-         u32,
-         u16,
-         u8,
+    case f64,
          bool,
          RuntimeFunc,
          BuiltinFunction,
@@ -682,7 +662,7 @@ interp_exec_statement :: proc(state: InterpState, stmt: CheckedStatement) {
                         append_elem(&hash_map_value.order, key_string)
                     }
                     return &hash_map_value.hashmap[key_string]
-                case RuntimeI64OrderedHashMap:
+                case RuntimeIntOrderedHashMap:
                     return &hash_map_value.hashmap[key.(i64)]
                 }
                 panic("Unreachable")
@@ -743,24 +723,18 @@ interp_exec_statement :: proc(state: InterpState, stmt: CheckedStatement) {
     }
 }
 
-expect_number :: proc(value: RuntimeValue) -> i64 {
-    #partial switch v in value {
-    case i64:
-        return v
-    case u8:
-        return i64(v)
-    case:
-        panic("TODO/unreachable")
+mod :: proc(a: f64, b: f64) -> f64 {
+    for a - b >= 0 {
+        return mod(a - b, b)
     }
+    return a
 }
 
 interp_is_equal :: proc(s: InterpState, lhs: RuntimeValue, val1: CheckedValue) -> bool {
     rhs := interp_eval_value(s, val1)
     #partial switch lhs_value in lhs {
-    case i64:
-        return lhs_value == expect_number(rhs)
-    case u8:
-        return i64(lhs_value) == expect_number(rhs)
+    case f64:
+        return lhs_value == rhs.(f64)
     case bool:
         return lhs_value == rhs.(bool)
     case:
@@ -806,12 +780,19 @@ interp_eval_comptime_value :: proc(s: InterpState, value: CompileTimeValue) -> R
     case StringLiteralValue:
         return RuntimeString{false, string(comptime)}
     case NumberValue:
-        as_u64, ok := big_uint_to_u64(comptime.value.absolute_value)
+        whole_part_as_u64, ok := big_uint_to_u64(comptime.whole_part)
         assert(ok)
-        if comptime.value.is_negated {
-            return -i64(as_u64)
+        fraction_part_as_int := 0
+        if comptime.fraction_part != "" {
+            fraction_part_as_int, ok = strconv.parse_int(comptime.fraction_part)
+            assert(ok)
         }
-        return i64(as_u64)
+        absolute_f64 := f64(whole_part_as_u64)
+        if fraction_part_as_int != 0 {
+            absolute_f64 +=
+                f64(fraction_part_as_int) / math.pow10(f64(len(comptime.fraction_part)))
+        }
+        return comptime.is_negated ? -absolute_f64 : absolute_f64
     case BoolValue:
         return bool(comptime)
     case Type, GlobalValueWithGenericRef, UninitialisedOrderedHashMapType, Import:
@@ -834,7 +815,7 @@ interp_derive_value :: proc(
 
     switch elem in subset_elems[0] {
     case ArrayElementAccess:
-        index := interp_eval_value(s, elem.index).(i64)
+        index := expect_int(interp_eval_value(s, elem.index).(f64))
         old := v.(RuntimeArray)
         new_elems := make([]RuntimeValue, len(old.elems))
         for old_elem, i in old.elems {
@@ -875,10 +856,15 @@ interp_derive_value :: proc(
     }
 }
 
+expect_int :: proc(f: f64) -> int {
+    assert(math.floor(f) == f)
+    return int(f)
+}
+
 interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
     switch value in v {
     case LengthOfString:
-        return i64(len(interp_eval_value(s, value.str^).(RuntimeString).value))
+        return f64(len(interp_eval_value(s, value.str^).(RuntimeString).value))
     case OrderedHashMapInitialisation:
         out_map: map[string]RuntimeValue
         for k, val in value.compile_time_values {
@@ -910,8 +896,8 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
         #partial switch hash_map_value in hash_map {
         case RuntimeStringOrderedHashMap:
             return hash_map_value.hashmap[key.(RuntimeString).value]
-        case RuntimeI64OrderedHashMap:
-            return hash_map_value.hashmap[key.(i64)]
+        case RuntimeIntOrderedHashMap:
+            return hash_map_value.hashmap[expect_int(key.(f64))]
         }
         panic("Unreachable")
     case KeysOfOrderedHashMapWithStringKey:
@@ -920,14 +906,14 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
         for key, i in keys {
             out[i] = RuntimeString{false, key}
         }
-        return RuntimeArray{create_type(&s.types, ArrayType{0, string_type}).type, true, out}
-    case KeysOfOrderedHashMapWithI64Key:
-        keys := interp_eval_value(s, value.hash_map^).(RuntimeI64OrderedHashMap).order
+        return RuntimeArray{create_type(&s.types, ArrayType{0, .string_type}).type, true, out}
+    case KeysOfOrderedHashMapWithIntKey:
+        keys := interp_eval_value(s, value.hash_map^).(RuntimeIntOrderedHashMap).order
         out := make([]RuntimeValue, len(keys))
         for key, i in keys {
-            out[i] = key
+            out[i] = f64(key)
         }
-        return RuntimeArray{create_type(&s.types, ArrayType{0, i64_type}).type, true, out}
+        return RuntimeArray{create_type(&s.types, ArrayType{0, .int_type}).type, true, out}
 
     case CompileTimeValue:
         return interp_eval_comptime_value(s, value)
@@ -937,22 +923,12 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
         switch inner_val in inner {
         case nil:
             panic("Unreachable: Uninitialised")
-        case i64:
-            return RuntimeString{true, fmt.aprintf("%d", inner_val)}
-        case i32:
-            return RuntimeString{true, fmt.aprintf("%d", inner_val)}
-        case i16:
-            return RuntimeString{true, fmt.aprintf("%d", inner_val)}
-        case i8:
-            return RuntimeString{true, fmt.aprintf("%d", inner_val)}
-        case u64:
-            return RuntimeString{true, fmt.aprintf("%d", inner_val)}
-        case u32:
-            return RuntimeString{true, fmt.aprintf("%d", inner_val)}
-        case u16:
-            return RuntimeString{true, fmt.aprintf("%d", inner_val)}
-        case u8:
-            return RuntimeString{true, fmt.aprintf("%d", inner_val)}
+        case f64:
+            if math.floor(inner_val) == inner_val {
+                return RuntimeString{true, fmt.aprintf("%d", i64(inner_val))}
+            } else {
+                return RuntimeString{true, fmt.aprintf("%f", inner_val)}
+            }
         case bool:
             return RuntimeString{false, inner_val ? "true" : "false"}
         case RuntimeString:
@@ -963,7 +939,7 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
              RuntimeFunc,
              BuiltinFunction,
              RuntimeStringOrderedHashMap,
-             RuntimeI64OrderedHashMap,
+             RuntimeIntOrderedHashMap,
              StructTypeInitFunc,
              SumTypeInitFunc,
              HttpServerListenAndServe,
@@ -988,25 +964,25 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
             #partial switch b in interp_eval_value(s, value.val1^) {
             case RuntimeStringOrderedHashMap:
                 return lhs.(RuntimeString).value in b.hashmap
-            case RuntimeI64OrderedHashMap:
-                return lhs.(i64) in b.hashmap
+            case RuntimeIntOrderedHashMap:
+                return expect_int(lhs.(f64)) in b.hashmap
             }
             panic("Unreachable")
 
         case .Addition:
-            return lhs.(i64) + interp_eval_value(s, value.val1^).(i64)
+            return lhs.(f64) + interp_eval_value(s, value.val1^).(f64)
 
         case .Subtraction:
-            return lhs.(i64) - interp_eval_value(s, value.val1^).(i64)
+            return lhs.(f64) - interp_eval_value(s, value.val1^).(f64)
 
         case .Multiplication:
-            return lhs.(i64) * interp_eval_value(s, value.val1^).(i64)
+            return lhs.(f64) * interp_eval_value(s, value.val1^).(f64)
 
         case .Division:
-            return lhs.(i64) / interp_eval_value(s, value.val1^).(i64)
+            return lhs.(f64) / interp_eval_value(s, value.val1^).(f64)
 
         case .Modulo:
-            return lhs.(i64) % interp_eval_value(s, value.val1^).(i64)
+            return mod(lhs.(f64), interp_eval_value(s, value.val1^).(f64))
 
         case .IsEqual:
             return interp_is_equal(s, lhs, value.val1^)
@@ -1015,16 +991,16 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
             return !interp_is_equal(s, lhs, value.val1^)
 
         case .IsLessThan:
-            return lhs.(i64) < interp_eval_value(s, value.val1^).(i64)
+            return lhs.(f64) < interp_eval_value(s, value.val1^).(f64)
 
         case .IsLessThanOrEqual:
-            return lhs.(i64) <= interp_eval_value(s, value.val1^).(i64)
+            return lhs.(f64) <= interp_eval_value(s, value.val1^).(f64)
 
         case .IsGreaterThan:
-            return lhs.(i64) > interp_eval_value(s, value.val1^).(i64)
+            return lhs.(f64) > interp_eval_value(s, value.val1^).(f64)
 
         case .IsGreaterThanOrEqual:
-            return lhs.(i64) >= interp_eval_value(s, value.val1^).(i64)
+            return lhs.(f64) >= interp_eval_value(s, value.val1^).(f64)
 
         case .BooleanAnd:
             if lhs.(bool) == false {
@@ -1070,12 +1046,12 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
 
     case CheckedIndexedAccess:
         base := interp_eval_value(s, value.base^)
-        start_index := interp_eval_value(s, value.i.start_index^).(i64)
+        start_index := expect_int(interp_eval_value(s, value.i.start_index^).(f64))
         switch value.base_type {
         case .Array:
             arr := base.(RuntimeArray)
             if value.i.end_index != nil {
-                end_index := interp_eval_value(s, value.i.end_index^).(i64)
+                end_index := expect_int(interp_eval_value(s, value.i.end_index^).(f64))
                 // TODO: Using `arr.type` means that the result has the incorrect type if `arr` is fixed-size
                 return RuntimeArray{arr.type, false, arr.elems[start_index:end_index]}
             }
@@ -1083,10 +1059,10 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
         case .String:
             str := base.(RuntimeString).value
             if value.i.end_index != nil {
-                end_index := interp_eval_value(s, value.i.end_index^).(i64)
+                end_index := expect_int(interp_eval_value(s, value.i.end_index^).(f64))
                 return RuntimeString{false, str[start_index:end_index]}
             }
-            return u8(str[start_index])
+            return f64(str[start_index])
         case:
             panic("Unreachable")
         }
@@ -1099,15 +1075,15 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
 
     case LengthOfArray:
         arr := interp_eval_value(s, value.array^).(RuntimeArray)
-        return i64(len(arr.elems))
+        return f64(len(arr.elems))
 
     case LengthOfOrderedHashMapWithStringKey:
         hash_map := interp_eval_value(s, value.hash_map^)
-        return i64(len(hash_map.(RuntimeStringOrderedHashMap).order))
+        return f64(len(hash_map.(RuntimeStringOrderedHashMap).order))
 
-    case LengthOfOrderedHashMapWithI64Key:
+    case LengthOfOrderedHashMapWithIntKey:
         hash_map := interp_eval_value(s, value.hash_map^)
-        return i64(len(hash_map.(RuntimeI64OrderedHashMap).order))
+        return f64(len(hash_map.(RuntimeIntOrderedHashMap).order))
 
     case StringsAreEqual:
         str0 := interp_eval_value(s, value.str0^)
@@ -1206,7 +1182,7 @@ default_builtin_handler_procedure :: proc(
         panic("TODO")
     case .exit:
         assert(len(args) == 1)
-        os.exit(int(args[0].(i64)))
+        os.exit(expect_int(args[0].(f64)))
     case .get_os_args:
         panic("TODO")
     case .emit_js_code:
@@ -1249,12 +1225,12 @@ default_builtin_handler_procedure :: proc(
             // TODO: Log that the port is being tried
             socket, err := net.listen_tcp(endpoint)
             if err == nil {
-                fields[2] = i64(endpoint.port)
+                fields[2] = f64(endpoint.port)
                 append(
                     &state.l.http_servers,
                     HttpServer{socket, RuntimeFunc{CheckedFuncRef{max(uint)}, nil}},
                 )
-                return RuntimeStruct{true, fields, http_server_type}
+                return RuntimeStruct{true, fields, .http_server_type}
             }
             if err != net.Bind_Error.Address_In_Use {
                 // TODO: Better error reporting
@@ -1267,7 +1243,7 @@ default_builtin_handler_procedure :: proc(
         assert(len(args) == 2)
         return RuntimeString {
             true,
-            strings.repeat(args[0].(RuntimeString).value, int(args[1].(i64))),
+            strings.repeat(args[0].(RuntimeString).value, expect_int(args[1].(f64))),
         }
     case .save_cursor_pos:
         io.write_string(data.pipe.stdout, "\033[s")
@@ -1283,6 +1259,12 @@ default_builtin_handler_procedure :: proc(
         return nil
     case .invalid_builtin, .cast_func:
         panic("Unreachable")
+    case .expect_uint:
+        assert(len(args) == 1)
+        arg := args[0].(f64)
+        assert(math.floor(arg) == arg)
+        assert(arg >= 0)
+        return arg
     case:
         panic(fmt.aprintf("Unreachable (index is %d)", index))
     }

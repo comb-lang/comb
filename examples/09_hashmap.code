@@ -1,6 +1,6 @@
 // TODO: Improve C emitter so that this also works when compiled via C
 
-Shopping = OrderedHashMap[String, I64] // TODO: Be able to use U64 rather than I64
+Shopping = OrderedHashMap[String, UInt]
 
 view = |shopping: Shopping| {
     re num_printed$ = 0
@@ -15,7 +15,7 @@ view = |shopping: Shopping| {
 	}
 }
 
-main = || -> I64 {
+main = || -> Int {
     println("Available commands:")
 	println("`exit` - exit")
 	println("`add` - add to shopping list")
@@ -44,7 +44,7 @@ main = || -> I64 {
 			// TODO: Implement deleting from `OrderedHashMap`s
 		    // shopping$ = shopping$.delete(item_name)
 			if item_name in shopping$ and shopping$[item_name] >= 1 {
-				shopping$ = shopping$ ~ [item_name] = shopping$[item_name] - 1
+				shopping$ = shopping$ ~ [item_name] = expect_uint(shopping$[item_name] - 1)
 			} else {
 				println("The item `" & item_name & "` is not in the shopping list")
 				_ = readline("Press enter to continue")

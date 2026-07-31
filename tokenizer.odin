@@ -262,12 +262,16 @@ is_nothing_char :: proc(c: byte) -> bool {
     return c == ' ' || c == '\t'
 }
 
-// TODO: Dry
-is_alphanumeric_char :: proc(c: byte) -> bool {
-    return c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
+is_letter :: proc(c: $T) -> bool {
+    return c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
 }
-is_alphanumeric_char_rune :: proc(c: rune) -> bool {
-    return c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
+
+is_alphanumeric_char_any :: proc(c: $T) -> bool {
+    return is_letter(c) || ('0' <= c && c <= '9')
+}
+
+is_alphanumeric_char :: proc(c: byte) -> bool {
+    return is_alphanumeric_char_any(c)
 }
 
 is_digit_char :: proc(c: byte) -> bool {
@@ -658,7 +662,7 @@ get_next_token :: proc(
         }
     case '.':
         if state.index + 1 < len(state.last_token_pos.file.code) &&
-           is_alphanumeric_char(state.last_token_pos.file.code[state.index + 1]) {
+           is_letter(state.last_token_pos.file.code[state.index + 1]) {
             tokenize_segmented_identifier(state, state.index)
         } else {
             skip_ignore_first(state, is_symbol_char)

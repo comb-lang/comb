@@ -7,9 +7,9 @@ gigabyte = 1000 * megabyte
 
 Array[Elem] = []E // `E` should be `Elem`
 
-add = |a: Array[I64], b: Array[I64]| -> Array[I64] {
+add = |a: Array[Int], b: Array[Int]| -> Array[Int] {
 	u.assert(a.len == b.len)
-	re out$ = []I64()
+	re out$ = []Int()
 	for a_elem, i in a {
 		out$ = out$ :: a_elem + b[i]
 	}
@@ -22,7 +22,7 @@ uses_invalid_func = || {
 	_ = invalid_func()
 }
 
-main = || -> I64 {
+main = || -> Int {
 	u.assert(1000 * kilobyte == megabyte)
 	return 0
 }

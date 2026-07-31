@@ -8,13 +8,13 @@ debug[T] = |arg: T| -> T {
 	return arg
 }
 
-main = || -> I64 {
+main = || -> Int {
   // TODO: Cleanup syntax
-  result = debug[I64](debug[I64](42) * debug[I64](64))
+  result = debug[Int](debug[Int](42) * debug[Int](64))
 
   message = debug("The result is " & result.to_str)
 
-  // TODO: There is a bad error message because the compiler cannot generate a to_str function for the Result[I64, String] type
-  result2 = debug[Result[I64, String]](.Ok(result))
+  // TODO: There is a bad error message because the compiler cannot generate a to_str function for the Result[Int, String] type
+  result2 = debug[Result[Int, String]](.Ok(result))
 }
 

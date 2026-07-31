@@ -13,7 +13,7 @@ fizzbuzz = || {
     }
 }
 
-main = || -> I64 {
+main = || -> Int {
     fizzbuzz()
     return 0
 }

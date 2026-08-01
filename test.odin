@@ -838,6 +838,28 @@ invalid_example_05_invalid_global_sum_type :: proc(t: ^testing.T) {
     testing.expect(t, ran.program.stderr == "")
 }
 
+@(test)
+invalid_example_06_mismatching_types :: proc(t: ^testing.T) {
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    file :: #directory + "examples/invalid/06_mismatching_types.code"
+    ran := interpret_example(t, &a, FunctionRef{file, "main"}, "")
+    testing.expect(t, ran.exit_code == 1)
+    e := TestingTextExpecter{0, ran.compiler.stderr, t}
+    expect_string(&e, "\n")
+    expect_string(&e, "Error compiling `" + file + "` (13:10)\n")
+    expect_string(&e, "Expected the type `Pos` but got the type `String`\n")
+    expect_string(&e, "\n")
+    expect_string(&e, "Erroneously checked with 1 error and 0 warnings in ")
+    expect_digits(&e)
+    expect_string(&e, ".")
+    expect_digits(&e)
+    expect_string(&e, " ms\n")
+    expect_finished(&e)
+    testing.expect(t, ran.program.stdout == "")
+    testing.expect(t, ran.program.stderr == "")
+}
+
 // TODO: Add a fuzz test where the code that gets compiled never has any syntax errors
 
 // TODO: Add a fuzz test where the code that gets compiled has no invalid utf8 runes

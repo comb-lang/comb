@@ -1,0 +1,16 @@
+Pos = {
+  x: UInt,
+  y: UInt,
+}
+
+other_pos = || -> Pos {
+  return Pos(3, 1)
+}
+
+main = || -> Int {
+  re pos$ = Pos(0, 0)
+  pos$ = other_pos()
+  pos$ = "hi"
+  return 0
+}
+

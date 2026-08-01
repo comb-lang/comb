@@ -1575,8 +1575,9 @@ check_mutation_destination :: proc(
 
 check_mutation :: proc(
     s: ^CheckerState,
-    unit_being_mutated: UnitWithPos,
-    new_value_unit: Unit,
+    unit: Unit,
+    // unit_being_mutated: UnitWithPos,
+    // new_value_unit: Unit,
     body: ^[dynamic]CheckedStatement,
     generic_args: map[string]Type,
     loc := #caller_location,
@@ -1584,11 +1585,11 @@ check_mutation :: proc(
     when debug_checker {
         print_call(loc, "check_mutation")
     }
-    ident, is_ident := unit_being_mutated.unit.(IdentNode)
+    ident, is_ident := unit.first_unit.(IdentNode)
     if !is_ident || len(ident.segments) != 1 {
         diagnostic(
             &s.r,
-            unit_being_mutated.pos,
+            unit.pos,
             "Expected an identifier with one segment for the unit being mutated",
         )
         return false
@@ -1601,39 +1602,62 @@ check_mutation :: proc(
         )
         return false
     }
+    new_value_unit := Unit {
+        unit.extra_units[0].unit.pos,
+        unit.extra_units[0].unit.unit,
+        unit.extra_units[1:],
+    }
     if !ident.has_re_before && ident.segments[0].has_dollar_at_end {
         var_ref, ok := s.variables_map[ident.segments[0].ident]
         if !ok {
-            diagnostic(
-                s,
-                unit_being_mutated.pos,
-                "The variable `%s` is not defined",
-                ident.segments[0].ident,
-            )
+            diagnostic(s, unit.pos, "The variable `%s` is not defined", ident.segments[0].ident)
             return false
         }
         var := s.scopes[var_ref.nesting_level].variables[var_ref.index]
         if !var.is_reassignable {
             diagnostic(
                 s,
-                unit_being_mutated.pos,
+                unit.pos,
                 "The variable `%s` is not reassignable",
                 ident.segments[0].ident,
             )
             return false
         }
 
-        new_value := check_value(
+        alteration := check_derivation_alteration(
             s,
+            unit.extra_units[0].join_method,
+            unit.extra_units[0].join_method_pos,
             new_value_unit,
-            CheckValueArgs{body, var.type, generic_args, nil},
+            var.type,
+            body,
+            generic_args,
         )
-        if new_value == nil {
+        if alteration.arg == nil {
             return false
         }
 
-        append_elem(body, CheckedAssignment{var_ref, new_value})
+        append_elem(
+            body,
+            CheckedAssignment {
+                var_ref,
+                CheckedDerivation {
+                    new_clone(CheckedValue(var_ref)),
+                    DerivationSubset{},
+                    alteration,
+                },
+            },
+        )
         return true
+    }
+
+    if unit.extra_units[0].join_method != .Assign {
+        diagnostic(
+            s,
+            unit.extra_units[0].join_method_pos,
+            "For variable declaration: First join method must be `=`",
+        )
+        return false
     }
 
     value_type := Type.any_type
@@ -1711,6 +1735,7 @@ check_block :: proc(
 
         case Unit:
             if len(value.extra_units) != 0 {
+                /*
                 if value.extra_units[0].join_method != .Assign {
                     diagnostic(
                         s,
@@ -1719,14 +1744,18 @@ check_block :: proc(
                     )
                     return nil, false
                 }
+                    */
                 ok := check_mutation(
                     s,
+                    value,
+                    /*
                     UnitWithPos{value.first_unit, value.pos},
                     Unit {
                         value.extra_units[0].unit.pos,
                         value.extra_units[0].unit.unit,
                         value.extra_units[1:],
                     },
+                    */
                     body,
                     generic_args,
                 )
@@ -3892,6 +3921,51 @@ check_derivation_subset :: proc(
     }
 }
 
+// If DerivationAlteration.arg == nil then the checking failed
+check_derivation_alteration :: proc(
+    s: ^CheckerState,
+    join_method: LeftToRightUnitJoinMethod,
+    join_method_pos: Pos,
+    unit: Unit,
+    value_type: Type,
+    body: ^[dynamic]CheckedStatement,
+    generic_args: map[string]Type,
+) -> DerivationAlteration {
+    #partial switch join_method {
+    case .Assign:
+        new_value := check_value(s, unit, CheckValueArgs{body, value_type, generic_args, nil})
+        if new_value == nil {
+            return DerivationAlteration{}
+        }
+        return DerivationAlteration{.Replace, new_clone(new_value)}
+    case .PipeEquals:
+        // TODO: Support `|=` without curried functions
+        arr := make([]Type, 1)
+        arr[0] = value_type
+        func := check_value(
+            s,
+            unit,
+            CheckValueArgs {
+                body,
+                create_type(&s.types, FuncType{arr, arr}).type,
+                generic_args,
+                nil,
+            },
+        )
+        if func == nil {
+            return DerivationAlteration{}
+        }
+        return DerivationAlteration{.PipeThroughFunction, new_clone(func)}
+    case:
+        diagnostic(
+            s,
+            join_method_pos,
+            "Expected join method to be `=` to set the subset's new value or `|=` to update the subset's value",
+        )
+        return DerivationAlteration{}
+    }
+}
+
 check_value :: proc(
     s: ^CheckerState,
     v: Unit,
@@ -3946,54 +4020,22 @@ check_value :: proc(
             return nil
         }
 
-        extra_unit = v.extra_units[i]
-        #partial switch extra_unit.join_method {
-        case .Assign:
-            new_value := check_initial_value(
-                s,
-                extra_unit.unit.pos,
-                extra_unit.unit.unit,
-                CheckValueArgs{a.body, derivation_alteration_type, a.generic_args, nil},
-            )
-            if new_value == nil {
-                return nil
-            }
-
-            value = CheckedDerivation {
-                new_clone(value),
-                DerivationSubset{dynamic_to_fixed(derivation_subset)},
-                DerivationAlteration{.Replace, new_clone(new_value)},
-            }
-        case .PipeEquals:
-            // TODO: Support `|=` without curried functions
-            arr := make([]Type, 1)
-            arr[0] = derivation_alteration_type
-            func := check_initial_value(
-                s,
-                extra_unit.unit.pos,
-                extra_unit.unit.unit,
-                CheckValueArgs {
-                    a.body,
-                    create_type(&s.types, FuncType{arr, arr}).type,
-                    a.generic_args,
-                    nil,
-                },
-            )
-            if func == nil {
-                return nil
-            }
-            value = CheckedDerivation {
-                new_clone(value),
-                DerivationSubset{dynamic_to_fixed(derivation_subset)},
-                DerivationAlteration{.PipeThroughFunction, new_clone(func)},
-            }
-        case:
-            diagnostic(
-                s,
-                extra_unit.join_method_pos,
-                "Expected join method to be `=` to set the subset's new value or `|=` to update the subset's value",
-            )
+        alteration := check_derivation_alteration(
+            s,
+            v.extra_units[i].join_method,
+            v.extra_units[i].join_method_pos,
+            Unit{v.extra_units[i].unit.pos, v.extra_units[i].unit.unit, nil},
+            derivation_alteration_type,
+            a.body,
+            a.generic_args,
+        )
+        if alteration.arg == nil {
             return nil
+        }
+        value = CheckedDerivation {
+            new_clone(value),
+            DerivationSubset{dynamic_to_fixed(derivation_subset)},
+            alteration,
         }
 
         i += 1

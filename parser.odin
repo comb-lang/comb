@@ -1102,7 +1102,7 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
                 return nil, false
             }
             append_elem(&out, Statement{pos, if_else^})
-        case ContinueToken:
+        case LoopControlFlowToken:
             get_next_token(s, true)
             label := TextAndPos{}
             _, is_at := s.last_token.(AtToken)
@@ -1120,7 +1120,7 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
                 label = TextAndPos{ident[0].ident, ident[0].pos}
                 get_next_token(s, true)
             }
-            append_elem(&out, Statement{pos, ContinueStatement{label}})
+            append_elem(&out, Statement{pos, LoopControlFlow{label, token.kind}})
         case UnreachableToken:
             get_next_token(s, true)
             append_elem(&out, Statement{pos, UnreachableStatement{}})

@@ -302,8 +302,9 @@ MatchStatement :: struct {
 
 ReturnStatement :: distinct []Unit
 YieldStatement :: distinct []Unit
-ContinueStatement :: struct {
+LoopControlFlow :: struct {
     label: TextAndPos,
+    kind:  LoopControlFlowKind,
 }
 UnreachableStatement :: struct {}
 
@@ -317,7 +318,7 @@ Statement :: struct {
         ReturnStatement,
         YieldStatement,
         MatchStatement,
-        ContinueStatement,
+        LoopControlFlow,
         UnreachableStatement,
     },
 }

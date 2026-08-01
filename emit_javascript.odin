@@ -517,14 +517,15 @@ emit_js_block_body :: proc(
             strings.write_string(&s.b, "} while (false)")
             emit_js_block(s, nesting_level + 1, nil, stmt.continue_code)
             strings.write_string(&s.b, "}}")
-        case ContinueLoop:
+        case CheckedLoopControlFlow:
             strings.write_string(&s.b, "break loop")
             strings.write_uint(&s.b, stmt.loop_index)
-            strings.write_string(&s.b, "_body;")
-        case BreakLoop:
-            strings.write_string(&s.b, "break loop")
-            strings.write_uint(&s.b, stmt.loop_index)
-            strings.write_byte(&s.b, ';')
+            switch stmt.kind {
+            case .Continue:
+                strings.write_string(&s.b, "_body;")
+            case .Break:
+                strings.write_byte(&s.b, ';')
+            }
         /*
         case CheckedArrayMutation:
             emit_variable(&s.b, stmt.variable)

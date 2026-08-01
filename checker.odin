@@ -655,11 +655,9 @@ CheckedLoop :: struct {
     body:          []CheckedStatement,
 }
 
-ContinueLoop :: struct {
+CheckedLoopControlFlow :: struct {
     loop_index: uint,
-}
-BreakLoop :: struct {
-    loop_index: uint,
+    kind:       LoopControlFlowKind,
 }
 
 CheckedBlock :: struct {
@@ -750,8 +748,7 @@ CheckedStatement :: union {
     CheckedReturn,
     CheckedIf,
     CheckedLoop,
-    ContinueLoop,
-    BreakLoop,
+    CheckedLoopControlFlow,
     CheckedAssignment,
     CheckedFunctionCall,
     CheckedMatch,
@@ -1797,7 +1794,7 @@ check_block :: proc(
 
             loop_body_array := make([dynamic]CheckedStatement)
             exit_loop := make([]CheckedStatement, 1)
-            exit_loop[0] = BreakLoop{loop_index}
+            exit_loop[0] = CheckedLoopControlFlow{loop_index, .Break}
             condition_check := CheckedIf{condition, CheckedBlock{}, CheckedBlock{nil, exit_loop}}
             if value.type == .WhileLoop {
                 append_elem(&loop_body_array, condition_check)
@@ -2062,17 +2059,21 @@ check_block :: proc(
             }
             append_elem(body, CheckedIf{condition, if_block, else_block})
 
-        case ContinueStatement:
+        case LoopControlFlow:
             if stmt_index + 1 != len(block) {
-                diagnostic(s, stmt.position, "Continue statement must be last statement in block")
+                diagnostic(
+                    s,
+                    stmt.position,
+                    "Loop control flow statement must be last statement in block",
+                )
                 return nil, false
             }
             if s.parent_loop_index == max(uint) {
-                diagnostic(s, stmt.position, "Continue statement must go inside a loop")
+                diagnostic(s, stmt.position, "Loop control flow statement must go inside a loop")
                 return nil, false
             }
             if value.label.text == "" {
-                append_elem(body, ContinueLoop{s.parent_loop_index})
+                append_elem(body, CheckedLoopControlFlow{s.parent_loop_index, value.kind})
             } else {
                 loop_ref, ok := s.labels_map[value.label.text]
                 if !ok {
@@ -2084,7 +2085,7 @@ check_block :: proc(
                     )
                     return nil, false
                 }
-                append_elem(body, ContinueLoop{loop_ref.loop_index})
+                append_elem(body, CheckedLoopControlFlow{loop_ref.loop_index, value.kind})
             }
 
         case UnreachableStatement:

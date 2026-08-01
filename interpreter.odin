@@ -140,8 +140,7 @@ ReturnFromFunction :: struct {
 }
 
 ControlFlowOperation :: union {
-    ContinueLoop,
-    BreakLoop,
+    CheckedLoopControlFlow,
     ReturnFromFunction,
 }
 
@@ -613,14 +612,15 @@ interp_exec_statement :: proc(state: InterpState, stmt: CheckedStatement) {
             switch op in state.control_flow_op {
             case ReturnFromFunction:
                 break outer
-            case BreakLoop:
+            case CheckedLoopControlFlow:
                 if op.loop_index == loop_index {
-                    state.control_flow_op = nil
-                    break outer
-                }
-            case ContinueLoop:
-                if op.loop_index == loop_index {
-                    state.control_flow_op = nil
+                    switch op.kind {
+                    case .Continue:
+                        state.control_flow_op = nil
+                    case .Break:
+                        state.control_flow_op = nil
+                        break outer
+                    }
                 }
             }
 
@@ -628,13 +628,9 @@ interp_exec_statement :: proc(state: InterpState, stmt: CheckedStatement) {
         }
         interp_pop_scope(state)
 
-    case ContinueLoop:
+    case CheckedLoopControlFlow:
         assert(state.control_flow_op == nil)
-        state.control_flow_op = ContinueLoop{s.loop_index}
-
-    case BreakLoop:
-        assert(state.control_flow_op == nil)
-        state.control_flow_op = BreakLoop{s.loop_index}
+        state.control_flow_op = CheckedLoopControlFlow{s.loop_index, s.kind}
 
     case CheckedAssignment:
         /*

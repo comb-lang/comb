@@ -372,14 +372,15 @@ emit_c_block_body :: proc(
             strings.write_string(&s.b, "}}loop")
             strings.write_uint(&s.b, stmt.loop_index)
             strings.write_string(&s.b, "end:;")
-        case ContinueLoop:
+        case CheckedLoopControlFlow:
             strings.write_string(&s.b, "goto loop")
             strings.write_uint(&s.b, stmt.loop_index)
-            strings.write_string(&s.b, "continue;")
-        case BreakLoop:
-            strings.write_string(&s.b, "goto loop")
-            strings.write_uint(&s.b, stmt.loop_index)
-            strings.write_string(&s.b, "end;")
+            switch stmt.kind {
+            case .Continue:
+                strings.write_string(&s.b, "continue;")
+            case .Break:
+                strings.write_string(&s.b, "end;")
+            }
         /*
         case CheckedArrayMutation:
             if stmt.variable_type.length == 0 {

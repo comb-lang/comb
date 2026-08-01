@@ -47,7 +47,13 @@ ElseToken :: struct {} // else
 ImportToken :: struct {} // import
 ReturnToken :: struct {} // return
 YieldToken :: struct {} // yield
-ContinueToken :: struct {} // continue
+LoopControlFlowKind :: enum {
+    Continue,
+    Break,
+}
+LoopControlFlowToken :: struct {
+    kind: LoopControlFlowKind,
+}
 UnreachableToken :: struct {} // unreachable
 AndToken :: struct {} // and
 OrToken :: struct {} // or
@@ -97,7 +103,7 @@ TokenContents :: union {
     ForToken,
     WhileToken,
     IfToken,
-    ContinueToken,
+    LoopControlFlowToken,
     UnreachableToken,
     ElseToken,
     ImportToken,
@@ -204,8 +210,13 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
         fmt.wprint(fi.writer, "the keyword `return`")
     case YieldToken:
         fmt.wprint(fi.writer, "the keyword `yield`")
-    case ContinueToken:
-        fmt.wprint(fi.writer, "the keyword `continue`")
+    case LoopControlFlowToken:
+        switch value.kind {
+        case .Continue:
+            fmt.wprint(fi.writer, "the keyword `continue`")
+        case .Break:
+            fmt.wprint(fi.writer, "the keyword `break`")
+        }
     case UnreachableToken:
         fmt.wprint(fi.writer, "the keyword `unreachable`")
     case AndToken:
@@ -566,7 +577,9 @@ get_next_token :: proc(
         case "yield":
             state.last_token = YieldToken{}
         case "continue":
-            state.last_token = ContinueToken{}
+            state.last_token = LoopControlFlowToken{.Continue}
+        case "break":
+            state.last_token = LoopControlFlowToken{.Break}
         case "unreachable":
             state.last_token = UnreachableToken{}
         case "and":

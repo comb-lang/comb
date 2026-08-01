@@ -127,7 +127,7 @@ iterate_array :: proc(
     }
 
     if_block := make([]CheckedStatement, 1)
-    if_block[0] = BreakLoop{loop_index}
+    if_block[0] = CheckedLoopControlFlow{loop_index, .Break}
     dynamic_insert(
         body,
         CheckedIf {
@@ -180,7 +180,7 @@ iterate_start_end_step :: proc(
     loop_enter := make([]CheckedStatement, 1)
     loop_enter[0] = CheckedAssignment{index_variable, start}
     if_block := make([]CheckedStatement, 1)
-    if_block[0] = BreakLoop{loop_index}
+    if_block[0] = CheckedLoopControlFlow{loop_index, .Break}
     dynamic_insert(
         body,
         CheckedIf {

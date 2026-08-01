@@ -323,7 +323,7 @@ Statement :: struct {
 }
 
 FunctionArg :: struct {
-    name:       TextAndPos,
+    name:       Ident,
     value_type: Unit,
 }
 

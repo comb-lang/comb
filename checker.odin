@@ -4083,7 +4083,7 @@ check_anonymous_func_body :: proc(s: ^CheckerState, ref: CheckedFuncRef) -> bool
     ok := true
     for arg_type, i in func_type.args {
         arg := func.inputs[i]
-        _, var_ok := add_variable(s, arg_type, Ident{arg.name.text, arg.name.pos, false})
+        _, var_ok := add_variable(s, arg_type, arg.name)
         if !var_ok {
             ok = false
         }

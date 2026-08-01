@@ -1326,11 +1326,11 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
         case BarToken:
             break loop
         case IdentToken:
-            if len(token) != 1 || token[0].has_dollar_at_end {
+            if len(token) != 1 {
                 wrong_token_err(s)
                 return FunctionDefinition{}, false
             }
-            arg.name = TextAndPos{token[0].ident, token[0].pos}
+            arg.name = token[0]
         }
 
         get_next_token(s, true)

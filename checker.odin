@@ -692,6 +692,7 @@ DerivationSubset :: struct {
 DerivationAlteration :: struct {
     kind: enum {
         Replace,
+        PipeThroughFunction,
     },
     arg:  ^CheckedValue,
 }
@@ -3924,7 +3925,7 @@ check_value :: proc(
             diagnostic(
                 s,
                 extra_unit.join_method_pos,
-                "Expected join method to be a `~` to set the derivation subset",
+                "Expected join method to be `~` to set the derivation subset",
             )
             return nil
         }
@@ -3946,29 +3947,53 @@ check_value :: proc(
         }
 
         extra_unit = v.extra_units[i]
-        if extra_unit.join_method != .Assign {
+        #partial switch extra_unit.join_method {
+        case .Assign:
+            new_value := check_initial_value(
+                s,
+                extra_unit.unit.pos,
+                extra_unit.unit.unit,
+                CheckValueArgs{a.body, derivation_alteration_type, a.generic_args, nil},
+            )
+            if new_value == nil {
+                return nil
+            }
+
+            value = CheckedDerivation {
+                new_clone(value),
+                DerivationSubset{dynamic_to_fixed(derivation_subset)},
+                DerivationAlteration{.Replace, new_clone(new_value)},
+            }
+        case .PipeEquals:
+            // TODO: Support `|=` without curried functions
+            arr := make([]Type, 1)
+            arr[0] = derivation_alteration_type
+            func := check_initial_value(
+                s,
+                extra_unit.unit.pos,
+                extra_unit.unit.unit,
+                CheckValueArgs {
+                    a.body,
+                    create_type(&s.types, FuncType{arr, arr}).type,
+                    a.generic_args,
+                    nil,
+                },
+            )
+            if func == nil {
+                return nil
+            }
+            value = CheckedDerivation {
+                new_clone(value),
+                DerivationSubset{dynamic_to_fixed(derivation_subset)},
+                DerivationAlteration{.PipeThroughFunction, new_clone(func)},
+            }
+        case:
             diagnostic(
                 s,
                 extra_unit.join_method_pos,
-                "Expected join method to be a `=` to set the subset's new value",
+                "Expected join method to be `=` to set the subset's new value or `|=` to update the subset's value",
             )
             return nil
-        }
-
-        new_value := check_initial_value(
-            s,
-            extra_unit.unit.pos,
-            extra_unit.unit.unit,
-            CheckValueArgs{a.body, derivation_alteration_type, a.generic_args, nil},
-        )
-        if new_value == nil {
-            return nil
-        }
-
-        value = CheckedDerivation {
-            new_clone(value),
-            DerivationSubset{dynamic_to_fixed(derivation_subset)},
-            DerivationAlteration{.Replace, new_clone(new_value)},
         }
 
         i += 1

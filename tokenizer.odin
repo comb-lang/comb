@@ -28,6 +28,7 @@ ColonColonToken :: struct {} // ::
 SemiColonToken :: struct {} // ;
 BarToken :: struct {} // |
 PipeToken :: struct {} // |>
+PipeEqualsToken :: struct {} // |=
 ArrowToken :: struct {} // ->
 AssignToken :: struct {} // =
 SymbolsToken :: distinct string
@@ -81,6 +82,7 @@ TokenContents :: union {
     SemiColonToken,
     BarToken,
     PipeToken,
+    PipeEqualsToken,
     SymbolsToken,
     ArrowToken,
     AssignToken,
@@ -151,6 +153,8 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
         fmt.wprint(fi.writer, "`|`")
     case PipeToken:
         fmt.wprint(fi.writer, "`|>`")
+    case PipeEqualsToken:
+        fmt.wprint(fi.writer, "`|=`")
     case OpenBraceToken:
         fmt.wprint(fi.writer, "an open brace (`{`)")
     case CloseBraceToken:
@@ -492,10 +496,17 @@ get_next_token :: proc(
 
     case '|':
         state.index += 1
-        if state.index < len(state.last_token_pos.file.code) &&
-           state.last_token_pos.file.code[state.index] == '>' {
-            state.index += 1
-            state.last_token = PipeToken{}
+        if state.index < len(state.last_token_pos.file.code) {
+            switch state.last_token_pos.file.code[state.index] {
+            case '>':
+                state.index += 1
+                state.last_token = PipeToken{}
+            case '=':
+                state.index += 1
+                state.last_token = PipeEqualsToken{}
+            case:
+                state.last_token = BarToken{}
+            }
         } else {
             state.last_token = BarToken{}
         }

@@ -146,6 +146,7 @@ ExtraUnit :: struct {
 LeftToRightUnitJoinMethod :: enum {
     Assign, // =
     Tilde, // ~
+    PipeEquals, // |=
 }
 
 HierarchyUnitJoinMethod :: enum {

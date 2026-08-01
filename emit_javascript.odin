@@ -193,9 +193,23 @@ emit_js_derivation :: proc(
     alteration: DerivationAlteration,
 ) {
     if len(subset_elems) == 0 {
-        assert(alteration.kind == .Replace)
-        emit_js_value(s, alteration.arg^)
-        return
+        switch alteration.kind {
+        case .Replace:
+            emit_js_value(s, alteration.arg^)
+            return
+        case .PipeThroughFunction:
+            emit_js_value(s, alteration.arg^)
+            strings.write_byte(&s.b, '(')
+            if v == nil {
+                strings.write_string(&s.b, "old")
+            } else {
+                emit_js_value(s, v)
+            }
+            strings.write_byte(&s.b, ')')
+            return
+        case:
+            panic("Unreachable")
+        }
     }
 
     switch elem in subset_elems[0] {

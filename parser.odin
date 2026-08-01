@@ -662,7 +662,7 @@ parse_unit :: proc(s: ^ParserState) -> (Unit, bool) {
         join_method_pos := s.last_token_pos
         append_dynamic(
             &s.last_token_descriptions_of_other_possible_tokens,
-            "A left to right value joiner (`~`, `=`)",
+            "A left to right value joiner (`~`, `=`, `|=`)",
         )
         join_method: LeftToRightUnitJoinMethod
         #partial switch v in s.last_token {
@@ -673,6 +673,8 @@ parse_unit :: proc(s: ^ParserState) -> (Unit, bool) {
                 return Unit{pos, first_unit, extra_units}, true
             }
             join_method = .Tilde
+        case PipeEqualsToken:
+            join_method = .PipeEquals
         case:
             return Unit{pos, first_unit, extra_units}, true
         }

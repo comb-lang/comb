@@ -809,8 +809,17 @@ interp_derive_value :: proc(
     alteration: DerivationAlteration,
 ) -> RuntimeValue {
     if len(subset_elems) == 0 {
-        assert(alteration.kind == .Replace)
-        return interp_eval_value(s, alteration.arg^)
+        arg := interp_eval_value(s, alteration.arg^)
+        switch alteration.kind {
+        case .Replace:
+            return arg
+        case .PipeThroughFunction:
+            args := make([]RuntimeValue, 1)
+            args[0] = v
+            return interp_execute_function2(s, arg.(RuntimeFunc), args)
+        case:
+            panic("Unreachable")
+        }
     }
 
     switch elem in subset_elems[0] {

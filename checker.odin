@@ -459,10 +459,6 @@ check_struct_type :: proc(
     }
 
     created := create_type(&s.types, StructType{type.m, type.positions, field_types})
-    if created.type_value.type == .unknown_type {
-        init_struct_type(&s.types, created.type, field_types.d[:len(type.m.keys)])
-    }
-    assert(get_type(s.types, created.type).value.type != .unknown_type)
     return created.type
 }
 
@@ -965,7 +961,12 @@ simplify_type :: proc(s: ^CheckerState, type: Type, loc := #caller_location) -> 
         case GenericTypeValue, GlobalType:
             cur_type = got.value.type
             assert(cur_type != .unknown_type)
+        case nil:
+            return cur_type
         case:
+            if got.value.type != .unknown_type {
+                panicf("got.value.type == %v", got.value.type)
+            }
             return cur_type
         }
     }
@@ -1016,6 +1017,20 @@ get_struct_type :: proc(s: ^CheckerState, pos: Pos, type: Type) -> (StructType, 
     return StructType{}, false
 }
 
+get_func_type_from_struct_type :: proc(
+    s: ^CheckerState,
+    struct_type: StructType,
+    return_type: Type,
+) -> Type {
+    func_return_types := make([]Type, 1)
+    func_return_types[0] = return_type
+    created := create_type(
+        &s.types,
+        FuncType{multi_to_array(struct_type.types, len(struct_type.m.keys)), func_return_types},
+    )
+    return created.type
+}
+
 // Always returns a function type
 // Returns `invalid_type` on failure
 get_func_type :: proc(
@@ -1037,7 +1052,7 @@ get_func_type :: proc(
         #partial switch type in got.key {
         case StructType:
             value^ = StructTypeInitFunc{value_type}
-            return got.value.type
+            return get_func_type_from_struct_type(s, type, value_type_unsimplified)
         }
         diagnostic(
             s,
@@ -2496,18 +2511,15 @@ check_var_ref :: proc(
             )
             return nil
         }
-        got := get_type(s.types, sum_type.payloads.d[variant.index])
-        _, is_struct := got.key.(StructType)
-        assert(is_struct)
-        func_type := got.value.type
-        assert(func_type != .unknown_type)
+        return_type := sum_type.payloads.d[variant.index]
+        got := get_type(s.types, return_type)
         // TODO: Use `StructTypeInitFunc` instead of `SumTypeInitFunc` if `type` is the struct type rather than the sum type
         return finish_checking_value(
             s,
             pos,
             a.type,
             SumTypeInitFunc{type_type, variant.index},
-            func_type,
+            get_func_type_from_struct_type(s, got.key.(StructType), return_type),
             "",
         )
         /*

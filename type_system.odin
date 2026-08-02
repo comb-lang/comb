@@ -127,21 +127,11 @@ TypeKey :: union {
     OrderedHashMapTypeWithIntKey,
     FuncType,
     SumType,
-    StructType, // The `TypeValue.type` is the initialisation function
+    StructType,
 
     // Both of these are included to be able to prevent cycles
     GlobalType, // The `TypeValue.type` is the initialised type, which is set to `unknown_type` when the global is not initialised yet
     GenericTypeValue, // The `TypeValue.type` is the initialised type, which is set to `unknown_type` when the generic is not initialised yet
-}
-
-init_struct_type :: proc(types: ^Types, type: Type, fields: []Type) {
-    assert(types.values.d[type].type == .unknown_type)
-
-    return_types := make([]Type, 1) // TODO: free `return_types`
-    return_types[0] = type
-
-    t := create_type(types, FuncType{fields, return_types}).type
-    types.values.d[type].type = t
 }
 
 fix_types :: proc(t: Types) {
@@ -375,18 +365,16 @@ create_types :: proc(a: ^Arena) -> Types {
         create_type(&out, FuncType{nil, array_with_http_server}).type,
     )
 
-    init_struct_type(&out, .compiler_type, compiler_types)
-    init_struct_type(&out, .compiler_cache_type, compiler_cache_types)
-    init_struct_type(&out, .http_request_type, http_request_types)
-    init_struct_type(&out, .http_response_body_type, array_with_string_type)
-    init_struct_type(&out, .http_server_type, http_server_types)
-
     return out
 }
 
 TypeValue :: struct {
     // aliases: [dynamic]string, // TODO
-    type: Type, // Usually `unknown_type`
+
+    // Either `.unknown_type` or a simplification of the type
+    // Should only be a simplification of the type if the type is `GlobalType`
+    // or `GenericTypeValue`
+    type: Type,
 }
 
 Types :: struct {

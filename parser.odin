@@ -578,7 +578,7 @@ parse_unit_with_pos :: proc(s: ^ParserState, loc := #caller_location) -> UnitWit
     // Parse possible arithmetic
     append_dynamic(
         &s.last_token_descriptions_of_other_possible_tokens,
-        "A hierarchical value joiner (`and`, `or`, `==`, `!=`, `>`, `>=`, `<`, `<=`, `*`, `/`, `+`, `-`, `%`, `::`, `:`, `->`, `in`)",
+        "A hierarchical value joiner (`and`, `or`, `==`, `!=`, `>`, `>=`, `<`, `<=`, `*`, `/`, `+`, `-`, `%`, `::`, `:`, `->`, `in`, `++`, `&`)",
     )
     value_type: HierarchyUnitJoinMethod
     #partial switch token in s.last_token {
@@ -951,6 +951,7 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
                 "`return`",
                 "`yield`",
                 "`continue`",
+                "`break`",
                 "`unreachable`",
                 "`}`",
             )
@@ -1281,7 +1282,7 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
 
         append_dynamic_elems(
             &s.last_token_descriptions_of_other_possible_tokens,
-            "an identifier with one segment and no dollar sign at the end for the name of a normal function argument",
+            "an identifier with one segment for the name of a normal function argument",
             "`|`",
         )
         #partial switch token in s.last_token {

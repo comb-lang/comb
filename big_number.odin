@@ -149,12 +149,14 @@ add_int :: proc(a: BigInt, b: BigInt) -> BigInt {
     } else {
         result := compare_uint(a.absolute_value, b.absolute_value)
         switch result {
-        case .Equal: return BigInt{false, BigUint{nil}}
+        case .Equal:
+            return BigInt{false, BigUint{nil}}
         case .FirstIsBigger:
             return BigInt{a.is_negated, sub_uint(a.absolute_value, b.absolute_value)}
         case .SecondIsBigger:
             return BigInt{b.is_negated, sub_uint(b.absolute_value, a.absolute_value)}
-        case: panic("unreachable")
+        case:
+            panic("unreachable")
         }
     }
 }

@@ -271,7 +271,8 @@ TypeAndPos :: struct {
 
 expect_number :: proc(s: ^CheckerState, t: TypeAndPos) -> bool {
     #partial switch t.type {
-    case .Int, .UInt, .Float: return true
+    case .Int, .UInt, .Float:
+        return true
     case:
         diagnostic(
             s,
@@ -333,38 +334,43 @@ expect_snake_case :: proc(
     } = .NotInBlock
     for i < len(ident.text) {
         switch get_character_group(ident.text[i]) {
-        case .LowerCase: switch state {
-                case .NotInBlock: state = .InLowercaseBlock
-                case .InLowercaseBlock:
-                case .InUppercaseBlock:
-                    diagnostic(
-                        &s.r,
-                        Pos{ident.pos.index + i, ident.pos.file},
-                        "Expected %s to be `snake_case`, got `%s`\nUnexpected lowercase letter '%c' in an uppercase block of a snake case identifier\nExpected an underscore, a number, or an uppercase letter",
-                        expected,
-                        ident.text,
-                        ident.text[i],
-                        type = .Warning,
-                    )
-                    return
-                }
-        case .UpperCase: switch state {
-                case .NotInBlock: state = .InUppercaseBlock
-                case .InUppercaseBlock:
-                case .InLowercaseBlock:
-                    diagnostic(
-                        s,
-                        Pos{ident.pos.index + i, ident.pos.file},
-                        "Expected %s to be `snake_case`, got `%s`\nUnexpected uppercase letter '%c' in a lowercase block of a snake case identifier\nExpected an underscore, a number, or a lowercase letter",
-                        expected,
-                        ident.text,
-                        ident.text[i],
-                        type = .Warning,
-                    )
-                    return
-                }
+        case .LowerCase:
+            switch state {
+            case .NotInBlock:
+                state = .InLowercaseBlock
+            case .InLowercaseBlock:
+            case .InUppercaseBlock:
+                diagnostic(
+                    &s.r,
+                    Pos{ident.pos.index + i, ident.pos.file},
+                    "Expected %s to be `snake_case`, got `%s`\nUnexpected lowercase letter '%c' in an uppercase block of a snake case identifier\nExpected an underscore, a number, or an uppercase letter",
+                    expected,
+                    ident.text,
+                    ident.text[i],
+                    type = .Warning,
+                )
+                return
+            }
+        case .UpperCase:
+            switch state {
+            case .NotInBlock:
+                state = .InUppercaseBlock
+            case .InUppercaseBlock:
+            case .InLowercaseBlock:
+                diagnostic(
+                    s,
+                    Pos{ident.pos.index + i, ident.pos.file},
+                    "Expected %s to be `snake_case`, got `%s`\nUnexpected uppercase letter '%c' in a lowercase block of a snake case identifier\nExpected an underscore, a number, or a lowercase letter",
+                    expected,
+                    ident.text,
+                    ident.text[i],
+                    type = .Warning,
+                )
+                return
+            }
         case .Digit:
-        case .Underscore: state = .NotInBlock
+        case .Underscore:
+            state = .NotInBlock
         case .Unknown:
             assert(i + 1 == len(ident.text))
             assert(ident.text[i] == '$')
@@ -955,7 +961,8 @@ simplify_type :: proc(s: ^CheckerState, type: Type, loc := #caller_location) -> 
         case GenericTypeValue, GlobalType:
             cur_type = got.value.type
             assert(cur_type != .Unknown)
-        case nil: return cur_type
+        case nil:
+            return cur_type
         case:
             if got.value.type != .Unknown {
                 panicf("got.value.type == %v", got.value.type)
@@ -1122,8 +1129,10 @@ type_is_subset :: proc(
     }
     superset_type := get_type(s.types, superset)
     #partial switch superset_value in superset_type.key {
-    case nil: panic("Unreachable")
-    case: return false
+    case nil:
+        panic("Unreachable")
+    case:
+        return false
     case SumType:
         for _, i in superset_value.m.keys {
             if superset_value.payloads.d[i] == type {
@@ -1212,7 +1221,8 @@ expect_value_of_type :: proc(
     case AnyType:
         e.store^ = got_type
         return true
-    case Type: return expect_exact_type(s, pos, e, got_type, extra_text)
+    case Type:
+        return expect_exact_type(s, pos, e, got_type, extra_text)
     case FunctionWithExpectedReturnTypes:
         func_type := get_func_type(s, pos, got_value, got_type)
         if func_type == .Invalid {
@@ -1342,124 +1352,138 @@ build_type_string :: proc(
     }
     // TODO: Format the string better
     #partial switch t {
-    case .String: strings.write_string(b, "String")
-    case .Int: strings.write_string(b, "Int")
-    case .UInt: strings.write_string(b, "UInt")
-    case .Float: strings.write_string(b, "Float")
-    case .Char: strings.write_string(b, "Char")
-    case .Bool: strings.write_string(b, "Bool")
-    case .Invalid: strings.write_string(b, "Invalid")
-    case .Unknown: strings.write_string(b, "Unknown")
-    case .ImportedFile: strings.write_string(b, "ImportedFile")
-    case .Type: strings.write_string(b, "Type")
-    case .Any: strings.write_string(b, "Any")
-    case: // TODO: For `GlobalType` and `StructType`, put the right namespace before the type
-            switch tv in get_type(types, t).key {
-            case GlobalType: strings.write_string(b, globals_without_generic[tv.global.index].name)
-            case StructType:
-                build_struct_string(types, globals_without_generic, globals_with_generic, b, tv)
-            case SumType:
-                strings.write_byte(b, '<')
-                first_variant := true
-                for variant, i in tv.m.keys {
-                    if !first_variant {
-                        strings.write_string(b, ", ")
-                    }
-                    variant_type := get_type(types, tv.payloads.d[i]).key.(StructType)
-                    strings.write_string(b, variant.key)
-                    build_struct_string(
-                        types,
-                        globals_without_generic,
-                        globals_with_generic,
-                        b,
-                        variant_type,
-                    )
-                    first_variant = false
+    case .String:
+        strings.write_string(b, "String")
+    case .Int:
+        strings.write_string(b, "Int")
+    case .UInt:
+        strings.write_string(b, "UInt")
+    case .Float:
+        strings.write_string(b, "Float")
+    case .Char:
+        strings.write_string(b, "Char")
+    case .Bool:
+        strings.write_string(b, "Bool")
+    case .Invalid:
+        strings.write_string(b, "Invalid")
+    case .Unknown:
+        strings.write_string(b, "Unknown")
+    case .ImportedFile:
+        strings.write_string(b, "ImportedFile")
+    case .Type:
+        strings.write_string(b, "Type")
+    case .Any:
+        strings.write_string(b, "Any")
+    case:
+        // TODO: For `GlobalType` and `StructType`, put the right namespace before the type
+        switch tv in get_type(types, t).key {
+        case GlobalType:
+            strings.write_string(b, globals_without_generic[tv.global.index].name)
+        case StructType:
+            build_struct_string(types, globals_without_generic, globals_with_generic, b, tv)
+        case SumType:
+            strings.write_byte(b, '<')
+            first_variant := true
+            for variant, i in tv.m.keys {
+                if !first_variant {
+                    strings.write_string(b, ", ")
                 }
-                strings.write_byte(b, '>')
-            case GenericTypeValue:
-                strings.write_string(b, globals_with_generic[tv.global.index].name)
-                strings.write_byte(b, '[')
-                first_arg := true
-                for arg in tv.generic_args {
-                    if !first_arg {
-                        strings.write_string(b, ", ")
-                    }
-                    build_type_string(types, globals_without_generic, globals_with_generic, b, arg)
-                    first_arg = false
+                variant_type := get_type(types, tv.payloads.d[i]).key.(StructType)
+                strings.write_string(b, variant.key)
+                build_struct_string(
+                    types,
+                    globals_without_generic,
+                    globals_with_generic,
+                    b,
+                    variant_type,
+                )
+                first_variant = false
+            }
+            strings.write_byte(b, '>')
+        case GenericTypeValue:
+            strings.write_string(b, globals_with_generic[tv.global.index].name)
+            strings.write_byte(b, '[')
+            first_arg := true
+            for arg in tv.generic_args {
+                if !first_arg {
+                    strings.write_string(b, ", ")
                 }
-                strings.write_byte(b, ']')
-            case FuncType:
+                build_type_string(types, globals_without_generic, globals_with_generic, b, arg)
+                first_arg = false
+            }
+            strings.write_byte(b, ']')
+        case FuncType:
+            strings.write_byte(b, '(')
+            for arg, index in tv.args {
+                // TODO: Print the name and whether the arg is mutable
+                build_type_string(types, globals_without_generic, globals_with_generic, b, arg)
+                if index + 1 != len(tv.args) {
+                    strings.write_string(b, ", ")
+                }
+            }
+            strings.write_string(b, ") -> ")
+            if len(tv.return_types) == 1 {
+                build_type_string(
+                    types,
+                    globals_without_generic,
+                    globals_with_generic,
+                    b,
+                    tv.return_types[0],
+                )
+            } else {
                 strings.write_byte(b, '(')
-                for arg, index in tv.args {
-                    // TODO: Print the name and whether the arg is mutable
-                    build_type_string(types, globals_without_generic, globals_with_generic, b, arg)
-                    if index + 1 != len(tv.args) {
+                first_return_type := true
+                for return_type in tv.return_types {
+                    if first_return_type == false {
                         strings.write_string(b, ", ")
                     }
-                }
-                strings.write_string(b, ") -> ")
-                if len(tv.return_types) == 1 {
                     build_type_string(
                         types,
                         globals_without_generic,
                         globals_with_generic,
                         b,
-                        tv.return_types[0],
+                        return_type,
                     )
-                } else {
-                    strings.write_byte(b, '(')
-                    first_return_type := true
-                    for return_type in tv.return_types {
-                        if first_return_type == false {
-                            strings.write_string(b, ", ")
-                        }
-                        build_type_string(
-                            types,
-                            globals_without_generic,
-                            globals_with_generic,
-                            b,
-                            return_type,
-                        )
-                        first_return_type = false
-                    }
-                    strings.write_byte(b, ')')
+                    first_return_type = false
                 }
-            case OrderedHashMapTypeWithIntKey:
-                strings.write_string(b, "OrderedHashMap[Int, ")
-                build_type_string(
-                    types,
-                    globals_without_generic,
-                    globals_with_generic,
-                    b,
-                    tv.value_type,
-                )
-                strings.write_string(b, "]")
-            case OrderedHashMapTypeWithStringKey:
-                strings.write_string(b, "OrderedHashMap[String, ")
-                build_type_string(
-                    types,
-                    globals_without_generic,
-                    globals_with_generic,
-                    b,
-                    tv.value_type,
-                )
-                strings.write_string(b, "]")
-            case ArrayType:
-                strings.write_byte(b, '[')
-                if tv.length != 0 {
-                    strings.write_uint(b, uint(tv.length))
-                }
-                strings.write_byte(b, ']')
-                build_type_string(
-                    types,
-                    globals_without_generic,
-                    globals_with_generic,
-                    b,
-                    tv.item_type,
-                )
-            case nil: panic("Unreachable")
+                strings.write_byte(b, ')')
             }
+        case OrderedHashMapTypeWithIntKey:
+            strings.write_string(b, "OrderedHashMap[Int, ")
+            build_type_string(
+                types,
+                globals_without_generic,
+                globals_with_generic,
+                b,
+                tv.value_type,
+            )
+            strings.write_string(b, "]")
+        case OrderedHashMapTypeWithStringKey:
+            strings.write_string(b, "OrderedHashMap[String, ")
+            build_type_string(
+                types,
+                globals_without_generic,
+                globals_with_generic,
+                b,
+                tv.value_type,
+            )
+            strings.write_string(b, "]")
+        case ArrayType:
+            strings.write_byte(b, '[')
+            if tv.length != 0 {
+                strings.write_uint(b, uint(tv.length))
+            }
+            strings.write_byte(b, ']')
+            build_type_string(
+                types,
+                globals_without_generic,
+                globals_with_generic,
+                b,
+                tv.item_type,
+            )
+        case nil:
+            panic("Unreachable")
+        }
     }
 }
 
@@ -1721,8 +1745,9 @@ check_block :: proc(
             append_elem(body, mutation)
         */
 
-        case Unit: if len(value.extra_units) != 0 {
-                    /*
+        case Unit:
+            if len(value.extra_units) != 0 {
+                /*
                 if value.extra_units[0].join_method != .Assign {
                     diagnostic(
                         s,
@@ -1732,10 +1757,10 @@ check_block :: proc(
                     return nil, false
                 }
                     */
-                    ok := check_mutation(
-                        s,
-                        value,
-                        /*
+                ok := check_mutation(
+                    s,
+                    value,
+                    /*
                     UnitWithPos{value.first_unit, value.pos},
                     Unit {
                         value.extra_units[0].unit.pos,
@@ -1743,26 +1768,26 @@ check_block :: proc(
                         value.extra_units[1:],
                     },
                     */
-                        body,
-                        generic_args,
-                    )
-                    if !ok {
-                        return nil, false
-                    }
-                } else {
-                    #partial switch unit in value.first_unit {
-                    case CallWithBrackets:
-                        call := check_function_call(s, value.pos, unit, body, nil, generic_args)
-                        if call == nil {
-                            return nil, false
-                        }
-                        // Call cannot be a `CompileTimeValue` because `expected_return_types` is set to `nil`
-                        append_elem(body, call.(CheckedFunctionCall))
-                    case:
-                        diagnostic(s, value.pos, "Cannot use this kind of unit as a statement")
-                        return nil, false
-                    }
+                    body,
+                    generic_args,
+                )
+                if !ok {
+                    return nil, false
                 }
+            } else {
+                #partial switch unit in value.first_unit {
+                case CallWithBrackets:
+                    call := check_function_call(s, value.pos, unit, body, nil, generic_args)
+                    if call == nil {
+                        return nil, false
+                    }
+                    // Call cannot be a `CompileTimeValue` because `expected_return_types` is set to `nil`
+                    append_elem(body, call.(CheckedFunctionCall))
+                case:
+                    diagnostic(s, value.pos, "Cannot use this kind of unit as a statement")
+                    return nil, false
+                }
+            }
 
         case ConditionControlledLoop:
             append_elem(&s.scopes, Scope{})
@@ -2105,7 +2130,8 @@ check_block :: proc(
                 return nil, false
             }
             switch len(value) {
-            case 0: append_elem(body, CheckedReturn{nil})
+            case 0:
+                append_elem(body, CheckedReturn{nil})
             case 1:
                 v := expect_runtime_value(
                     s,
@@ -2122,10 +2148,10 @@ check_block :: proc(
                 append_elem(body, CheckedReturn{v})
             case:
                 diagnostic(
-                        s,
-                        stmt.position,
-                        "Can only have <=1 value in return statement (TODO: add support for returning >1 values)",
-                    )
+                    s,
+                    stmt.position,
+                    "Can only have <=1 value in return statement (TODO: add support for returning >1 values)",
+                )
             }
 
         case YieldStatement:
@@ -2457,8 +2483,10 @@ check_var_ref :: proc(
                 return nil
             }
             switch expected_return in expected.expected_return_types[0] {
-            case AnyType, FunctionWithExpectedReturnTypes: diagnostic(s, pos, value_err1)
-            case Type: expected_return_type = expected_return
+            case AnyType, FunctionWithExpectedReturnTypes:
+                diagnostic(s, pos, value_err1)
+            case Type:
+                expected_return_type = expected_return
             }
         }
 
@@ -2805,15 +2833,16 @@ check_value_with_markers :: proc(
             .String,
             "",
         )
-    case "debug_ast": debug_unit(nil, v)
+    case "debug_ast":
+        debug_unit(nil, v)
     case:
         diagnostic(
-                s,
-                markers[0].pos,
-                "TODO: Handle the `%s` marker",
-                markers[0].text,
-                type = .Warning,
-            )
+            s,
+            markers[0].pos,
+            "TODO: Handle the `%s` marker",
+            markers[0].text,
+            type = .Warning,
+        )
     }
 
     return check_value_with_markers(s, v, markers[1:], a)
@@ -2866,8 +2895,10 @@ check_joined_unit_value :: proc(
         }
         val0_expected_type := Type.Invalid
         #partial switch t in get_type(s.types, simplify_type(s, val1_type)).key {
-        case OrderedHashMapTypeWithIntKey: val0_expected_type = .Int
-        case OrderedHashMapTypeWithStringKey: val0_expected_type = .String
+        case OrderedHashMapTypeWithIntKey:
+            val0_expected_type = .Int
+        case OrderedHashMapTypeWithStringKey:
+            val0_expected_type = .String
         }
         if val0_expected_type == .Invalid {
             diagnostic(
@@ -3097,10 +3128,14 @@ check_joined_unit_value :: proc(
     case .Multiplication, .Subtraction, .Division, .Addition, .Modulo:
         get_output_type :: proc(m: HierarchyUnitJoinMethod) -> Type {
             #partial switch m {
-            case .Multiplication, .Addition, .Modulo: return .UInt
-            case .Subtraction: return .Int
-            case .Division: return .Float
-            case: panic("Unreachable")
+            case .Multiplication, .Addition, .Modulo:
+                return .UInt
+            case .Subtraction:
+                return .Int
+            case .Division:
+                return .Float
+            case:
+                panic("Unreachable")
             }
         }
         val0_type := Type.Invalid
@@ -3144,7 +3179,8 @@ check_joined_unit_value :: proc(
             "",
         )
 
-    case: panic(fmt.aprintf("Unreachable (join method is %v)", value.join_method))
+    case:
+        panic(fmt.aprintf("Unreachable (join method is %v)", value.join_method))
     }
 
 }
@@ -3356,7 +3392,8 @@ check_initial_value :: proc(
         diagnostic(s, pos, units_in_square_brackets_use_err)
         return nil
 
-    case MarkedUnit: return check_value_with_markers(s, value.value^, value.markers, a)
+    case MarkedUnit:
+        return check_value_with_markers(s, value.value^, value.markers, a)
 
     case Tuple:
         if len(value.elements) != 1 {
@@ -3593,7 +3630,8 @@ check_initial_value :: proc(
                 index.end_index == nil ? t.item_type : being_called_type,
                 "",
             )
-        case OrderedHashMapTypeWithIntKey: panic("TODO")
+        case OrderedHashMapTypeWithIntKey:
+            panic("TODO")
         case OrderedHashMapTypeWithStringKey:
             key_value := expect_runtime_value(
                 s,
@@ -3646,13 +3684,18 @@ check_initial_value :: proc(
         call := check_function_call(s, pos, value, a.body, expected_return_types, a.generic_args)
         delete(expected_return_types)
         switch c in call {
-        case nil: return nil
-        case CompileTimeValue: return c
-        case CheckedFunctionCall: return c
-        case: panic("Unreachable")
+        case nil:
+            return nil
+        case CompileTimeValue:
+            return c
+        case CheckedFunctionCall:
+            return c
+        case:
+            panic("Unreachable")
         }
 
-    case HierarchyJoinedUnits: return check_joined_unit_value(s, pos, value, a)
+    case HierarchyJoinedUnits:
+        return check_joined_unit_value(s, pos, value, a)
 
     case IdentNode:
         if value.has_re_before {
@@ -3671,7 +3714,8 @@ check_initial_value :: proc(
         case DecimalNonNegativeNumber:
             whole_part = big_uint_from_string(num.integer_part)
             fraction_part = num.fractional_part
-        case: panic("Unreachable")
+        case:
+            panic("Unreachable")
         }
         n := NumberValue{value.is_negated, whole_part, fraction_part}
         return finish_checking_value(s, pos, a.type, CompileTimeValue(n), guess_number_type(n), "")

@@ -95,8 +95,10 @@ _commit :: proc "contextless" (data: rawptr, size: uint) -> Allocator_Error {
     result := VirtualAlloc(data, size, MEM_COMMIT, PAGE_READWRITE)
     if result == nil {
         switch err := GetLastError(); err {
-        case 0: return .Invalid_Argument
-        case ERROR_INVALID_ADDRESS, ERROR_COMMITMENT_LIMIT: return .Out_Of_Memory
+        case 0:
+            return .Invalid_Argument
+        case ERROR_INVALID_ADDRESS, ERROR_COMMITMENT_LIMIT:
+            return .Out_Of_Memory
         }
 
         return .Out_Of_Memory
@@ -119,15 +121,24 @@ _protect :: proc "contextless" (data: rawptr, size: uint, flags: Protect_Flags) 
     pflags: u32
     pflags = PAGE_NOACCESS
     switch flags {
-    case {}: pflags = PAGE_NOACCESS
-    case {.Read}: pflags = PAGE_READONLY
-    case {.Read, .Write}: pflags = PAGE_READWRITE
-    case {.Write}: pflags = PAGE_WRITECOPY
-    case {.Execute}: pflags = PAGE_EXECUTE
-    case {.Execute, .Read}: pflags = PAGE_EXECUTE_READ
-    case {.Execute, .Read, .Write}: pflags = PAGE_EXECUTE_READWRITE
-    case {.Execute, .Write}: pflags = PAGE_EXECUTE_WRITECOPY
-    case: return false
+    case {}:
+        pflags = PAGE_NOACCESS
+    case {.Read}:
+        pflags = PAGE_READONLY
+    case {.Read, .Write}:
+        pflags = PAGE_READWRITE
+    case {.Write}:
+        pflags = PAGE_WRITECOPY
+    case {.Execute}:
+        pflags = PAGE_EXECUTE
+    case {.Execute, .Read}:
+        pflags = PAGE_EXECUTE_READ
+    case {.Execute, .Read, .Write}:
+        pflags = PAGE_EXECUTE_READWRITE
+    case {.Execute, .Write}:
+        pflags = PAGE_EXECUTE_WRITECOPY
+    case:
+        return false
     }
 
 

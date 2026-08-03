@@ -78,6 +78,7 @@ A new language for the web, because it's time to stop working around javascript.
 - Implement string interpolation
 - Add support for `yield` in if statements (should `yield`ing from a loop be supported?)
 - Implement defer
+- Set `"inline_single_stmt_case": true` in `odinfmt.json` when [this issue](https://github.com/DanielGavin/ols/issues/1606) is fixed and [this feature](https://github.com/DanielGavin/ols/issues/1607) is implemented
 - Figure out if/how you represent a function causing side affects:
   - IMO computationally pure functions are important for the testing and predictability of a codebase
   - But, there are plenty of algorithms where you should create a side affect while an otherwise pure function is running

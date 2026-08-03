@@ -647,7 +647,8 @@ string_to_node :: proc(a: ^Arena, i: ^int, text: string) -> TreeNode {
         out := text[start:i^]
         i^ += 1
         return out
-    case: panic("Unreachable")
+    case:
+        panic("Unreachable")
     }
 }
 
@@ -670,7 +671,8 @@ node_to_string := proc(d: ^[]byte, node: TreeNode) {
             first_child = false
         }
         append_dynamic(d, ')')
-    case: panic("Unreachable")
+    case:
+        panic("Unreachable")
     }
 }
 

@@ -74,13 +74,15 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
             return StructUnit{}, false
         }
         #partial switch token in s.last_token {
-        case CloseBraceToken: return out, true
+        case CloseBraceToken:
+            return out, true
         case IdentToken:
             if len(token) != 1 || token[0].has_dollar_at_end {
                 return wrong_token(s)
             }
             field = TextAndPos{token[0].ident, token[0].pos}
-        case: return wrong_token(s)
+        case:
+            return wrong_token(s)
         }
 
         get_next_token(s, false)
@@ -129,7 +131,8 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
             wrong_token_err(s)
             return StructUnit{}, false
         case CommaToken:
-        case CloseBraceToken: return out, true
+        case CloseBraceToken:
+            return out, true
         }
     }
 }
@@ -192,7 +195,8 @@ maybe_parse_initial_unit :: proc(
         return nil, true
     }
     #partial switch token in s.last_token {
-    case: return e(s)
+    case:
+        return e(s)
 
     case ImportToken:
         get_next_token(s, false)
@@ -279,7 +283,8 @@ maybe_parse_initial_unit :: proc(
             case:
                 wrong_token_err(s)
                 return nil, false
-            case CloseAngleBracketToken: break loop
+            case CloseAngleBracketToken:
+                break loop
             case IdentToken:
                 if len(token2) != 1 || token2[0].has_dollar_at_end {
                     wrong_token_err(s)
@@ -335,7 +340,8 @@ maybe_parse_initial_unit :: proc(
                     wrong_token_err(s)
                     return nil, false
                 case CommaToken:
-                case CloseAngleBracketToken: break loop
+                case CloseAngleBracketToken:
+                    break loop
                 }
             }
         }
@@ -444,7 +450,8 @@ maybe_parse_initial_unit :: proc(
                     "a string token",
                 )
                 return String(strings[:]), true
-            case StringToken: append_elem(&strings, string(token2))
+            case StringToken:
+                append_elem(&strings, string(token2))
             }
         }
 
@@ -514,7 +521,8 @@ parse_units_until :: proc(
             )
             wrong_token_err(s)
             return nil, false
-        case CommaToken: continue
+        case CommaToken:
+            continue
         }
     }
 }
@@ -582,29 +590,51 @@ parse_unit_with_pos :: proc(s: ^ParserState, loc := #caller_location) -> UnitWit
     )
     value_type: HierarchyUnitJoinMethod
     #partial switch token in s.last_token {
-    case: return unit
-    case InToken: value_type = .In
-    case AndToken: value_type = .BooleanAnd
-    case ColonColonToken: value_type = .Append
-    case OrToken: value_type = .BooleanOr
-    case OpenAngleBracketToken: value_type = .IsLessThan
-    case LessThanOrEqualToken: value_type = .IsLessThanOrEqual
-    case CloseAngleBracketToken: value_type = .IsGreaterThan
-    case GreaterThanOrEqualToken: value_type = .IsGreaterThanOrEqual
-    case ColonToken: value_type = .Colon
-    case ArrowToken: value_type = .Arrow
-    case SymbolsToken: switch token {
-            case: return unit
-            case "==": value_type = .IsEqual
-            case "!=": value_type = .IsNotEqual
-            case "*": value_type = .Multiplication
-            case "/": value_type = .Division
-            case "+": value_type = .Addition
-            case "++": value_type = .Concat
-            case "&": value_type = .StringConcat
-            case "-": value_type = .Subtraction
-            case "%": value_type = .Modulo
-            }
+    case:
+        return unit
+    case InToken:
+        value_type = .In
+    case AndToken:
+        value_type = .BooleanAnd
+    case ColonColonToken:
+        value_type = .Append
+    case OrToken:
+        value_type = .BooleanOr
+    case OpenAngleBracketToken:
+        value_type = .IsLessThan
+    case LessThanOrEqualToken:
+        value_type = .IsLessThanOrEqual
+    case CloseAngleBracketToken:
+        value_type = .IsGreaterThan
+    case GreaterThanOrEqualToken:
+        value_type = .IsGreaterThanOrEqual
+    case ColonToken:
+        value_type = .Colon
+    case ArrowToken:
+        value_type = .Arrow
+    case SymbolsToken:
+        switch token {
+        case:
+            return unit
+        case "==":
+            value_type = .IsEqual
+        case "!=":
+            value_type = .IsNotEqual
+        case "*":
+            value_type = .Multiplication
+        case "/":
+            value_type = .Division
+        case "+":
+            value_type = .Addition
+        case "++":
+            value_type = .Concat
+        case "&":
+            value_type = .StringConcat
+        case "-":
+            value_type = .Subtraction
+        case "%":
+            value_type = .Modulo
+        }
     }
     get_next_token(s, true)
     next_value_pos := s.last_token_pos
@@ -636,14 +666,17 @@ parse_unit :: proc(s: ^ParserState) -> (Unit, bool) {
         )
         join_method: LeftToRightUnitJoinMethod
         #partial switch v in s.last_token {
-        case AssignToken: join_method = .Assign
+        case AssignToken:
+            join_method = .Assign
         case SymbolsToken:
             if v != "~" {
                 return Unit{pos, first_unit, extra_units}, true
             }
             join_method = .Tilde
-        case PipeEqualsToken: join_method = .PipeEquals
-        case: return Unit{pos, first_unit, extra_units}, true
+        case PipeEqualsToken:
+            join_method = .PipeEquals
+        case:
+            return Unit{pos, first_unit, extra_units}, true
         }
         get_next_token(s, true)
         extra_unit_pos := s.last_token_pos
@@ -750,7 +783,8 @@ parse_for_loop :: proc(s: ^ParserState) -> (ForInLoop, bool) {
             )
             wrong_token_err(s)
             return ForInLoop{}, false
-        case InToken: break variables_loop
+        case InToken:
+            break variables_loop
         case CommaToken:
             if variable_index >= 3 {
                 diagnostic(
@@ -1157,7 +1191,8 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
             }
             append_elem(&out, Statement{pos, YieldStatement(values)})
             return out[:], true
-        case CloseBraceToken: return out[:], true
+        case CloseBraceToken:
+            return out[:], true
         }
         _, is_close_brace := s.last_token.(CloseBraceToken)
         if is_close_brace {
@@ -1289,7 +1324,8 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
         case:
             wrong_token_err(s)
             return FunctionDefinition{}, false
-        case BarToken: break loop
+        case BarToken:
+            break loop
         case IdentToken:
             if len(token) != 1 {
                 wrong_token_err(s)
@@ -1320,8 +1356,10 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
             append_dynamic_elems(&s.last_token_descriptions_of_other_possible_tokens, "`,`", "`|`")
             wrong_token_err(s)
             return FunctionDefinition{}, false
-        case CommaToken: continue
-        case BarToken: break loop
+        case CommaToken:
+            continue
+        case BarToken:
+            break loop
         }
     }
 
@@ -1404,7 +1442,8 @@ parse_file :: proc(s: ^ParserState) -> bool {
         case:
             wrong_token_err(s)
             return false
-        case EndOfFileToken: return true
+        case EndOfFileToken:
+            return true
         case IdentToken:
             position := s.last_token_pos
             if len(token) != 1 || token[0].has_dollar_at_end {
@@ -1617,7 +1656,8 @@ parse_project :: proc(
         #partial switch &exit_early_info_value in exit_early_info {
         case ExitEarlyAwaitingSourceCodeChange:
             exit_early_info_value.files = multi_to_array(state.files, len(state.parsed_files))
-        case: panic("Unreachable")
+        case:
+            panic("Unreachable")
         }
     }
     if !ok {

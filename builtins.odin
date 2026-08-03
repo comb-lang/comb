@@ -51,40 +51,72 @@ GotBuiltin :: struct {
 // `GotBuiltin.value == nil` if and only if the builtin does not exist
 get_builtin :: proc(name: string) -> GotBuiltin {
     switch name {
-    case: return GotBuiltin{}
-    case "print": return GotBuiltin{BuiltinFunction.print, .StringToNil}
-    case "println": return GotBuiltin{BuiltinFunction.println, .StringToNil}
-    case "eprint": return GotBuiltin{BuiltinFunction.eprint, .StringToNil}
-    case "eprintln": return GotBuiltin{BuiltinFunction.eprintln, .StringToNil}
-    case "readline": return GotBuiltin{BuiltinFunction.readline, .StringToString}
-    case "read_file": return GotBuiltin{BuiltinFunction.read_file, .StringToString}
-    case "write_file": return GotBuiltin{BuiltinFunction.write_file, .StringStringToNil}
-    case "clear": return GotBuiltin{BuiltinFunction.clear, .NoArgsToNil}
-    case "run_executable": return GotBuiltin{BuiltinFunction.run_executable, .ArrayOfStringsToNil}
-    case "exit": return GotBuiltin{BuiltinFunction.exit, .IntToNil}
-    case "string_repeat": return GotBuiltin{BuiltinFunction.string_repeat, .StringUintToString}
+    case:
+        return GotBuiltin{}
+    case "print":
+        return GotBuiltin{BuiltinFunction.print, .StringToNil}
+    case "println":
+        return GotBuiltin{BuiltinFunction.println, .StringToNil}
+    case "eprint":
+        return GotBuiltin{BuiltinFunction.eprint, .StringToNil}
+    case "eprintln":
+        return GotBuiltin{BuiltinFunction.eprintln, .StringToNil}
+    case "readline":
+        return GotBuiltin{BuiltinFunction.readline, .StringToString}
+    case "read_file":
+        return GotBuiltin{BuiltinFunction.read_file, .StringToString}
+    case "write_file":
+        return GotBuiltin{BuiltinFunction.write_file, .StringStringToNil}
+    case "clear":
+        return GotBuiltin{BuiltinFunction.clear, .NoArgsToNil}
+    case "run_executable":
+        return GotBuiltin{BuiltinFunction.run_executable, .ArrayOfStringsToNil}
+    case "exit":
+        return GotBuiltin{BuiltinFunction.exit, .IntToNil}
+    case "string_repeat":
+        return GotBuiltin{BuiltinFunction.string_repeat, .StringUintToString}
     case "init_http_server":
         return GotBuiltin{BuiltinFunction.init_http_server, .NoArgsToHttpServer}
-    case "cast": return GotBuiltin{BuiltinFunction.cast_func, .Unknown}
-    case "save_cursor_pos": return GotBuiltin{BuiltinFunction.save_cursor_pos, .NoArgsToNil}
-    case "restore_cursor_pos": return GotBuiltin{BuiltinFunction.restore_cursor_pos, .NoArgsToNil}
-    case "clear_after_cursor": return GotBuiltin{BuiltinFunction.clear_after_cursor, .NoArgsToNil}
-    case "make_dir_all": return GotBuiltin{BuiltinFunction.make_dir_all, .StringToNil}
-    case "expect_uint": return GotBuiltin{BuiltinFunction.expect_uint, .FloatToUInt}
-    case "Int": return GotBuiltin{Type.Int, .Type}
-    case "UInt": return GotBuiltin{Type.UInt, .Type}
-    case "Float": return GotBuiltin{Type.Float, .Type}
-    case "Char": return GotBuiltin{Type.Char, .Type}
-    case "Bool": return GotBuiltin{Type.Bool, .Type}
-    case "String": return GotBuiltin{Type.String, .Type}
-    case "Type": return GotBuiltin{Type.Type, .Type}
-    case "ImportedFile": return GotBuiltin{Type.ImportedFile, .Type}
-    case "Any": return GotBuiltin{Type.Any, .Type}
-    case "Compiler": return GotBuiltin{Type.Compiler, .Type}
-    case "CompilerCache": return GotBuiltin{Type.CompilerCache, .Type}
-    case "HttpRequest": return GotBuiltin{Type.HttpRequest, .Type}
-    case "HttpResponse": return GotBuiltin{Type.HttpResponse, .Type}
-    case "HttpServer": return GotBuiltin{Type.HttpServer, .Type}
+    case "cast":
+        return GotBuiltin{BuiltinFunction.cast_func, .Unknown}
+    case "save_cursor_pos":
+        return GotBuiltin{BuiltinFunction.save_cursor_pos, .NoArgsToNil}
+    case "restore_cursor_pos":
+        return GotBuiltin{BuiltinFunction.restore_cursor_pos, .NoArgsToNil}
+    case "clear_after_cursor":
+        return GotBuiltin{BuiltinFunction.clear_after_cursor, .NoArgsToNil}
+    case "make_dir_all":
+        return GotBuiltin{BuiltinFunction.make_dir_all, .StringToNil}
+    case "expect_uint":
+        return GotBuiltin{BuiltinFunction.expect_uint, .FloatToUInt}
+    case "Int":
+        return GotBuiltin{Type.Int, .Type}
+    case "UInt":
+        return GotBuiltin{Type.UInt, .Type}
+    case "Float":
+        return GotBuiltin{Type.Float, .Type}
+    case "Char":
+        return GotBuiltin{Type.Char, .Type}
+    case "Bool":
+        return GotBuiltin{Type.Bool, .Type}
+    case "String":
+        return GotBuiltin{Type.String, .Type}
+    case "Type":
+        return GotBuiltin{Type.Type, .Type}
+    case "ImportedFile":
+        return GotBuiltin{Type.ImportedFile, .Type}
+    case "Any":
+        return GotBuiltin{Type.Any, .Type}
+    case "Compiler":
+        return GotBuiltin{Type.Compiler, .Type}
+    case "CompilerCache":
+        return GotBuiltin{Type.CompilerCache, .Type}
+    case "HttpRequest":
+        return GotBuiltin{Type.HttpRequest, .Type}
+    case "HttpResponse":
+        return GotBuiltin{Type.HttpResponse, .Type}
+    case "HttpServer":
+        return GotBuiltin{Type.HttpServer, .Type}
     }
 }
 
@@ -117,12 +149,18 @@ argument_count_mismatch :: proc(
 to_str :: proc(s: ^CheckerState, pos: Pos, val: CheckedValue, type: Type) -> CheckedValue {
     from_type: ToStringFromType = ---
     #partial switch type {
-    case .Bool: from_type = .BoolType
-    case .String: return val
-    case .Int: from_type = .IntType
-    case .UInt: from_type = .UIntType
-    case .Float: from_type = .FloatType
-    case .Char: from_type = .CharType
+    case .Bool:
+        from_type = .BoolType
+    case .String:
+        return val
+    case .Int:
+        from_type = .IntType
+    case .UInt:
+        from_type = .UIntType
+    case .Float:
+        from_type = .FloatType
+    case .Char:
+        from_type = .CharType
     case:
         diagnostic(s, pos, "Cannot convert the type `%s` to `String`", type_to_string(s, type))
         return nil

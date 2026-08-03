@@ -35,13 +35,16 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: CompileTimeValue) {
         }
     case CastFunction:
         strings.write_string(&s.b, "/* TODO: Implement cast in JS emitter */ undefined")
-    case BuiltinFunction: #partial switch comptime {
-            case .print, .println: strings.write_string(&s.b, "console.log")
-            case .eprint, .eprintln: strings.write_string(&s.b, "console.error")
-            case:
-                strings.write_string(&s.b, "builtin")
-                strings.write_uint(&s.b, uint(comptime))
-            }
+    case BuiltinFunction:
+        #partial switch comptime {
+        case .print, .println:
+            strings.write_string(&s.b, "console.log")
+        case .eprint, .eprintln:
+            strings.write_string(&s.b, "console.error")
+        case:
+            strings.write_string(&s.b, "builtin")
+            strings.write_uint(&s.b, uint(comptime))
+        }
     case CompileTimeStructInitialisation:
         strings.write_string(&s.b, "init_Type")
         strings.write_uint(&s.b, uint(comptime.func.return_type))
@@ -68,20 +71,27 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: CompileTimeValue) {
             }
             strings.write_byte(&s.b, ')')
         }
-    case Type, UninitialisedOrderedHashMapType: panic("Unreachable")
-    case GlobalValueWithGenericRef, Import: panic("Unreachable")
+    case Type, UninitialisedOrderedHashMapType:
+        panic("Unreachable")
+    case GlobalValueWithGenericRef, Import:
+        panic("Unreachable")
     case StringLiteralValue:
         strings.write_byte(&s.b, '"')
         for char in comptime {
             switch char {
-            case '\n': strings.write_string(&s.b, "\\n")
-            case '"': strings.write_string(&s.b, "\\\"")
-            case '\\': strings.write_string(&s.b, "\\\\")
-            case: strings.write_rune(&s.b, char)
+            case '\n':
+                strings.write_string(&s.b, "\\n")
+            case '"':
+                strings.write_string(&s.b, "\\\"")
+            case '\\':
+                strings.write_string(&s.b, "\\\\")
+            case:
+                strings.write_rune(&s.b, char)
             }
         }
         strings.write_byte(&s.b, '"')
-    case BoolValue: strings.write_string(&s.b, comptime ? "true" : "false")
+    case BoolValue:
+        strings.write_string(&s.b, comptime ? "true" : "false")
     case NumberValue:
         if comptime.is_negated {
             strings.write_byte(&s.b, '-')
@@ -127,8 +137,10 @@ emit_js_runtime_value :: proc(b: ^strings.Builder, value: RuntimeValue) {
             strings.write_byte(b, ',')
         }
         strings.write_byte(b, ']')
-    case f64: strings.write_f64(b, v, 'f')
-    case bool: strings.write_string(b, v ? "true" : "false")
+    case f64:
+        strings.write_f64(b, v, 'f')
+    case bool:
+        strings.write_string(b, v ? "true" : "false")
     case CastFunction,
          RuntimeIntOrderedHashMap,
          StructTypeInitFunc,
@@ -162,7 +174,8 @@ emit_js_runtime_value :: proc(b: ^strings.Builder, value: RuntimeValue) {
         strings.write_byte(b, '"')
         strings.write_string(b, v.value)
         strings.write_byte(b, '"')
-    case: panic("Unreachable")
+    case:
+        panic("Unreachable")
     }
 }
 
@@ -194,7 +207,8 @@ emit_js_derivation :: proc(
             }
             strings.write_byte(&s.b, ')')
             return
-        case: panic("Unreachable")
+        case:
+            panic("Unreachable")
         }
     }
 
@@ -227,7 +241,8 @@ emit_js_derivation :: proc(
         strings.write_string(&s.b, ",\"field")
         strings.write_uint(&s.b, uint(elem.field_index))
         strings.write_byte(&s.b, '"')
-    case: panic("Unreachable")
+    case:
+        panic("Unreachable")
     }
 
     strings.write_byte(&s.b, ',')
@@ -254,29 +269,35 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: CheckedValue) {
             }
             strings.write_byte(&s.b, ')')
         }
-    case CheckedDerivation: emit_js_derivation(s, v.base^, v.subset.elements, v.alteration)
+    case CheckedDerivation:
+        emit_js_derivation(s, v.base^, v.subset.elements, v.alteration)
     case ArrayLiteral:
         strings.write_byte(&s.b, '[')
         for segment in v.segments {
             switch seg in segment {
-            case SingleElemSegment: emit_js_value(s, seg.elem)
+            case SingleElemSegment:
+                emit_js_value(s, seg.elem)
             case InlineArraySegment:
                 strings.write_string(&s.b, "...")
                 emit_js_value(s, seg.array)
-            case: panic("Unreachable")
+            case:
+                panic("Unreachable")
             }
             strings.write_byte(&s.b, ',')
         }
         strings.write_byte(&s.b, ']')
-    case KeysOfOrderedHashMapWithStringKey: emit_js_map_keys_func(s, v.hash_map^)
-    case KeysOfOrderedHashMapWithIntKey: emit_js_map_keys_func(s, v.hash_map^)
+    case KeysOfOrderedHashMapWithStringKey:
+        emit_js_map_keys_func(s, v.hash_map^)
+    case KeysOfOrderedHashMapWithIntKey:
+        emit_js_map_keys_func(s, v.hash_map^)
     case CheckedOrderedHashMapAccess:
         strings.write_string(&s.b, "Map.prototype.get.call(")
         emit_js_value(s, v.hash_map^)
         strings.write_byte(&s.b, ',')
         emit_js_value(s, v.key^)
         strings.write_byte(&s.b, ')')
-    case CompileTimeValue: emit_js_comptime_value(s, v)
+    case CompileTimeValue:
+        emit_js_comptime_value(s, v)
     case ToString:
         strings.write_string(&s.b, "String(")
         emit_js_value(s, v.value^)
@@ -288,8 +309,10 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: CheckedValue) {
     case LengthOfArray:
         emit_js_value(s, v.array^)
         strings.write_string(&s.b, ".length")
-    case LengthOfOrderedHashMapWithStringKey: panic("TODO")
-    case LengthOfOrderedHashMapWithIntKey: panic("TODO")
+    case LengthOfOrderedHashMapWithStringKey:
+        panic("TODO")
+    case LengthOfOrderedHashMapWithIntKey:
+        panic("TODO")
     case CheckedIndexedAccess:
         emit_js_value(s, v.base^)
         if v.i.end_index != nil {
@@ -303,7 +326,8 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: CheckedValue) {
             emit_js_value(s, v.i.start_index^)
             strings.write_byte(&s.b, ']')
         }
-    case CheckedFunctionCall: emit_js_func_call(s, v)
+    case CheckedFunctionCall:
+        emit_js_func_call(s, v)
     case StructTypeInitFunc:
         strings.write_string(&s.b, "init_Type")
         strings.write_uint(&s.b, uint(v.return_type))
@@ -335,24 +359,39 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: CheckedValue) {
         strings.write_byte(&s.b, '(')
         emit_js_value(s, v.val0^)
         switch v.join_method {
-        case .Append, .Concat, .Colon, .Arrow, .In: panic("Unreachable")
-        case .BooleanAnd: strings.write_string(&s.b, "&&")
-        case .BooleanOr: strings.write_string(&s.b, "||")
-        case .IsEqual: strings.write_string(&s.b, "===")
-        case .IsNotEqual: strings.write_string(&s.b, "!==")
-        case .IsGreaterThan: strings.write_byte(&s.b, '>')
-        case .IsGreaterThanOrEqual: strings.write_string(&s.b, ">=")
-        case .IsLessThan: strings.write_byte(&s.b, '<')
-        case .IsLessThanOrEqual: strings.write_string(&s.b, "<=")
-        case .Addition, .StringConcat: strings.write_byte(&s.b, '+')
-        case .Subtraction: strings.write_byte(&s.b, '-')
-        case .Multiplication: strings.write_byte(&s.b, '*')
-        case .Division: strings.write_byte(&s.b, '/')
-        case .Modulo: strings.write_byte(&s.b, '%')
+        case .Append, .Concat, .Colon, .Arrow, .In:
+            panic("Unreachable")
+        case .BooleanAnd:
+            strings.write_string(&s.b, "&&")
+        case .BooleanOr:
+            strings.write_string(&s.b, "||")
+        case .IsEqual:
+            strings.write_string(&s.b, "===")
+        case .IsNotEqual:
+            strings.write_string(&s.b, "!==")
+        case .IsGreaterThan:
+            strings.write_byte(&s.b, '>')
+        case .IsGreaterThanOrEqual:
+            strings.write_string(&s.b, ">=")
+        case .IsLessThan:
+            strings.write_byte(&s.b, '<')
+        case .IsLessThanOrEqual:
+            strings.write_string(&s.b, "<=")
+        case .Addition, .StringConcat:
+            strings.write_byte(&s.b, '+')
+        case .Subtraction:
+            strings.write_byte(&s.b, '-')
+        case .Multiplication:
+            strings.write_byte(&s.b, '*')
+        case .Division:
+            strings.write_byte(&s.b, '/')
+        case .Modulo:
+            strings.write_byte(&s.b, '%')
         }
         emit_js_value(s, v.val1^)
         strings.write_byte(&s.b, ')')
-    case VariableRef: emit_variable(&s.b, v)
+    case VariableRef:
+        emit_variable(&s.b, v)
     }
 }
 
@@ -366,32 +405,33 @@ emit_js_global_type :: proc(s: ^GeneralEmitterState, index: int) {
     case ArrayType:
     case FuncType:
     case GenericTypeValue:
-    case SumType: for _, i in t.m.keys {
-                payload := get_type(s.types, t.payloads.d[i]).key.(StructType)
-                strings.write_string(&s.b, "function init_")
-                strings.write_string(&s.b, name)
-                strings.write_string(&s.b, "Variant")
-                strings.write_int(&s.b, i)
-                strings.write_byte(&s.b, '(')
-                first_arg := true
-                for _, j in payload.m.keys {
-                    if first_arg {
-                        first_arg = false
-                    } else {
-                        strings.write_byte(&s.b, ',')
-                    }
-                    strings.write_string(&s.b, "field")
-                    strings.write_int(&s.b, j)
-                }
-                strings.write_string(&s.b, ") {return {variant:")
-                strings.write_int(&s.b, i)
-                for _, j in payload.m.keys {
+    case SumType:
+        for _, i in t.m.keys {
+            payload := get_type(s.types, t.payloads.d[i]).key.(StructType)
+            strings.write_string(&s.b, "function init_")
+            strings.write_string(&s.b, name)
+            strings.write_string(&s.b, "Variant")
+            strings.write_int(&s.b, i)
+            strings.write_byte(&s.b, '(')
+            first_arg := true
+            for _, j in payload.m.keys {
+                if first_arg {
+                    first_arg = false
+                } else {
                     strings.write_byte(&s.b, ',')
-                    strings.write_string(&s.b, "field")
-                    strings.write_int(&s.b, j)
                 }
-                strings.write_string(&s.b, "}}")
+                strings.write_string(&s.b, "field")
+                strings.write_int(&s.b, j)
             }
+            strings.write_string(&s.b, ") {return {variant:")
+            strings.write_int(&s.b, i)
+            for _, j in payload.m.keys {
+                strings.write_byte(&s.b, ',')
+                strings.write_string(&s.b, "field")
+                strings.write_int(&s.b, j)
+            }
+            strings.write_string(&s.b, "}}")
+        }
     case StructType:
         strings.write_string(&s.b, "function init_")
         strings.write_string(&s.b, name)
@@ -429,7 +469,8 @@ emit_js_block_body :: proc(
 ) {
     for statement in body {
         switch stmt in statement {
-        case UnreachableStatement: strings.write_string(&s.b, "throw new Error(\"Unreachable\")")
+        case UnreachableStatement:
+            strings.write_string(&s.b, "throw new Error(\"Unreachable\")")
         case CheckedFunctionCall:
             emit_js_func_call(s, stmt)
             strings.write_byte(&s.b, ';')
@@ -480,8 +521,10 @@ emit_js_block_body :: proc(
             strings.write_string(&s.b, "break loop")
             strings.write_uint(&s.b, stmt.loop_index)
             switch stmt.kind {
-            case .Continue: strings.write_string(&s.b, "_body;")
-            case .Break: strings.write_byte(&s.b, ';')
+            case .Continue:
+                strings.write_string(&s.b, "_body;")
+            case .Break:
+                strings.write_byte(&s.b, ';')
             }
         /*
         case CheckedArrayMutation:

@@ -7,9 +7,12 @@ import "core:sys/posix"
 _commit :: proc "contextless" (data: rawptr, size: uint) -> Allocator_Error {
     if posix.mprotect(data, size, {.READ, .WRITE}) != .OK {
         #partial switch posix.errno() {
-        case .EACCES, .EPERM: return .Invalid_Pointer
-        case .ENOTSUP, .EINVAL: return .Invalid_Argument
-        case: return .Out_Of_Memory
+        case .EACCES, .EPERM:
+            return .Invalid_Pointer
+        case .ENOTSUP, .EINVAL:
+            return .Invalid_Argument
+        case:
+            return .Out_Of_Memory
         }
     }
 

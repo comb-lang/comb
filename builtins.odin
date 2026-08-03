@@ -46,79 +46,45 @@ BuiltinFunction :: enum u8 {
 
 get_builtin_func_from_name :: proc(name: string) -> (BuiltinFunction, Type) {
     switch name {
-    case "print":
-        return .print, .string_to_nil_type
-    case "println":
-        return .println, .string_to_nil_type
-    case "eprint":
-        return .eprint, .string_to_nil_type
-    case "eprintln":
-        return .eprintln, .string_to_nil_type
-    case "readline":
-        return .readline, .string_to_string_type
-    case "read_file":
-        return .read_file, .string_to_string_type
-    case "write_file":
-        return .write_file, .string_string_to_nil_type
-    case "clear":
-        return .clear, .no_args_to_nil_type
-    case "run_executable":
-        return .run_executable, .array_of_strings_to_nil_type
-    case "exit":
-        return .exit, .int_to_nil_type
-    case "string_repeat":
-        return .string_repeat, .string_uint_to_string_type
-    case "init_http_server":
-        return .init_http_server, .no_args_to_http_server_type
-    case "cast":
-        return .cast_func, .unknown_type
-    case "save_cursor_pos":
-        return .save_cursor_pos, .no_args_to_nil_type
-    case "restore_cursor_pos":
-        return .restore_cursor_pos, .no_args_to_nil_type
-    case "clear_after_cursor":
-        return .clear_after_cursor, .no_args_to_nil_type
-    case "make_dir_all":
-        return .make_dir_all, .string_to_nil_type
-    case "expect_uint":
-        return .expect_uint, .float_to_uint_type
-    case:
-        return .invalid_builtin, .invalid_type
+    case "print": return .print, .string_to_nil_type
+    case "println": return .println, .string_to_nil_type
+    case "eprint": return .eprint, .string_to_nil_type
+    case "eprintln": return .eprintln, .string_to_nil_type
+    case "readline": return .readline, .string_to_string_type
+    case "read_file": return .read_file, .string_to_string_type
+    case "write_file": return .write_file, .string_string_to_nil_type
+    case "clear": return .clear, .no_args_to_nil_type
+    case "run_executable": return .run_executable, .array_of_strings_to_nil_type
+    case "exit": return .exit, .int_to_nil_type
+    case "string_repeat": return .string_repeat, .string_uint_to_string_type
+    case "init_http_server": return .init_http_server, .no_args_to_http_server_type
+    case "cast": return .cast_func, .unknown_type
+    case "save_cursor_pos": return .save_cursor_pos, .no_args_to_nil_type
+    case "restore_cursor_pos": return .restore_cursor_pos, .no_args_to_nil_type
+    case "clear_after_cursor": return .clear_after_cursor, .no_args_to_nil_type
+    case "make_dir_all": return .make_dir_all, .string_to_nil_type
+    case "expect_uint": return .expect_uint, .float_to_uint_type
+    case: return .invalid_builtin, .invalid_type
     }
 }
 
 get_builtin_type_from_name :: proc(name: string) -> Type {
     switch name {
-    case "Int":
-        return .int_type
-    case "UInt":
-        return .uint_type
-    case "Float":
-        return .float_type
-    case "Char":
-        return .char_type
-    case "Bool":
-        return .bool_type
-    case "String":
-        return .string_type
-    case "Type":
-        return .type_type
-    case "ImportedFile":
-        return .imported_file_type
-    case "Any":
-        return .any_type
-    case "Compiler":
-        return .compiler_type
-    case "CompilerCache":
-        return .compiler_cache_type
-    case "HttpRequest":
-        return .http_request_type
-    case "HttpResponse":
-        return .http_response_type
-    case "HttpServer":
-        return .http_server_type
-    case:
-        return .unknown_type
+    case "Int": return .int_type
+    case "UInt": return .uint_type
+    case "Float": return .float_type
+    case "Char": return .char_type
+    case "Bool": return .bool_type
+    case "String": return .string_type
+    case "Type": return .type_type
+    case "ImportedFile": return .imported_file_type
+    case "Any": return .any_type
+    case "Compiler": return .compiler_type
+    case "CompilerCache": return .compiler_cache_type
+    case "HttpRequest": return .http_request_type
+    case "HttpResponse": return .http_response_type
+    case "HttpServer": return .http_server_type
+    case: return .unknown_type
     }
 }
 
@@ -151,18 +117,12 @@ argument_count_mismatch :: proc(
 to_str :: proc(s: ^CheckerState, pos: Pos, val: CheckedValue, type: Type) -> CheckedValue {
     from_type: ToStringFromType = ---
     #partial switch type {
-    case .bool_type:
-        from_type = .BoolType
-    case .string_type:
-        return val
-    case .int_type:
-        from_type = .IntType
-    case .uint_type:
-        from_type = .UIntType
-    case .float_type:
-        from_type = .FloatType
-    case .char_type:
-        from_type = .CharType
+    case .bool_type: from_type = .BoolType
+    case .string_type: return val
+    case .int_type: from_type = .IntType
+    case .uint_type: from_type = .UIntType
+    case .float_type: from_type = .FloatType
+    case .char_type: from_type = .CharType
     case:
         diagnostic(s, pos, "Cannot convert the type `%s` to `String`", type_to_string(s, type))
         return nil
@@ -208,8 +168,7 @@ is_builtin :: proc(name: string) -> bool {
          "expect_uint",
          "string_repeat":
         return true
-    case:
-        return false
+    case: return false
     }
 }
 
@@ -280,4 +239,3 @@ add_variable :: proc(
     }
     return var_ref, true
 }
-

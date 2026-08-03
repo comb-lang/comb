@@ -186,8 +186,7 @@ HierarchyUnitJoinMethod :: enum {
 // See https://en.wikipedia.org/wiki/Order_of_operations#Programming_languages
 get_prioraty :: proc(join_method: HierarchyUnitJoinMethod) -> uint {
     switch join_method {
-    case .BooleanAnd, .BooleanOr:
-        return 0
+    case .BooleanAnd, .BooleanOr: return 0
     case .IsEqual,
          .IsNotEqual,
          .IsGreaterThan,
@@ -195,14 +194,10 @@ get_prioraty :: proc(join_method: HierarchyUnitJoinMethod) -> uint {
          .IsGreaterThanOrEqual,
          .IsLessThanOrEqual:
         return 1
-    case .In:
-        return 2
-    case .Append, .Concat, .StringConcat, .Colon, .Arrow:
-        return 3
-    case .Subtraction, .Addition, .Modulo:
-        return 4
-    case .Division, .Multiplication:
-        return 5
+    case .In: return 2
+    case .Append, .Concat, .StringConcat, .Colon, .Arrow: return 3
+    case .Subtraction, .Addition, .Modulo: return 4
+    case .Division, .Multiplication: return 5
     }
     panic("Unreachable")
 }
@@ -410,29 +405,21 @@ debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
     debug("value at character index %d", unit.pos)
     debug_nesting += 1
     switch v in unit.first_unit {
-    case UnitsInSquareBrackets:
-        panic("TODO")
-    case StructUnit:
-        panic("TODO")
-    case SumUnit:
-        panic("TODO")
+    case UnitsInSquareBrackets: panic("TODO")
+    case StructUnit: panic("TODO")
+    case SumUnit: panic("TODO")
     case Number:
         debug("is_negated: %v", v.is_negated)
         debug("absolute_value: %v", v.absolute_value)
-    case Char:
-        panic("TODO")
-    case MarkedUnit:
-        panic("TODO")
-    case Import:
-        panic("TODO")
-    case Bool:
-        if v {
-            debug("The boolean literal `true`")
-        } else {
-            debug("The boolean literal `false`")
-        }
-    case FuncDefinitionRef:
-        debug("value is a function definition (TODO)")
+    case Char: panic("TODO")
+    case MarkedUnit: panic("TODO")
+    case Import: panic("TODO")
+    case Bool: if v {
+                debug("The boolean literal `true`")
+            } else {
+                debug("The boolean literal `false`")
+            }
+    case FuncDefinitionRef: debug("value is a function definition (TODO)")
     // print_argument_list(s, "inputs:", funcs[v].inputs)
     // print_output_list(s, "outputs:", funcs[v].outputs)
     // print_block(s, funcs, funcs[v].body, "body:")
@@ -464,8 +451,7 @@ debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
             debug("%q", segment.ident)
         }
         debug_nesting -= 1
-    case String:
-        debug("string: %v", v)
+    case String: debug("string: %v", v)
     }
     for _ in unit.extra_units {
         debug("TODO: Handle extra unit")
@@ -582,4 +568,3 @@ print_ast :: proc(
 }
 
 */
-

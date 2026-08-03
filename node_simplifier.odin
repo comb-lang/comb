@@ -43,8 +43,7 @@ create_joined_values :: proc(
          .Modulo,
          .StringConcat,
          .In: // TODO
-    case .Append, .Concat, .Colon, .Arrow:
-        panic(fmt.aprintf("Unreachable (%v)", method))
+    case .Append, .Concat, .Colon, .Arrow: panic(fmt.aprintf("Unreachable (%v)", method))
     case .Multiplication, .Division, .Addition, .Subtraction:
         comptime0, val0_is_comptime := val0.(CompileTimeValue)
         comptime1, val1_is_comptime := val1.(CompileTimeValue)
@@ -58,15 +57,11 @@ create_joined_values :: proc(
                     return CompileTimeValue(NumberValue{b.is_negated, b.absolute_value, ""})
                 }
                 #partial switch method {
-                case .Multiplication:
-                    return ok(mul_int(n0, n1))
+                case .Multiplication: return ok(mul_int(n0, n1))
                 case .Division: // TODO
-                case .Addition:
-                    return ok(add_int(n0, n1))
-                case .Subtraction:
-                    return ok(sub_int(n0, n1))
-                case:
-                    panic("Unreachable")
+                case .Addition: return ok(add_int(n0, n1))
+                case .Subtraction: return ok(sub_int(n0, n1))
+                case: panic("Unreachable")
                 }
             } else {
                 // TODO
@@ -83,8 +78,7 @@ create_joined_values :: proc(
 
 create_field_access :: proc(value: CheckedValue, field_index: u32) -> CheckedValue {
     #partial switch v in value {
-    case CompileTimeValue:
-        return v.(CompileTimeStructInitialisation).args[field_index]
+    case CompileTimeValue: return v.(CompileTimeStructInitialisation).args[field_index]
     case CheckedFunctionCall:
     // Cannot simplify something like `{a: 5, b: do_stuff()}.a` to `5` because the `do_stuff` call may cause side effects
     // TODO: Be able to make simplifications like this and preserve side effects
@@ -237,4 +231,3 @@ iterate_ordered_hash_map :: proc(
         ArrayType{0, .string_type},
     )
 }
-

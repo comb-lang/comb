@@ -114,4 +114,3 @@ clear_dynamic :: proc(d: ^[]$T, loc := #caller_location) {
     }
     resize_dynamic(d, 0)
 }
-

@@ -272,4 +272,3 @@ delete_arena :: proc(a: ^Arena, expect_empty := true, loc := #caller_location) {
         block = prev_block
     }
 }
-

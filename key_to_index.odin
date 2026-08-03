@@ -193,8 +193,7 @@ lookup_or_insert :: proc(
         return Index{0}, .Inserted
     }
     switch result in _lookup(key_to_index^, full_key, procs.equal_proc) {
-    case Index:
-        return result, .LookedUp
+    case Index: return result, .LookedUp
     case SlotIndex:
         out := Index{u32(len(key_to_index.keys))}
         append_dynamic(&key_to_index.keys, full_key)
@@ -207,8 +206,6 @@ lookup_or_insert :: proc(
             key_to_index.slots[result.index] = out
         }
         return out, .Inserted
-    case:
-        panic("Unreachable")
+    case: panic("Unreachable")
     }
 }
-

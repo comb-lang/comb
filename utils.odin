@@ -465,12 +465,9 @@ diagnostic_header :: proc(r: ^DiagnosticReporter, pos: Pos, type: DiagnosticType
     r.number_of[type] += 1
     // TODO: use bold text for header
     switch type {
-    case .Error:
-        io.write_string(w, "Error")
-    case .Warning:
-        io.write_string(w, "Warning")
-    case:
-        panic("Unreachable")
+    case .Error: io.write_string(w, "Error")
+    case .Warning: io.write_string(w, "Warning")
+    case: panic("Unreachable")
     }
     io.write_string(w, " compiling")
     if pos != unknown_pos {
@@ -639,4 +636,3 @@ print_call_finished :: proc(_: runtime.Source_Code_Location, func_name: string) 
     debug("%s returned from", func_name)
     debug_nesting -= 1
 }
-

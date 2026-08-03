@@ -42,16 +42,11 @@ emit_struct_type :: proc(b: ^strings.Builder, type: StructType, loc := #caller_l
 
 emit_type :: proc(b: ^strings.Builder, name: string, type: Type) {
     #partial switch type {
-    case .bool_type:
-        strings.write_string(b, "bool")
-    case .string_type:
-        strings.write_string(b, "char*")
-    case .int_type, .uint_type, .float_type:
-        strings.write_string(b, "double")
-    case .char_type:
-        strings.write_string(b, "uint8_t")
-    case .any_type:
-        strings.write_string(b, "void*")
+    case .bool_type: strings.write_string(b, "bool")
+    case .string_type: strings.write_string(b, "char*")
+    case .int_type, .uint_type, .float_type: strings.write_string(b, "double")
+    case .char_type: strings.write_string(b, "uint8_t")
+    case .any_type: strings.write_string(b, "void*")
     case:
         if type > Type.max_index {
             panic(fmt.aprintf("Type is %v", type))
@@ -77,12 +72,9 @@ emit_c_func_call :: proc(s: ^CEmitterState, c: CheckedFunctionCall) {
 
 emit_c_comptime_value :: proc(s: ^CEmitterState, value: CompileTimeValue) {
     switch comptime in value {
-    case CompileTimeArray:
-        panic("TODO")
-    case CompileTimeOrderedHashMapInitialisation:
-        panic("TODO")
-    case CastFunction:
-        panic("TODO")
+    case CompileTimeArray: panic("TODO")
+    case CompileTimeOrderedHashMapInitialisation: panic("TODO")
+    case CastFunction: panic("TODO")
     case BuiltinFunction:
         strings.write_string(&s.b, "builtin")
         strings.write_uint(&s.b, uint(comptime))
@@ -116,52 +108,37 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: CompileTimeValue) {
         strings.write_byte(&s.b, '"')
         for char in comptime {
             switch char {
-            case '\n':
-                strings.write_string(&s.b, "\\n")
-            case '"':
-                strings.write_string(&s.b, "\\\"")
-            case '\\':
-                strings.write_string(&s.b, "\\\\")
-            case:
-                strings.write_rune(&s.b, char)
+            case '\n': strings.write_string(&s.b, "\\n")
+            case '"': strings.write_string(&s.b, "\\\"")
+            case '\\': strings.write_string(&s.b, "\\\\")
+            case: strings.write_rune(&s.b, char)
             }
         }
         strings.write_byte(&s.b, '"')
-    case BoolValue:
-        strings.write_string(&s.b, comptime ? "true" : "false")
-    case Type:
-        panic("Unreachable")
-    case GlobalValueWithGenericRef, UninitialisedOrderedHashMapType, Import:
-        panic("Unreachable")
+    case BoolValue: strings.write_string(&s.b, comptime ? "true" : "false")
+    case Type: panic("Unreachable")
+    case GlobalValueWithGenericRef, UninitialisedOrderedHashMapType, Import: panic("Unreachable")
     }
 }
 
 emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
     switch value in v {
-    case LengthOfString:
-        panic("TODO")
-    case OrderedHashMapInitialisation:
-        panic("TODO")
-    case ArrayLiteral:
-        panic("TODO: Handle array literal in C emitter")
-    case CheckedDerivation:
-        panic("TODO: Handle checked derivation in C emitter")
+    case LengthOfString: panic("TODO")
+    case OrderedHashMapInitialisation: panic("TODO")
+    case ArrayLiteral: panic("TODO: Handle array literal in C emitter")
+    case CheckedDerivation: panic("TODO: Handle checked derivation in C emitter")
     case CheckedOrderedHashMapAccess,
          KeysOfOrderedHashMapWithStringKey,
          KeysOfOrderedHashMapWithIntKey:
         panic("TODO")
-    case CompileTimeValue:
-        emit_c_comptime_value(s, value)
+    case CompileTimeValue: emit_c_comptime_value(s, value)
     case ToString:
         strings.write_string(&s.b, "asprintf_value(")
         switch value.from_type {
-        case .BoolType:
-            strings.write_string(&s.b, "\"%b\"")
-        case .IntType, .UIntType, .FloatType:
-            // TODO: Only include decimal when it's a float
-            strings.write_string(&s.b, "\"%f\"")
-        case .CharType:
-            strings.write_string(&s.b, "\"%\" PRIu8")
+        case .BoolType: strings.write_string(&s.b, "\"%b\"")
+        case .IntType, .UIntType, .FloatType: // TODO: Only include decimal when it's a float
+                strings.write_string(&s.b, "\"%f\"")
+        case .CharType: strings.write_string(&s.b, "\"%\" PRIu8")
         }
         strings.write_byte(&s.b, ',')
         emit_c_value(s, value.value^)
@@ -177,10 +154,8 @@ emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
     case LengthOfArray:
         emit_c_value(s, value.array^)
         strings.write_string(&s.b, ".length")
-    case LengthOfOrderedHashMapWithStringKey:
-        panic("TODO")
-    case LengthOfOrderedHashMapWithIntKey:
-        panic("TODO")
+    case LengthOfOrderedHashMapWithStringKey: panic("TODO")
+    case LengthOfOrderedHashMapWithIntKey: panic("TODO")
     case CheckedIndexedAccess:
         if value.base_type == .String {
             panic("TODO")
@@ -192,8 +167,7 @@ emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
             panic("TODO")
         }
         strings.write_byte(&s.b, ']')
-    case CheckedFunctionCall:
-        emit_c_func_call(s, value)
+    case CheckedFunctionCall: emit_c_func_call(s, value)
     //case CheckedStructTypeInitialisation:
     //    emit_type(s, "", value.type)
     //    strings.write_byte(&s.b, '{')
@@ -244,39 +218,24 @@ emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
         strings.write_byte(&s.b, '(')
         emit_c_value(s, value.val0^)
         switch value.join_method {
-        case .Append, .Concat, .StringConcat, .Colon, .Arrow, .In:
-            panic("Unreachable")
-        case .BooleanAnd:
-            strings.write_string(&s.b, "&&")
-        case .BooleanOr:
-            strings.write_string(&s.b, "||")
-        case .IsEqual:
-            strings.write_string(&s.b, "==")
-        case .IsNotEqual:
-            strings.write_string(&s.b, "!=")
-        case .IsGreaterThan:
-            strings.write_byte(&s.b, '>')
-        case .IsGreaterThanOrEqual:
-            strings.write_string(&s.b, ">=")
-        case .IsLessThan:
-            strings.write_byte(&s.b, '<')
-        case .IsLessThanOrEqual:
-            strings.write_string(&s.b, "<=")
-        case .Addition:
-            strings.write_byte(&s.b, '+')
-        case .Subtraction:
-            strings.write_byte(&s.b, '-')
-        case .Multiplication:
-            strings.write_byte(&s.b, '*')
-        case .Division:
-            strings.write_byte(&s.b, '/')
-        case .Modulo:
-            strings.write_byte(&s.b, '%')
+        case .Append, .Concat, .StringConcat, .Colon, .Arrow, .In: panic("Unreachable")
+        case .BooleanAnd: strings.write_string(&s.b, "&&")
+        case .BooleanOr: strings.write_string(&s.b, "||")
+        case .IsEqual: strings.write_string(&s.b, "==")
+        case .IsNotEqual: strings.write_string(&s.b, "!=")
+        case .IsGreaterThan: strings.write_byte(&s.b, '>')
+        case .IsGreaterThanOrEqual: strings.write_string(&s.b, ">=")
+        case .IsLessThan: strings.write_byte(&s.b, '<')
+        case .IsLessThanOrEqual: strings.write_string(&s.b, "<=")
+        case .Addition: strings.write_byte(&s.b, '+')
+        case .Subtraction: strings.write_byte(&s.b, '-')
+        case .Multiplication: strings.write_byte(&s.b, '*')
+        case .Division: strings.write_byte(&s.b, '/')
+        case .Modulo: strings.write_byte(&s.b, '%')
         }
         emit_c_value(s, value.val1^)
         strings.write_byte(&s.b, ')')
-    case VariableRef:
-        emit_variable(&s.b, value)
+    case VariableRef: emit_variable(&s.b, value)
     //case CheckedReadFile:
     //    strings.write_string(&s.b, "compiler_read_file(")
     //    emit_c_value(s, value.file_name^)
@@ -322,8 +281,7 @@ emit_c_block_body :: proc(
         switch stmt in statement {
         //case CheckedJsFunctionCall, CheckedJsAssignment:
         //    panic("Internal error: JS received by C emitter")
-        case UnreachableStatement:
-            strings.write_string(&s.b, unreachable_c_code)
+        case UnreachableStatement: strings.write_string(&s.b, unreachable_c_code)
         case CheckedFunctionCall:
             emit_c_func_call(s, stmt)
             strings.write_byte(&s.b, ';')
@@ -376,10 +334,8 @@ emit_c_block_body :: proc(
             strings.write_string(&s.b, "goto loop")
             strings.write_uint(&s.b, stmt.loop_index)
             switch stmt.kind {
-            case .Continue:
-                strings.write_string(&s.b, "continue;")
-            case .Break:
-                strings.write_string(&s.b, "end;")
+            case .Continue: strings.write_string(&s.b, "continue;")
+            case .Break: strings.write_string(&s.b, "end;")
             }
         /*
         case CheckedArrayMutation:
@@ -469,8 +425,7 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
     name := fmt.aprintf("Type%d", index)
     defer delete(name)
     switch type in s.types.m.keys[index].key {
-    case GlobalType:
-        panic("TODO")
+    case GlobalType: panic("TODO")
     case ArrayType:
         strings.write_string(&s.other_type_definitions, "struct ")
         strings.write_string(&s.other_type_definitions, name)
@@ -510,12 +465,9 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
     case FuncType:
         strings.write_string(&s.other_type_definitions, "typedef ")
         switch len(type.return_types) {
-        case 0:
-            strings.write_string(&s.other_type_definitions, "void")
-        case 1:
-            emit_type(&s.other_type_definitions, "", type.return_types[0])
-        case:
-            panic("TODO")
+        case 0: strings.write_string(&s.other_type_definitions, "void")
+        case 1: emit_type(&s.other_type_definitions, "", type.return_types[0])
+        case: panic("TODO")
         }
         strings.write_string(&s.other_type_definitions, " (*")
         strings.write_string(&s.other_type_definitions, name)
@@ -642,12 +594,9 @@ emit_function_head :: proc(s: ^CEmitterState, func_index: int, type: Type) {
     }
     info := get_type(s.types, type).key.(FuncType)
     switch len(info.return_types) {
-    case 0:
-        strings.write_string(&s.b, "void")
-    case 1:
-        emit_type(&s.b, "", info.return_types[0])
-    case:
-        panic("Unreachable")
+    case 0: strings.write_string(&s.b, "void")
+    case 1: emit_type(&s.b, "", info.return_types[0])
+    case: panic("Unreachable")
     }
     strings.write_string(&s.b, " func")
     strings.write_int(&s.b, func_index)
@@ -715,4 +664,3 @@ emit_c :: proc(
 
     return transmute([]byte)strings.to_string(out)
 }
-

@@ -147,23 +147,18 @@ source_code_changed :: proc(early_exit_value: ^ExitEarlyAwaitingSourceCodeChange
 
 should_exit_early :: proc(early_exit_info: EarlyExitInfo) -> bool {
     switch early_exit in early_exit_info {
-    case NeverExitEarly:
-        return false
-    case ^ExitEarly:
-        switch &early_exit_value in early_exit {
-        case ExitEarlyAfterSourceCodeChanged:
-            return true
-        case ExitEarlyAwaitingSourceCodeChange:
-            if !source_code_changed(&early_exit_value) {
-                return false
+    case NeverExitEarly: return false
+    case ^ExitEarly: switch &early_exit_value in early_exit {
+            case ExitEarlyAfterSourceCodeChanged: return true
+            case ExitEarlyAwaitingSourceCodeChange:
+                if !source_code_changed(&early_exit_value) {
+                    return false
+                }
+                early_exit^ = ExitEarlyAfterSourceCodeChanged{}
+                return true
+            case: panic("Unreachable")
             }
-            early_exit^ = ExitEarlyAfterSourceCodeChanged{}
-            return true
-        case:
-            panic("Unreachable")
-        }
-    case:
-        panic("Unreachable")
+    case: panic("Unreachable")
     }
 }
 
@@ -232,55 +227,53 @@ compile :: proc(
         if function_type != .unknown_type {
             // TODO: Include position in error message
             switch c in command {
-            case BuildC:
-                if function_type != .no_args_to_int_type {
-                    diagnostic(
-                        &checker_output.reporter,
-                        unknown_pos,
-                        "Got the type `%s`\nExpected the type `%s`",
-                        type_to_string2(
-                            checker_output.types,
-                            checker_output.globals_without_generic,
-                            checker_output.globals_with_generic,
-                            function_type,
-                        ),
-                        type_to_string2(
-                            checker_output.types,
-                            checker_output.globals_without_generic,
-                            checker_output.globals_with_generic,
-                            .no_args_to_int_type,
-                        ),
-                    )
-                }
+            case BuildC: if function_type != .no_args_to_int_type {
+                        diagnostic(
+                            &checker_output.reporter,
+                            unknown_pos,
+                            "Got the type `%s`\nExpected the type `%s`",
+                            type_to_string2(
+                                checker_output.types,
+                                checker_output.globals_without_generic,
+                                checker_output.globals_with_generic,
+                                function_type,
+                            ),
+                            type_to_string2(
+                                checker_output.types,
+                                checker_output.globals_without_generic,
+                                checker_output.globals_with_generic,
+                                .no_args_to_int_type,
+                            ),
+                        )
+                    }
             case Run:
                 if function_type != .no_args_to_int_type &&
-                   function_type != .compiler_to_int_type {
-                    diagnostic(
-                        &checker_output.reporter,
-                        unknown_pos,
-                        "Got the type `%s`\nExpected the type `%s` or `%s`",
-                        type_to_string2(
-                            checker_output.types,
-                            checker_output.globals_without_generic,
-                            checker_output.globals_with_generic,
-                            function_type,
-                        ),
-                        type_to_string2(
-                            checker_output.types,
-                            checker_output.globals_without_generic,
-                            checker_output.globals_with_generic,
-                            .no_args_to_int_type,
-                        ),
-                        type_to_string2(
-                            checker_output.types,
-                            checker_output.globals_without_generic,
-                            checker_output.globals_with_generic,
-                            .compiler_to_int_type,
-                        ),
-                    )
-                }
-            case:
-                panic("Unreachable")
+                       function_type != .compiler_to_int_type {
+                        diagnostic(
+                            &checker_output.reporter,
+                            unknown_pos,
+                            "Got the type `%s`\nExpected the type `%s` or `%s`",
+                            type_to_string2(
+                                checker_output.types,
+                                checker_output.globals_without_generic,
+                                checker_output.globals_with_generic,
+                                function_type,
+                            ),
+                            type_to_string2(
+                                checker_output.types,
+                                checker_output.globals_without_generic,
+                                checker_output.globals_with_generic,
+                                .no_args_to_int_type,
+                            ),
+                            type_to_string2(
+                                checker_output.types,
+                                checker_output.globals_without_generic,
+                                checker_output.globals_with_generic,
+                                .compiler_to_int_type,
+                            ),
+                        )
+                    }
+            case: panic("Unreachable")
             }
         }
     }
@@ -577,8 +570,7 @@ parse_args_after_command :: proc(args_after_command: []string) -> (FunctionRef, 
         func_ref_args = args_after_command[:len(args_after_command) - 1]
     }
     switch len(func_ref_args) {
-    case 0:
-        return FunctionRef{default_file_name, default_func_name}, watch
+    case 0: return FunctionRef{default_file_name, default_func_name}, watch
     case 1:
         for char in func_ref_args[0] {
             if !is_alphanumeric_char_any(char) {
@@ -586,8 +578,7 @@ parse_args_after_command :: proc(args_after_command: []string) -> (FunctionRef, 
             }
         }
         return FunctionRef{default_file_name, func_ref_args[0]}, watch
-    case 2:
-        return FunctionRef{func_ref_args[0], func_ref_args[1]}, watch
+    case 2: return FunctionRef{func_ref_args[0], func_ref_args[1]}, watch
     case:
         fmt.eprintln(
             "Expected at most 3 arguments after the name of the command: the file name, the func name, and the `-watch` flag\nGot %d arguments",
@@ -632,12 +623,9 @@ main :: proc() {
 
     command: Command
     switch os.args[1] {
-    case "build_c":
-        command = BuildC{}
-    case "run":
-        command = Run{std_pipe, new(LongLivedInterpState)}
-    case "help":
-        print_help(0)
+    case "build_c": command = BuildC{}
+    case "run": command = Run{std_pipe, new(LongLivedInterpState)}
+    case "help": print_help(0)
     case:
         fmt.eprintfln("Unexpected command `%s`", os.args[1])
         print_help(1)
@@ -657,26 +645,23 @@ main :: proc() {
             early_exit_info,
         )
         switch exit_early in early_exit_info {
-        case NeverExitEarly:
-            os.exit(ret)
-        case ^ExitEarly:
-            switch &exit_early_value in exit_early {
-            case ExitEarlyAwaitingSourceCodeChange:
-                if len(exit_early_value.files) == 0 {
-                    assert(ret != 0)
-                    fmt.eprintln(
-                        "`-watch` flag error: Compilation failed too serverly to know when to reattempt compilation",
-                    )
-                    os.exit(ret)
+        case NeverExitEarly: os.exit(ret)
+        case ^ExitEarly: switch &exit_early_value in exit_early {
+                case ExitEarlyAwaitingSourceCodeChange:
+                    if len(exit_early_value.files) == 0 {
+                        assert(ret != 0)
+                        fmt.eprintln(
+                            "`-watch` flag error: Compilation failed too serverly to know when to reattempt compilation",
+                        )
+                        os.exit(ret)
+                    }
+                    fmt.println("Awaiting source code change...")
+                    for !source_code_changed(&exit_early_value) {
+                        time.sleep(10 * time.Millisecond)
+                    }
+                case ExitEarlyAfterSourceCodeChanged:
                 }
-                fmt.println("Awaiting source code change...")
-                for !source_code_changed(&exit_early_value) {
-                    time.sleep(10 * time.Millisecond)
-                }
-            case ExitEarlyAfterSourceCodeChanged:
-            }
         }
         fmt.println(ansi_clear + "Recompiling after source code change...")
     }
 }
-

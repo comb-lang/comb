@@ -247,4 +247,3 @@ safe_add :: #force_inline proc "contextless" (x, y: uint) -> (uint, bool) {
     z, did_overflow := intrinsics.overflow_add(x, y)
     return z, !did_overflow
 }
-

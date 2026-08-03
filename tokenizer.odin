@@ -125,54 +125,30 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
     }
     token := cast(^TokenContents)arg.data
     switch value in token {
-    case Error:
-        fmt.wprintf(fi.writer, "the tokenizer error:\n%s", value)
-    case NewlineToken:
-        fmt.wprint(fi.writer, "a newline")
-    case OpenBracketToken:
-        fmt.wprint(fi.writer, "an open bracket (`(`)")
-    case CloseBracketToken:
-        fmt.wprint(fi.writer, "a close bracket (`)`)")
-    case OpenSquareBracketToken:
-        fmt.wprint(fi.writer, "an open square bracket (`[`)")
-    case CloseSquareBracketToken:
-        fmt.wprint(fi.writer, "a close square bracket (`]`)")
-    case OpenAngleBracketToken:
-        fmt.wprint(fi.writer, "an open angle bracket (`<`)")
-    case LessThanOrEqualToken:
-        fmt.wprint(fi.writer, "an less than or equal sign (`<=`)")
-    case CloseAngleBracketToken:
-        fmt.wprint(fi.writer, "a close angle bracket (`>`)")
-    case GreaterThanOrEqualToken:
-        fmt.wprint(fi.writer, "a greater than or equal sign (`>=`)")
-    case CommaToken:
-        fmt.wprint(fi.writer, "a comma (`,`)")
-    case AtToken:
-        fmt.wprint(fi.writer, "an at sign (`@`)")
-    case ColonToken:
-        fmt.wprint(fi.writer, "`:`")
-    case ColonColonToken:
-        fmt.wprint(fi.writer, "`::`")
-    case SemiColonToken:
-        fmt.wprint(fi.writer, "`;`")
-    case BarToken:
-        fmt.wprint(fi.writer, "`|`")
-    case PipeToken:
-        fmt.wprint(fi.writer, "`|>`")
-    case PipeEqualsToken:
-        fmt.wprint(fi.writer, "`|=`")
-    case OpenBraceToken:
-        fmt.wprint(fi.writer, "an open brace (`{`)")
-    case CloseBraceToken:
-        fmt.wprint(fi.writer, "a close brace (`}`)")
-    case SymbolsToken:
-        fmt.wprintf(fi.writer, "the symbols `%s`", value)
-    case ArrowToken:
-        fmt.wprint(fi.writer, "`->`")
-    case AssignToken:
-        fmt.wprint(fi.writer, "`=`")
-    case DigitsToken:
-        fmt.wprintf(fi.writer, "the digits `%s`", value)
+    case Error: fmt.wprintf(fi.writer, "the tokenizer error:\n%s", value)
+    case NewlineToken: fmt.wprint(fi.writer, "a newline")
+    case OpenBracketToken: fmt.wprint(fi.writer, "an open bracket (`(`)")
+    case CloseBracketToken: fmt.wprint(fi.writer, "a close bracket (`)`)")
+    case OpenSquareBracketToken: fmt.wprint(fi.writer, "an open square bracket (`[`)")
+    case CloseSquareBracketToken: fmt.wprint(fi.writer, "a close square bracket (`]`)")
+    case OpenAngleBracketToken: fmt.wprint(fi.writer, "an open angle bracket (`<`)")
+    case LessThanOrEqualToken: fmt.wprint(fi.writer, "an less than or equal sign (`<=`)")
+    case CloseAngleBracketToken: fmt.wprint(fi.writer, "a close angle bracket (`>`)")
+    case GreaterThanOrEqualToken: fmt.wprint(fi.writer, "a greater than or equal sign (`>=`)")
+    case CommaToken: fmt.wprint(fi.writer, "a comma (`,`)")
+    case AtToken: fmt.wprint(fi.writer, "an at sign (`@`)")
+    case ColonToken: fmt.wprint(fi.writer, "`:`")
+    case ColonColonToken: fmt.wprint(fi.writer, "`::`")
+    case SemiColonToken: fmt.wprint(fi.writer, "`;`")
+    case BarToken: fmt.wprint(fi.writer, "`|`")
+    case PipeToken: fmt.wprint(fi.writer, "`|>`")
+    case PipeEqualsToken: fmt.wprint(fi.writer, "`|=`")
+    case OpenBraceToken: fmt.wprint(fi.writer, "an open brace (`{`)")
+    case CloseBraceToken: fmt.wprint(fi.writer, "a close brace (`}`)")
+    case SymbolsToken: fmt.wprintf(fi.writer, "the symbols `%s`", value)
+    case ArrowToken: fmt.wprint(fi.writer, "`->`")
+    case AssignToken: fmt.wprint(fi.writer, "`=`")
+    case DigitsToken: fmt.wprintf(fi.writer, "the digits `%s`", value)
     case IdentToken:
         io.write_string(fi.writer, "the identifier `")
         io.write_string(fi.writer, value[0].ident)
@@ -184,60 +160,34 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
         io.write_int(fi.writer, len(value))
         io.write_string(fi.writer, " segments)")
         io.flush(fi.writer)
-    case MarkerToken:
-        fmt.wprintf(fi.writer, "the marker `#%s`", value)
-    case TrueToken:
-        fmt.wprint(fi.writer, "the keyword `true`")
-    case FalseToken:
-        fmt.wprint(fi.writer, "the keyword `false`")
-    case InToken:
-        fmt.wprint(fi.writer, "the keyword `in`")
-    case StepToken:
-        fmt.wprint(fi.writer, "the keyword `step`")
-    case ForToken:
-        fmt.wprint(fi.writer, "the keyword `for`")
-    case DoToken:
-        fmt.wprint(fi.writer, "the keyword `do`")
-    case WhileToken:
-        fmt.wprint(fi.writer, "the keyword `while`")
-    case IfToken:
-        fmt.wprint(fi.writer, "the keyword `if`")
-    case ElseToken:
-        fmt.wprint(fi.writer, "the keyword `else`")
-    case ImportToken:
-        fmt.wprint(fi.writer, "the keyword `import`")
-    case ReturnToken:
-        fmt.wprint(fi.writer, "the keyword `return`")
-    case YieldToken:
-        fmt.wprint(fi.writer, "the keyword `yield`")
-    case LoopControlFlowToken:
-        switch value.kind {
-        case .Continue:
-            fmt.wprint(fi.writer, "the keyword `continue`")
-        case .Break:
-            fmt.wprint(fi.writer, "the keyword `break`")
-        }
-    case UnreachableToken:
-        fmt.wprint(fi.writer, "the keyword `unreachable`")
-    case AndToken:
-        fmt.wprint(fi.writer, "the keyword `and`")
-    case OrToken:
-        fmt.wprint(fi.writer, "the keyword `or`")
-    case MatchToken:
-        fmt.wprint(fi.writer, "the keyword `match`")
-    case ReToken:
-        fmt.wprint(fi.writer, "the keyword `re`")
-    case CommentToken:
-        fmt.wprint(fi.writer, "a comment")
-    case StringToken:
-        fmt.wprintf(fi.writer, "the string literal `%s`", value)
-    case CharToken:
-        // TODO: Properly format character literals that use escapes
-        fmt.wprintf(fi.writer, "the character literal '%c'", value)
-    case EndOfFileToken:
-        fmt.wprint(fi.writer, "the end of the file")
-    case:
-        panic("got nil")
+    case MarkerToken: fmt.wprintf(fi.writer, "the marker `#%s`", value)
+    case TrueToken: fmt.wprint(fi.writer, "the keyword `true`")
+    case FalseToken: fmt.wprint(fi.writer, "the keyword `false`")
+    case InToken: fmt.wprint(fi.writer, "the keyword `in`")
+    case StepToken: fmt.wprint(fi.writer, "the keyword `step`")
+    case ForToken: fmt.wprint(fi.writer, "the keyword `for`")
+    case DoToken: fmt.wprint(fi.writer, "the keyword `do`")
+    case WhileToken: fmt.wprint(fi.writer, "the keyword `while`")
+    case IfToken: fmt.wprint(fi.writer, "the keyword `if`")
+    case ElseToken: fmt.wprint(fi.writer, "the keyword `else`")
+    case ImportToken: fmt.wprint(fi.writer, "the keyword `import`")
+    case ReturnToken: fmt.wprint(fi.writer, "the keyword `return`")
+    case YieldToken: fmt.wprint(fi.writer, "the keyword `yield`")
+    case LoopControlFlowToken: switch value.kind {
+            case .Continue: fmt.wprint(fi.writer, "the keyword `continue`")
+            case .Break: fmt.wprint(fi.writer, "the keyword `break`")
+            }
+    case UnreachableToken: fmt.wprint(fi.writer, "the keyword `unreachable`")
+    case AndToken: fmt.wprint(fi.writer, "the keyword `and`")
+    case OrToken: fmt.wprint(fi.writer, "the keyword `or`")
+    case MatchToken: fmt.wprint(fi.writer, "the keyword `match`")
+    case ReToken: fmt.wprint(fi.writer, "the keyword `re`")
+    case CommentToken: fmt.wprint(fi.writer, "a comment")
+    case StringToken: fmt.wprintf(fi.writer, "the string literal `%s`", value)
+    case CharToken: // TODO: Properly format character literals that use escapes
+            fmt.wprintf(fi.writer, "the character literal '%c'", value)
+    case EndOfFileToken: fmt.wprint(fi.writer, "the end of the file")
+    case: panic("got nil")
     }
     return true
 }
@@ -295,10 +245,8 @@ is_digit_char :: proc(c: byte) -> bool {
 
 is_symbol_char :: proc(c: byte) -> bool {
     switch c {
-    case '=', '+', '-', '*', '/', '.', '<', '>', '%', '~', '&', '!':
-        return true
-    case:
-        return false
+    case '=', '+', '-', '*', '/', '.', '<', '>', '%', '~', '&', '!': return true
+    case: return false
     }
 }
 
@@ -342,14 +290,10 @@ wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
     for c in state.parser_context {
         io.write_string(w, "While parsing ")
         switch c.kind {
-        case .StructFieldType:
-            io.write_string(w, "the type of a struct field")
-        case .StructType:
-            io.write_string(w, "the type of a struct")
-        case .FuncDefinition:
-            io.write_string(w, "a function definition")
-        case:
-            panic("Unreachable")
+        case .StructFieldType: io.write_string(w, "the type of a struct field")
+        case .StructType: io.write_string(w, "the type of a struct")
+        case .FuncDefinition: io.write_string(w, "a function definition")
+        case: panic("Unreachable")
         }
         io.write_string(w, " at ")
         write_position(w, c.pos)
@@ -515,8 +459,7 @@ get_next_token :: proc(
             case '=':
                 state.index += 1
                 state.last_token = PipeEqualsToken{}
-            case:
-                state.last_token = BarToken{}
+            case: state.last_token = BarToken{}
             }
         } else {
             state.last_token = BarToken{}
@@ -552,46 +495,26 @@ get_next_token :: proc(
         skip_ignore_first(state, is_alphanumeric_char)
         ident := state.last_token_pos.file.code[state.last_token_pos.index:state.index]
         switch ident {
-        case "in":
-            state.last_token = InToken{}
-        case "true":
-            state.last_token = TrueToken{}
-        case "false":
-            state.last_token = FalseToken{}
-        case "step":
-            state.last_token = StepToken{}
-        case "for":
-            state.last_token = ForToken{}
-        case "do":
-            state.last_token = DoToken{}
-        case "while":
-            state.last_token = WhileToken{}
-        case "if":
-            state.last_token = IfToken{}
-        case "else":
-            state.last_token = ElseToken{}
-        case "import":
-            state.last_token = ImportToken{}
-        case "return":
-            state.last_token = ReturnToken{}
-        case "yield":
-            state.last_token = YieldToken{}
-        case "continue":
-            state.last_token = LoopControlFlowToken{.Continue}
-        case "break":
-            state.last_token = LoopControlFlowToken{.Break}
-        case "unreachable":
-            state.last_token = UnreachableToken{}
-        case "and":
-            state.last_token = AndToken{}
-        case "or":
-            state.last_token = OrToken{}
-        case "match":
-            state.last_token = MatchToken{}
-        case "re":
-            state.last_token = ReToken{}
-        case:
-            tokenize_segmented_identifier(state, state.last_token_pos.index)
+        case "in": state.last_token = InToken{}
+        case "true": state.last_token = TrueToken{}
+        case "false": state.last_token = FalseToken{}
+        case "step": state.last_token = StepToken{}
+        case "for": state.last_token = ForToken{}
+        case "do": state.last_token = DoToken{}
+        case "while": state.last_token = WhileToken{}
+        case "if": state.last_token = IfToken{}
+        case "else": state.last_token = ElseToken{}
+        case "import": state.last_token = ImportToken{}
+        case "return": state.last_token = ReturnToken{}
+        case "yield": state.last_token = YieldToken{}
+        case "continue": state.last_token = LoopControlFlowToken{.Continue}
+        case "break": state.last_token = LoopControlFlowToken{.Break}
+        case "unreachable": state.last_token = UnreachableToken{}
+        case "and": state.last_token = AndToken{}
+        case "or": state.last_token = OrToken{}
+        case "match": state.last_token = MatchToken{}
+        case "re": state.last_token = ReToken{}
+        case: tokenize_segmented_identifier(state, state.last_token_pos.index)
         }
     case '"':
         state.index += 1
@@ -610,14 +533,10 @@ get_next_token :: proc(
             case '\\':
                 state.index += 1
                 switch state.index >= len(state.last_token_pos.file.code) ? '?' : state.last_token_pos.file.code[state.index] {
-                case 'n':
-                    append_elem(&contents, '\n')
-                case 't':
-                    append_elem(&contents, '\t')
-                case '"':
-                    append_elem(&contents, '"')
-                case '\\':
-                    append_elem(&contents, '\\')
+                case 'n': append_elem(&contents, '\n')
+                case 't': append_elem(&contents, '\t')
+                case '"': append_elem(&contents, '"')
+                case '\\': append_elem(&contents, '\\')
                 case:
                     state.last_token_pos.index = state.index
                     state.last_token = Error(
@@ -625,8 +544,7 @@ get_next_token :: proc(
                     )
                     return
                 }
-            case:
-                append_elem(&contents, state.last_token_pos.file.code[state.index])
+            case: append_elem(&contents, state.last_token_pos.file.code[state.index])
             }
             state.index += 1
         }
@@ -660,40 +578,44 @@ get_next_token :: proc(
         state.index += 1
     case '/':
         if state.index + 1 < len(state.last_token_pos.file.code) &&
-           state.last_token_pos.file.code[state.index + 1] == '/' {
-            state.index += 2
-            for state.index < len(state.last_token_pos.file.code) &&
-                state.last_token_pos.file.code[state.index] != '\n' {
+               state.last_token_pos.file.code[state.index + 1] == '/' {
+                state.index += 2
+                for state.index < len(state.last_token_pos.file.code) &&
+                    state.last_token_pos.file.code[state.index] != '\n' {
+                    state.index += 1
+                }
                 state.index += 1
+                if skip_newlines_and_comments_and_semicolons {
+                    get_next_token(state, skip_newlines_and_comments_and_semicolons)
+                    state.last_token_skipped = true
+                }
+                else {
+                    state.last_token = CommentToken(
+                        strings.trim(
+                            state.last_token_pos.file.code[state.last_token_pos.index:state.index -
+                            1],
+                            " ",
+                        ),
+                    )
+                }
             }
-            state.index += 1
-            if skip_newlines_and_comments_and_semicolons {
-                get_next_token(state, skip_newlines_and_comments_and_semicolons)
-                state.last_token_skipped = true
-            } else {
-                state.last_token = CommentToken(
-                    strings.trim(
-                        state.last_token_pos.file.code[state.last_token_pos.index:state.index - 1],
-                        " ",
-                    ),
+            else {
+                skip_ignore_first(state, is_symbol_char)
+                state.last_token = SymbolsToken(
+                    state.last_token_pos.file.code[state.last_token_pos.index:state.index],
                 )
             }
-        } else {
-            skip_ignore_first(state, is_symbol_char)
-            state.last_token = SymbolsToken(
-                state.last_token_pos.file.code[state.last_token_pos.index:state.index],
-            )
-        }
     case '.':
         if state.index + 1 < len(state.last_token_pos.file.code) &&
-           is_letter(state.last_token_pos.file.code[state.index + 1]) {
-            tokenize_segmented_identifier(state, state.index)
-        } else {
-            skip_ignore_first(state, is_symbol_char)
-            state.last_token = SymbolsToken(
-                state.last_token_pos.file.code[state.last_token_pos.index:state.index],
-            )
-        }
+               is_letter(state.last_token_pos.file.code[state.index + 1]) {
+                tokenize_segmented_identifier(state, state.index)
+            }
+            else {
+                skip_ignore_first(state, is_symbol_char)
+                state.last_token = SymbolsToken(
+                    state.last_token_pos.file.code[state.last_token_pos.index:state.index],
+                )
+            }
     case:
         if !is_symbol_char(char) {
             state.last_token = Error(fmt.aprintf("Unrecognized character `%c`", char))
@@ -702,13 +624,9 @@ get_next_token :: proc(
         skip_ignore_first(state, is_symbol_char)
         symbols := state.last_token_pos.file.code[state.last_token_pos.index:state.index]
         switch symbols {
-        case "->":
-            state.last_token = ArrowToken{}
-        case "=":
-            state.last_token = AssignToken{}
-        case:
-            state.last_token = SymbolsToken(symbols)
+        case "->": state.last_token = ArrowToken{}
+        case "=": state.last_token = AssignToken{}
+        case: state.last_token = SymbolsToken(symbols)
         }
     }
 }
-

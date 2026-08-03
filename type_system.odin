@@ -93,14 +93,10 @@ Type :: enum u32 {
 
 response_type_variant_index_to_content_type :: proc(variant_index: u32) -> string {
     switch variant_index {
-    case 0:
-        return "text/plain"
-    case 1:
-        return "text/css"
-    case 2:
-        return "text/html"
-    case:
-        panic("Unreachable")
+    case 0: return "text/plain"
+    case 1: return "text/css"
+    case 2: return "text/html"
+    case: panic("Unreachable")
     }
 }
 
@@ -425,22 +421,14 @@ create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> C
 
 hash_type_value :: proc(value: TypeKey) -> u32 {
     switch v in value {
-    case ArrayType:
-        return v.length ~ u32(v.item_type)
-    case OrderedHashMapTypeWithStringKey:
-        return u32(v.value_type) + 1
-    case OrderedHashMapTypeWithIntKey:
-        return u32(v.value_type) + 2
-    case SumType:
-        return hash_sum_type(v)
-    case StructType:
-        return hash_struct_type(v)
-    case FuncType:
-        return hash_func_type(v)
-    case GenericTypeValue:
-        return v.global.index ~ get_hash_of_array_of_types(v.generic_args)
-    case GlobalType:
-        return u32(v.global.index)
+    case ArrayType: return v.length ~ u32(v.item_type)
+    case OrderedHashMapTypeWithStringKey: return u32(v.value_type) + 1
+    case OrderedHashMapTypeWithIntKey: return u32(v.value_type) + 2
+    case SumType: return hash_sum_type(v)
+    case StructType: return hash_struct_type(v)
+    case FuncType: return hash_func_type(v)
+    case GenericTypeValue: return v.global.index ~ get_hash_of_array_of_types(v.generic_args)
+    case GlobalType: return u32(v.global.index)
     }
     panic("Unreachable")
 }
@@ -530,8 +518,7 @@ type_key_is_equal :: proc(a: TypeKey, b: TypeKey) -> bool {
             return false
         }
         return va.global == vb.global
-    case:
-        panic("Unreachable")
+    case: panic("Unreachable")
     }
 }
 
@@ -584,4 +571,3 @@ func_types_are_equal :: proc(a: FuncType, b: FuncType) -> bool {
     }
     return true
 }
-

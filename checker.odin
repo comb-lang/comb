@@ -3881,7 +3881,7 @@ check_derivation_subset :: proc(
             diagnostic(
                 s,
                 unit.pos,
-                "The field `%s` dost not exist in the struct type `%s`",
+                "The field `%s` does not exist in the struct type `%s`",
                 field_name.ident,
                 type_to_string(s, derivation_base_type),
             )

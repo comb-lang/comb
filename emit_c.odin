@@ -42,13 +42,13 @@ emit_struct_type :: proc(b: ^strings.Builder, type: StructType, loc := #caller_l
 
 emit_type :: proc(b: ^strings.Builder, name: string, type: Type) {
     #partial switch type {
-    case .bool_type: strings.write_string(b, "bool")
-    case .string_type: strings.write_string(b, "char*")
-    case .int_type, .uint_type, .float_type: strings.write_string(b, "double")
-    case .char_type: strings.write_string(b, "uint8_t")
-    case .any_type: strings.write_string(b, "void*")
+    case .Bool: strings.write_string(b, "bool")
+    case .String: strings.write_string(b, "char*")
+    case .Int, .UInt, .Float: strings.write_string(b, "double")
+    case .Char: strings.write_string(b, "uint8_t")
+    case .Any: strings.write_string(b, "void*")
     case:
-        if type > Type.max_index {
+        if type > Type.MaxIndex {
             panic(fmt.aprintf("Type is %v", type))
         }
         strings.write_string(b, "Type")

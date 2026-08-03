@@ -228,6 +228,6 @@ iterate_ordered_hash_map :: proc(
         body,
         body_variables,
         keys,
-        ArrayType{0, .string_type},
+        ArrayType{0, .String},
     )
 }

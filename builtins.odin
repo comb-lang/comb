@@ -46,45 +46,45 @@ BuiltinFunction :: enum u8 {
 
 get_builtin_func_from_name :: proc(name: string) -> (BuiltinFunction, Type) {
     switch name {
-    case "print": return .print, .string_to_nil_type
-    case "println": return .println, .string_to_nil_type
-    case "eprint": return .eprint, .string_to_nil_type
-    case "eprintln": return .eprintln, .string_to_nil_type
-    case "readline": return .readline, .string_to_string_type
-    case "read_file": return .read_file, .string_to_string_type
-    case "write_file": return .write_file, .string_string_to_nil_type
-    case "clear": return .clear, .no_args_to_nil_type
-    case "run_executable": return .run_executable, .array_of_strings_to_nil_type
-    case "exit": return .exit, .int_to_nil_type
-    case "string_repeat": return .string_repeat, .string_uint_to_string_type
-    case "init_http_server": return .init_http_server, .no_args_to_http_server_type
-    case "cast": return .cast_func, .unknown_type
-    case "save_cursor_pos": return .save_cursor_pos, .no_args_to_nil_type
-    case "restore_cursor_pos": return .restore_cursor_pos, .no_args_to_nil_type
-    case "clear_after_cursor": return .clear_after_cursor, .no_args_to_nil_type
-    case "make_dir_all": return .make_dir_all, .string_to_nil_type
-    case "expect_uint": return .expect_uint, .float_to_uint_type
-    case: return .invalid_builtin, .invalid_type
+    case "print": return .print, .StringToNil
+    case "println": return .println, .StringToNil
+    case "eprint": return .eprint, .StringToNil
+    case "eprintln": return .eprintln, .StringToNil
+    case "readline": return .readline, .StringToString
+    case "read_file": return .read_file, .StringToString
+    case "write_file": return .write_file, .StringStringToNil
+    case "clear": return .clear, .NoArgsToNil
+    case "run_executable": return .run_executable, .ArrayOfStringsToNil
+    case "exit": return .exit, .IntToNil
+    case "string_repeat": return .string_repeat, .StringUintToString
+    case "init_http_server": return .init_http_server, .NoArgsToHttpServer
+    case "cast": return .cast_func, .Unknown
+    case "save_cursor_pos": return .save_cursor_pos, .NoArgsToNil
+    case "restore_cursor_pos": return .restore_cursor_pos, .NoArgsToNil
+    case "clear_after_cursor": return .clear_after_cursor, .NoArgsToNil
+    case "make_dir_all": return .make_dir_all, .StringToNil
+    case "expect_uint": return .expect_uint, .FloatToUInt
+    case: return .invalid_builtin, .Invalid
     }
 }
 
 get_builtin_type_from_name :: proc(name: string) -> Type {
     switch name {
-    case "Int": return .int_type
-    case "UInt": return .uint_type
-    case "Float": return .float_type
-    case "Char": return .char_type
-    case "Bool": return .bool_type
-    case "String": return .string_type
-    case "Type": return .type_type
-    case "ImportedFile": return .imported_file_type
-    case "Any": return .any_type
-    case "Compiler": return .compiler_type
-    case "CompilerCache": return .compiler_cache_type
-    case "HttpRequest": return .http_request_type
-    case "HttpResponse": return .http_response_type
-    case "HttpServer": return .http_server_type
-    case: return .unknown_type
+    case "Int": return .Int
+    case "UInt": return .UInt
+    case "Float": return .Float
+    case "Char": return .Char
+    case "Bool": return .Bool
+    case "String": return .String
+    case "Type": return .Type
+    case "ImportedFile": return .ImportedFile
+    case "Any": return .Any
+    case "Compiler": return .Compiler
+    case "CompilerCache": return .CompilerCache
+    case "HttpRequest": return .HttpRequest
+    case "HttpResponse": return .HttpResponse
+    case "HttpServer": return .HttpServer
+    case: return .Unknown
     }
 }
 
@@ -117,12 +117,12 @@ argument_count_mismatch :: proc(
 to_str :: proc(s: ^CheckerState, pos: Pos, val: CheckedValue, type: Type) -> CheckedValue {
     from_type: ToStringFromType = ---
     #partial switch type {
-    case .bool_type: from_type = .BoolType
-    case .string_type: return val
-    case .int_type: from_type = .IntType
-    case .uint_type: from_type = .UIntType
-    case .float_type: from_type = .FloatType
-    case .char_type: from_type = .CharType
+    case .Bool: from_type = .BoolType
+    case .String: return val
+    case .Int: from_type = .IntType
+    case .UInt: from_type = .UIntType
+    case .Float: from_type = .FloatType
+    case .Char: from_type = .CharType
     case:
         diagnostic(s, pos, "Cannot convert the type `%s` to `String`", type_to_string(s, type))
         return nil

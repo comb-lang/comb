@@ -35,14 +35,14 @@ RuntimeValue :: union {
 get_value_type :: proc(s: InterpState, value: RuntimeValue) -> Type {
     switch v in value {
     case f64: if math.floor(v) != v {
-                return .float_type
+                return .Float
             } else if v < 0 {
-                return .int_type
+                return .Int
             } else {
-                return .uint_type
+                return .UInt
             }
-    case bool: return .bool_type
-    case RuntimeString: return .string_type
+    case bool: return .Bool
+    case RuntimeString: return .String
     case RuntimeArray: return v.type
     case RuntimeStringOrderedHashMap: return v.type
     case RuntimeIntOrderedHashMap: return v.type
@@ -272,7 +272,7 @@ interp_execute_function :: proc(s: InterpState, c: CheckedFunctionCall) -> Runti
                 req_fields[1] = RuntimeString{false, request.method}
 
                 handler_args := make([]RuntimeValue, 1)
-                handler_args[0] = RuntimeStruct{true, req_fields, .http_request_type}
+                handler_args[0] = RuntimeStruct{true, req_fields, .HttpRequest}
 
                 response_raw := interp_execute_function2(s, server.handler, handler_args)
                 if should_exit_early(s.exit_early) {
@@ -868,14 +868,14 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
         for key, i in keys {
             out[i] = RuntimeString{false, key}
         }
-        return RuntimeArray{create_type(&s.types, ArrayType{0, .string_type}).type, true, out}
+        return RuntimeArray{create_type(&s.types, ArrayType{0, .String}).type, true, out}
     case KeysOfOrderedHashMapWithIntKey:
         keys := interp_eval_value(s, value.hash_map^).(RuntimeIntOrderedHashMap).order
         out := make([]RuntimeValue, len(keys))
         for key, i in keys {
             out[i] = f64(key)
         }
-        return RuntimeArray{create_type(&s.types, ArrayType{0, .int_type}).type, true, out}
+        return RuntimeArray{create_type(&s.types, ArrayType{0, .Int}).type, true, out}
 
     case CompileTimeValue: return interp_eval_comptime_value(s, value)
 
@@ -1165,7 +1165,7 @@ default_builtin_handler_procedure :: proc(
                     &state.l.http_servers,
                     HttpServer{socket, RuntimeFunc{CheckedFuncRef{max(uint)}, nil}},
                 )
-                return RuntimeStruct{true, fields, .http_server_type}
+                return RuntimeStruct{true, fields, .HttpServer}
             }
             if err != net.Bind_Error.Address_In_Use {
                 // TODO: Better error reporting

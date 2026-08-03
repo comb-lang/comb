@@ -430,16 +430,16 @@ basic_type_system_test :: proc(t: ^testing.T) {
     types := create_types(&a)
     defer fix_types(types)
     generic_args0 := make([]Type, 1)
-    generic_args0[0] = .string_type
+    generic_args0[0] = .String
     generic_args1 := make([]Type, 1)
-    generic_args1[0] = .bool_type
+    generic_args1[0] = .Bool
     generic0 := create_type(&types, GenericTypeValue{GlobalValueWithGenericRef{7}, generic_args0})
     generic1 := create_type(&types, GenericTypeValue{GlobalValueWithGenericRef{7}, generic_args0})
-    types.values.d[generic1.type].type = .int_type
+    types.values.d[generic1.type].type = .Int
     generic2 := create_type(&types, GenericTypeValue{GlobalValueWithGenericRef{7}, generic_args1})
     testing.expect(t, generic0.type == generic1.type)
     generic0_initialised := get_type(types, generic0.type).value.type
-    testing.expect(t, generic0_initialised == .int_type)
+    testing.expect(t, generic0_initialised == .Int)
     testing.expect(t, generic0.type != generic2.type)
 }
 

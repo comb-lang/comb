@@ -221,13 +221,13 @@ compile :: proc(
 
     fmt.wprintfln(compiler.stdout, "Checking...")
     checker_output := check(a, parsed, func.func_name, compiler)
-    function_type := Type.unknown_type
+    function_type := Type.Unknown
     if checker_output.func_ref.index < len(checker_output.checked_funcs) {
         function_type = checker_output.checked_funcs[checker_output.func_ref.index].type
-        if function_type != .unknown_type {
+        if function_type != .Unknown {
             // TODO: Include position in error message
             switch c in command {
-            case BuildC: if function_type != .no_args_to_int_type {
+            case BuildC: if function_type != .NoArgsToInt {
                         diagnostic(
                             &checker_output.reporter,
                             unknown_pos,
@@ -242,13 +242,11 @@ compile :: proc(
                                 checker_output.types,
                                 checker_output.globals_without_generic,
                                 checker_output.globals_with_generic,
-                                .no_args_to_int_type,
+                                .NoArgsToInt,
                             ),
                         )
                     }
-            case Run:
-                if function_type != .no_args_to_int_type &&
-                       function_type != .compiler_to_int_type {
+            case Run: if function_type != .NoArgsToInt && function_type != .CompilerToInt {
                         diagnostic(
                             &checker_output.reporter,
                             unknown_pos,
@@ -263,13 +261,13 @@ compile :: proc(
                                 checker_output.types,
                                 checker_output.globals_without_generic,
                                 checker_output.globals_with_generic,
-                                .no_args_to_int_type,
+                                .NoArgsToInt,
                             ),
                             type_to_string2(
                                 checker_output.types,
                                 checker_output.globals_without_generic,
                                 checker_output.globals_with_generic,
-                                .compiler_to_int_type,
+                                .CompilerToInt,
                             ),
                         )
                     }
@@ -352,7 +350,7 @@ compile :: proc(
         exit_early              = exit_early,
     }
     args: []RuntimeValue
-    if function_type == .compiler_to_int_type {
+    if function_type == .CompilerToInt {
         compiler_cache_struct_fields := make([]RuntimeValue, 3)
         compiler_cache_struct_fields[0] = BuiltinFunction.cache_contains
         compiler_cache_struct_fields[1] = BuiltinFunction.cache_set
@@ -363,11 +361,11 @@ compile :: proc(
         compiler_struct_fields[1] = RuntimeStruct {
             true,
             compiler_cache_struct_fields,
-            .compiler_cache_type,
+            .CompilerCache,
         }
 
         args = make([]RuntimeValue, 1)
-        args[0] = RuntimeStruct{true, compiler_struct_fields, .compiler_type}
+        args[0] = RuntimeStruct{true, compiler_struct_fields, .Compiler}
     }
     result := interp_execute_function2(
         InterpState{&state, run.long_lived_interp_state},

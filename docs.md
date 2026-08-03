@@ -31,7 +31,7 @@
 # Functions
 
 ```
-increment_by = |in: []I64, delta: I64| -> []I64 {
+increment_by = |in: []Int, delta: Int| -> []Int {
 	re out$ = in
 	for _, i in out$ {
 	  // TODO: support something like `out$ = out$ ~ [i] += delta`
@@ -53,20 +53,20 @@ my_constant = "hello world"
 
 ```
 re my_number$ = 10
-re my_array$ = []I64(1, 2, 3)
+re my_array$ = []Int(1, 2, 3)
 ```
 
 ## Update reassignable
 
 ```
 my_number$ = my_number$ + 5
-my_array$ = my_array$ ++ []I64(4, 5)
+my_array$ = my_array$ ++ []Int(4, 5)
 my_array$ = increment_by(my_array$, 1)
 my_array$ = my_array$ ~ [3] = square_root(my_array$[3])
 my_array$ = my_array$ ~ [3] = my_array$[3] + 1
 // OR (TODO: Support syntaxes roughly like the following)
 my_number$ += 5
-my_array$ ++= []I64(4, 5)
+my_array$ ++= []Int(4, 5)
 my_array$ |= increment_by(1)
 my_array$ ~ [3] |= sqrt()
 my_array$ ~ [3] += 1
@@ -94,6 +94,10 @@ age_up = |p: Person| -> Person {
 	return p ~ .age += 1
 }
 ```
+
+# Numbers
+
+See [the numbers example](./examples/13_numbers.code)
 
 <!--
 
@@ -131,15 +135,15 @@ This could be something like:
 String<A> : Array(U8)<A>
 
 MathToken<A> : < // All of `A` stores part of `MathToken`
-	Plus{pos: U64},
-	Minus{pos: U64},
-	Multiply{pos: U64},
-	Divide{pos: U64},
-	OpenBracket{pos: U64},
-	CloseBracket{pos: U64},
-	Integer{pos: U64, value: I64},
-	Float{pos: U64, value: F64},
-	Error{pos: U64, msg: String<A>},
+	Plus{pos: UInt},
+	Minus{pos: UInt},
+	Multiply{pos: UInt},
+	Divide{pos: UInt},
+	OpenBracket{pos: UInt},
+	CloseBracket{pos: UInt},
+	Integer{pos: UInt, value: Int},
+	Float{pos: UInt, value: F64},
+	Error{pos: UInt, msg: String<A>},
 >
 
 ParsedMath<in A> : < // Part of `A` stores part of `ParsedMath`
@@ -148,8 +152,8 @@ ParsedMath<in A> : < // Part of `A` stores part of `ParsedMath`
 	Multiplication{Pointer(ParsedMath)<in A, in A>, Pointer(ParsedMath)<in A, in A>},
 	Division{Pointer(ParsedMath)<in A, in A>, Pointer(ParsedMath)<in A, in A>},
 	Negation{Pointer(ParsedMath)<in A, in A>},
-	Integer{I64},
-	Float{F64},
+	Integer{Int},
+	Float{Float},
 >
 ```
 

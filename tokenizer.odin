@@ -28,6 +28,7 @@ ColonColonToken :: struct {} // ::
 SemiColonToken :: struct {} // ;
 BarToken :: struct {} // |
 PipeToken :: struct {} // |>
+PipeEqualsToken :: struct {} // |=
 ArrowToken :: struct {} // ->
 AssignToken :: struct {} // =
 SymbolsToken :: distinct string
@@ -46,7 +47,13 @@ ElseToken :: struct {} // else
 ImportToken :: struct {} // import
 ReturnToken :: struct {} // return
 YieldToken :: struct {} // yield
-ContinueToken :: struct {} // continue
+LoopControlFlowKind :: enum {
+    Continue,
+    Break,
+}
+LoopControlFlowToken :: struct {
+    kind: LoopControlFlowKind,
+}
 UnreachableToken :: struct {} // unreachable
 AndToken :: struct {} // and
 OrToken :: struct {} // or
@@ -81,6 +88,7 @@ TokenContents :: union {
     SemiColonToken,
     BarToken,
     PipeToken,
+    PipeEqualsToken,
     SymbolsToken,
     ArrowToken,
     AssignToken,
@@ -95,7 +103,7 @@ TokenContents :: union {
     ForToken,
     WhileToken,
     IfToken,
-    ContinueToken,
+    LoopControlFlowToken,
     UnreachableToken,
     ElseToken,
     ImportToken,
@@ -132,7 +140,7 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
     case OpenAngleBracketToken:
         fmt.wprint(fi.writer, "an open angle bracket (`<`)")
     case LessThanOrEqualToken:
-        fmt.wprint(fi.writer, "an less than or equal sign (`<=`)")
+        fmt.wprint(fi.writer, "a less than or equal sign (`<=`)")
     case CloseAngleBracketToken:
         fmt.wprint(fi.writer, "a close angle bracket (`>`)")
     case GreaterThanOrEqualToken:
@@ -151,6 +159,8 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
         fmt.wprint(fi.writer, "`|`")
     case PipeToken:
         fmt.wprint(fi.writer, "`|>`")
+    case PipeEqualsToken:
+        fmt.wprint(fi.writer, "`|=`")
     case OpenBraceToken:
         fmt.wprint(fi.writer, "an open brace (`{`)")
     case CloseBraceToken:
@@ -200,8 +210,13 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
         fmt.wprint(fi.writer, "the keyword `return`")
     case YieldToken:
         fmt.wprint(fi.writer, "the keyword `yield`")
-    case ContinueToken:
-        fmt.wprint(fi.writer, "the keyword `continue`")
+    case LoopControlFlowToken:
+        switch value.kind {
+        case .Continue:
+            fmt.wprint(fi.writer, "the keyword `continue`")
+        case .Break:
+            fmt.wprint(fi.writer, "the keyword `break`")
+        }
     case UnreachableToken:
         fmt.wprint(fi.writer, "the keyword `unreachable`")
     case AndToken:
@@ -262,12 +277,16 @@ is_nothing_char :: proc(c: byte) -> bool {
     return c == ' ' || c == '\t'
 }
 
-// TODO: Dry
-is_alphanumeric_char :: proc(c: byte) -> bool {
-    return c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
+is_letter :: proc(c: $T) -> bool {
+    return c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
 }
-is_alphanumeric_char_rune :: proc(c: rune) -> bool {
-    return c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
+
+is_alphanumeric_char_any :: proc(c: $T) -> bool {
+    return is_letter(c) || ('0' <= c && c <= '9')
+}
+
+is_alphanumeric_char :: proc(c: byte) -> bool {
+    return is_alphanumeric_char_any(c)
 }
 
 is_digit_char :: proc(c: byte) -> bool {
@@ -488,10 +507,17 @@ get_next_token :: proc(
 
     case '|':
         state.index += 1
-        if state.index < len(state.last_token_pos.file.code) &&
-           state.last_token_pos.file.code[state.index] == '>' {
-            state.index += 1
-            state.last_token = PipeToken{}
+        if state.index < len(state.last_token_pos.file.code) {
+            switch state.last_token_pos.file.code[state.index] {
+            case '>':
+                state.index += 1
+                state.last_token = PipeToken{}
+            case '=':
+                state.index += 1
+                state.last_token = PipeEqualsToken{}
+            case:
+                state.last_token = BarToken{}
+            }
         } else {
             state.last_token = BarToken{}
         }
@@ -551,7 +577,9 @@ get_next_token :: proc(
         case "yield":
             state.last_token = YieldToken{}
         case "continue":
-            state.last_token = ContinueToken{}
+            state.last_token = LoopControlFlowToken{.Continue}
+        case "break":
+            state.last_token = LoopControlFlowToken{.Break}
         case "unreachable":
             state.last_token = UnreachableToken{}
         case "and":
@@ -658,7 +686,7 @@ get_next_token :: proc(
         }
     case '.':
         if state.index + 1 < len(state.last_token_pos.file.code) &&
-           is_alphanumeric_char(state.last_token_pos.file.code[state.index + 1]) {
+           is_letter(state.last_token_pos.file.code[state.index + 1]) {
             tokenize_segmented_identifier(state, state.index)
         } else {
             skip_ignore_first(state, is_symbol_char)
@@ -683,4 +711,3 @@ get_next_token :: proc(
         }
     }
 }
-

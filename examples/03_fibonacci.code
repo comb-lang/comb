@@ -1,6 +1,6 @@
-main = || -> I64 {
+main = || -> Int {
     threshold = 1000
-    re fibonacci_numbers$ = []I64(1, 1)
+    re fibonacci_numbers$ = []Int(1, 1)
     while fibonacci_numbers$[fibonacci_numbers$.len-1] < threshold {
         fibonacci_numbers$ = fibonacci_numbers$
             :: fibonacci_numbers$[fibonacci_numbers$.len-1] + fibonacci_numbers$[fibonacci_numbers$.len-2]

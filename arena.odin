@@ -24,19 +24,11 @@ ArenaBlockInfo :: struct {
     arena:                    ^Arena,
 }
 
-_ArenaAllocation :: struct {
+ArenaAllocation :: struct {
     block:                    ^virtual.Memory_Block,
     prev_allocation_in_arena: ^ArenaAllocation,
     prev_allocation_in_block: ^ArenaAllocation,
-}
-
-when ODIN_DEBUG {
-    ArenaAllocation :: struct {
-        using a: _ArenaAllocation,
-        loc:     runtime.Source_Code_Location,
-    }
-} else {
-    ArenaAllocation :: _ArenaAllocation
+    loc:                      SourceCodeLocationOnDebug,
 }
 
 get_block_info :: proc(block: ^virtual.Memory_Block) -> ^ArenaBlockInfo {
@@ -280,4 +272,3 @@ delete_arena :: proc(a: ^Arena, expect_empty := true, loc := #caller_location) {
         block = prev_block
     }
 }
-

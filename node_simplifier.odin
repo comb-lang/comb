@@ -49,18 +49,27 @@ create_joined_values :: proc(
         comptime0, val0_is_comptime := val0.(CompileTimeValue)
         comptime1, val1_is_comptime := val1.(CompileTimeValue)
         if val0_is_comptime && val1_is_comptime {
-            num0 := comptime0.(NumberValue).value
-            num1 := comptime1.(NumberValue).value
-            #partial switch method {
-            case .Multiplication:
-                return CompileTimeValue(NumberValue{mul_int(num0, num1)})
-            case .Division: // TODO
-            case .Addition:
-                return CompileTimeValue(NumberValue{add_int(num0, num1)})
-            case .Subtraction:
-                return CompileTimeValue(NumberValue{sub_int(num0, num1)})
-            case:
-                panic("Unreachable")
+            num0 := comptime0.(NumberValue)
+            num1 := comptime1.(NumberValue)
+            if num0.fraction_part == "" && num1.fraction_part == "" {
+                n0 := BigInt{num0.is_negated, num0.whole_part}
+                n1 := BigInt{num1.is_negated, num1.whole_part}
+                ok :: proc(b: BigInt) -> CheckedValue {
+                    return CompileTimeValue(NumberValue{b.is_negated, b.absolute_value, ""})
+                }
+                #partial switch method {
+                case .Multiplication:
+                    return ok(mul_int(n0, n1))
+                case .Division: // TODO
+                case .Addition:
+                    return ok(add_int(n0, n1))
+                case .Subtraction:
+                    return ok(sub_int(n0, n1))
+                case:
+                    panic("Unreachable")
+                }
+            } else {
+                // TODO
             }
         }
         // TODO: Be able to move the constant right for non-commutative operations
@@ -112,10 +121,13 @@ iterate_array :: proc(
     array_type: ArrayType,
 ) -> CheckedLoop {
     loop_enter := make([]CheckedStatement, 1)
-    loop_enter[0] = CheckedAssignment{index_variable, CompileTimeValue(NumberValue{int_zero})}
+    loop_enter[0] = CheckedAssignment {
+        index_variable,
+        CompileTimeValue(NumberValue{false, uint_zero, ""}),
+    }
 
     if_block := make([]CheckedStatement, 1)
-    if_block[0] = BreakLoop{loop_index}
+    if_block[0] = CheckedLoopControlFlow{loop_index, .Break}
     dynamic_insert(
         body,
         CheckedIf {
@@ -142,7 +154,7 @@ iterate_array :: proc(
         create_joined_values(
             .Addition,
             index_variable,
-            CompileTimeValue(NumberValue{big_int_from_i64(1)}),
+            CompileTimeValue(NumberValue{false, big_uint_from_u64(1), ""}),
         ),
     }
     return CheckedLoop {
@@ -168,7 +180,7 @@ iterate_start_end_step :: proc(
     loop_enter := make([]CheckedStatement, 1)
     loop_enter[0] = CheckedAssignment{index_variable, start}
     if_block := make([]CheckedStatement, 1)
-    if_block[0] = BreakLoop{loop_index}
+    if_block[0] = CheckedLoopControlFlow{loop_index, .Break}
     dynamic_insert(
         body,
         CheckedIf {
@@ -204,7 +216,7 @@ iterate_ordered_hash_map :: proc(
     body: ^DoubleDynamic(CheckedStatement),
     body_variables: []Type,
 ) -> CheckedLoop {
-    keys := KeysOfOrderedHashMapWithStringKey{new_clone(hash_map)} // TODO: Handle for I64 keys
+    keys := KeysOfOrderedHashMapWithStringKey{new_clone(hash_map)} // TODO: Handle for Int keys
     dynamic_insert(
         body,
         CheckedAssignment {
@@ -222,7 +234,6 @@ iterate_ordered_hash_map :: proc(
         body,
         body_variables,
         keys,
-        ArrayType{0, string_type},
+        ArrayType{0, .String},
     )
 }
-

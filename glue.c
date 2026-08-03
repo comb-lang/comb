@@ -1,4 +1,5 @@
 #include <inttypes.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -159,4 +160,19 @@ char *builtin12(char *string, int64_t repetitions) {
   }
 
   return out;
+}
+
+// expect_uint
+double builtin22(double n) {
+  double whole_part;
+  double fraction_part = modf(n, &whole_part);
+  if (fraction_part != 0) {
+    fprintf(stderr, "fraction_part == %f", fraction_part);
+    exit(1);
+  }
+  if (n < 0) {
+    fprintf(stderr, "n < 0");
+    exit(1);
+  }
+  return n;
 }

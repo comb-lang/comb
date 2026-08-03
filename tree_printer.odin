@@ -24,4 +24,3 @@ reduce_depth :: proc(state: ^TreePrinterState, _: string, _: ..any) {
     state.depth -= 1
 }
 */
-

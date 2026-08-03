@@ -40,90 +40,83 @@ BuiltinFunction :: enum u8 {
     restore_cursor_pos,
     clear_after_cursor,
     make_dir_all,
-    invalid_builtin = max(u8),
+    expect_uint,
 }
 
-get_builtin_func_from_name :: proc(name: string) -> (BuiltinFunction, Type) {
+GotBuiltin :: struct {
+    value: CompileTimeValue,
+    type:  Type,
+}
+
+// `GotBuiltin.value == nil` if and only if the builtin does not exist
+get_builtin :: proc(name: string) -> GotBuiltin {
     switch name {
+    case:
+        return GotBuiltin{}
     case "print":
-        return .print, string_to_nil_type
+        return GotBuiltin{BuiltinFunction.print, .StringToNil}
     case "println":
-        return .println, string_to_nil_type
+        return GotBuiltin{BuiltinFunction.println, .StringToNil}
     case "eprint":
-        return .eprint, string_to_nil_type
+        return GotBuiltin{BuiltinFunction.eprint, .StringToNil}
     case "eprintln":
-        return .eprintln, string_to_nil_type
+        return GotBuiltin{BuiltinFunction.eprintln, .StringToNil}
     case "readline":
-        return .readline, string_to_string_type
+        return GotBuiltin{BuiltinFunction.readline, .StringToString}
     case "read_file":
-        return .read_file, string_to_string_type
+        return GotBuiltin{BuiltinFunction.read_file, .StringToString}
     case "write_file":
-        return .write_file, string_string_to_nil_type
+        return GotBuiltin{BuiltinFunction.write_file, .StringStringToNil}
     case "clear":
-        return .clear, no_args_to_nil_type
+        return GotBuiltin{BuiltinFunction.clear, .NoArgsToNil}
     case "run_executable":
-        return .run_executable, array_of_strings_to_nil_type
+        return GotBuiltin{BuiltinFunction.run_executable, .ArrayOfStringsToNil}
     case "exit":
-        return .exit, i64_to_nil_type
+        return GotBuiltin{BuiltinFunction.exit, .IntToNil}
     case "string_repeat":
-        return .string_repeat, string_i64_to_string_type
+        return GotBuiltin{BuiltinFunction.string_repeat, .StringUintToString}
     case "init_http_server":
-        return .init_http_server, no_args_to_http_server_type
+        return GotBuiltin{BuiltinFunction.init_http_server, .NoArgsToHttpServer}
     case "cast":
-        return .cast_func, unknown_type
+        return GotBuiltin{BuiltinFunction.cast_func, .Unknown}
     case "save_cursor_pos":
-        return .save_cursor_pos, no_args_to_nil_type
+        return GotBuiltin{BuiltinFunction.save_cursor_pos, .NoArgsToNil}
     case "restore_cursor_pos":
-        return .restore_cursor_pos, no_args_to_nil_type
+        return GotBuiltin{BuiltinFunction.restore_cursor_pos, .NoArgsToNil}
     case "clear_after_cursor":
-        return .clear_after_cursor, no_args_to_nil_type
+        return GotBuiltin{BuiltinFunction.clear_after_cursor, .NoArgsToNil}
     case "make_dir_all":
-        return .make_dir_all, string_to_nil_type
-    case:
-        return .invalid_builtin, invalid_type
-    }
-}
-
-get_builtin_type_from_name :: proc(name: string) -> Type {
-    switch name {
-    case "I64":
-        return i64_type
-    case "I32":
-        return i32_type
-    case "I16":
-        return i16_type
-    case "I8":
-        return i8_type
-    case "U64":
-        return u64_type
-    case "U32":
-        return u32_type
-    case "U16":
-        return u16_type
-    case "U8":
-        return u8_type
+        return GotBuiltin{BuiltinFunction.make_dir_all, .StringToNil}
+    case "expect_uint":
+        return GotBuiltin{BuiltinFunction.expect_uint, .FloatToUInt}
+    case "Int":
+        return GotBuiltin{Type.Int, .Type}
+    case "UInt":
+        return GotBuiltin{Type.UInt, .Type}
+    case "Float":
+        return GotBuiltin{Type.Float, .Type}
+    case "Char":
+        return GotBuiltin{Type.Char, .Type}
     case "Bool":
-        return bool_type
+        return GotBuiltin{Type.Bool, .Type}
     case "String":
-        return string_type
+        return GotBuiltin{Type.String, .Type}
     case "Type":
-        return type_type
+        return GotBuiltin{Type.Type, .Type}
     case "ImportedFile":
-        return imported_file_type
+        return GotBuiltin{Type.ImportedFile, .Type}
     case "Any":
-        return any_type
+        return GotBuiltin{Type.Any, .Type}
     case "Compiler":
-        return compiler_type
+        return GotBuiltin{Type.Compiler, .Type}
     case "CompilerCache":
-        return compiler_cache_type
+        return GotBuiltin{Type.CompilerCache, .Type}
     case "HttpRequest":
-        return http_request_type
+        return GotBuiltin{Type.HttpRequest, .Type}
     case "HttpResponse":
-        return http_response_type
+        return GotBuiltin{Type.HttpResponse, .Type}
     case "HttpServer":
-        return http_server_type
-    case:
-        return unknown_type
+        return GotBuiltin{Type.HttpServer, .Type}
     }
 }
 
@@ -155,78 +148,24 @@ argument_count_mismatch :: proc(
 
 to_str :: proc(s: ^CheckerState, pos: Pos, val: CheckedValue, type: Type) -> CheckedValue {
     from_type: ToStringFromType = ---
-    switch type {
-    case bool_type:
+    #partial switch type {
+    case .Bool:
         from_type = .BoolType
-    case string_type:
+    case .String:
         return val
-    case i64_type:
-        from_type = .I64Type
-    case i32_type:
-        from_type = .I32Type
-    case i16_type:
-        from_type = .I16Type
-    case i8_type:
-        from_type = .I8Type
-    case u64_type:
-        from_type = .U64Type
-    case u32_type:
-        from_type = .U32Type
-    case u16_type:
-        from_type = .U16Type
-    case u8_type:
-        from_type = .U8Type
+    case .Int:
+        from_type = .IntType
+    case .UInt:
+        from_type = .UIntType
+    case .Float:
+        from_type = .FloatType
+    case .Char:
+        from_type = .CharType
     case:
         diagnostic(s, pos, "Cannot convert the type `%s` to `String`", type_to_string(s, type))
         return nil
     }
     return ToString{from_type, new_clone(val)}
-}
-
-// The boolean returned is whether the name is a builtin
-is_builtin :: proc(name: string) -> bool {
-    switch name {
-    case "Compiler",
-         "CompilerCache",
-         "cast",
-         "print",
-         "println",
-         "eprint",
-         "eprintln",
-         "readline",
-         "read_file",
-         "write_file",
-         "clear",
-         "run_executable",
-         "exit",
-         "save_cursor_pos",
-         "restore_cursor_pos",
-         "clear_after_cursor",
-         "make_dir_all",
-         "I64",
-         "I32",
-         "I16",
-         "I8",
-         "U64",
-         "U32",
-         "U16",
-         "U8",
-         "Bool",
-         "String",
-         "Type",
-         "ImportedFile",
-         "OrderedHashMap",
-         "Any",
-         "to_str",
-         "HttpRequest",
-         "HttpResponse",
-         "HttpServer",
-         "init_http_server",
-         "string_repeat":
-        return true
-    case:
-        return false
-    }
 }
 
 add_unnamed_variable :: proc(
@@ -266,7 +205,7 @@ add_variable :: proc(
         TextAndPos{variable.ident, variable.pos},
         can_have_dollar_postfix = true,
     )
-    if is_builtin(variable.ident) {
+    if get_builtin(variable.ident).value != nil {
         diagnostic(s, variable.pos, builtins_err, variable.ident)
         return VariableRef{}, false
     }
@@ -296,4 +235,3 @@ add_variable :: proc(
     }
     return var_ref, true
 }
-

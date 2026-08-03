@@ -13,7 +13,7 @@ Hello = || {
 	println("Hello world")
 }
 
-main = || -> I64 {
+main = || -> Int {
 	Hello()
 	return 0
 }

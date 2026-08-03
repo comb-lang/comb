@@ -291,4 +291,3 @@ big_int_to_u32 :: proc(num: BigInt) -> (u32, bool) {
     }
     return big_uint_to_u32(num.absolute_value)
 }
-

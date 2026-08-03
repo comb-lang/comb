@@ -43,7 +43,7 @@ A new language for the web, because it's time to stop working around javascript.
 - Consider using a different syntax for generics, where `$` is used to specify a generic, and the type of that generic is inferred:
   - For functions, something like `typeof(append) = ([]$T, []$T) -> []$T`
   - For types, something like `Result = <Ok{value: $Ok}, Err{value: $Error}>`
-    - To create a result type there might be a syntax like `Result(Ok = I64, Error = String)`
+    - To create a result type there might be a syntax like `Result(Ok = Int, Error = String)`
   - This enables the type system to represent a memoised component with something like:
     - `HtmlElem = <Div{contents: []HtmlElem}, Component{func: ($T) -> []HtmlElem, arg: $T}>`
     - This is possible because the type of `$T` can be different for every `HtmlElem.Component` in a tree of `HtmlElem`s
@@ -57,10 +57,10 @@ A new language for the web, because it's time to stop working around javascript.
   - Minify the emitted JS code
   - Update the JS emitter to emit less code
 - Extend subtypes/supertypes implementation:
-  - `[]I64` is a supertype of `[32]I64`
-  - `I64` is a supertype of `I32`
+  - `[]Int` is a supertype of `[32]Int`
+  - `Int` is a supertype of `UInt`
   - `SumType` is a supertype of `SumType.Variant`
-- Use `len(x)` rather than `x.len`, where `typeof(len) == ([]Any) -> I64`
+- Use `len(x)` rather than `x.len`, where `typeof(len) == ([]Any) -> Int`
 - Use `to_str[T](x)` rather than `x.to_str`, where `typeof(to_str[T]) == (T) -> String`
 - Use `append[T](a, b)` rather than `a :: b`, where `typeof(append[T]) = ([]T, []T) -> []T`
 - Add a `delete` function for ordered hash maps, where `typeof(delete[K, V]) = (OrderedHashMap[K, V], K) -> OrderedHashMap[K, V]`
@@ -73,12 +73,12 @@ A new language for the web, because it's time to stop working around javascript.
 - Tell the c compiler the type of the number literals that are emitted
 - Check that number literals aren't too big or small for their type
 - Implement parsing boolean not
-- Implement number types other than `I64`
+- Implement number types other than `Int`
 - Design and implement memory management
 - Implement string interpolation
 - Add support for `yield` in if statements (should `yield`ing from a loop be supported?)
 - Implement defer
-- Use single statement switch in `odinfmt.json` when [this issue](https://github.com/DanielGavin/ols/issues/1255) is fixed
+- Set `"inline_single_stmt_case": true` in `odinfmt.json` when [this issue](https://github.com/DanielGavin/ols/issues/1606) is fixed and [this feature](https://github.com/DanielGavin/ols/issues/1607) is implemented
 - Figure out if/how you represent a function causing side affects:
   - IMO computationally pure functions are important for the testing and predictability of a codebase
   - But, there are plenty of algorithms where you should create a side affect while an otherwise pure function is running
@@ -148,7 +148,7 @@ A new language for the web, because it's time to stop working around javascript.
       - Closures where the type has `=>` have to be ran exactly once, and can access variables from the function where the closure was defined
 - Some kind of `loop` syntax sugar:
   ```
-  sum = loop |n: I64 = 1, sum = 0| -> I64 {
+  sum = loop |n: Int = 1, sum = 0| -> Int {
     if n > 100 {
       return sum
     }
@@ -157,7 +157,7 @@ A new language for the web, because it's time to stop working around javascript.
   ```
   - This could also be done using a pipe operator that takes a tuple and passes all of the values in the tuple into the function as arguments:
     ```
-    (1, 0) |> |n: I64, sum: I64| {
+    (1, 0) |> |n: Int, sum: Int| {
       if n > 100 {
         return sum
       }
@@ -167,7 +167,7 @@ A new language for the web, because it's time to stop working around javascript.
 
 # The syntax
 
-- Instead of something like `OrderedHashMap[String, I64]["a" = 5]` to create an ordered hash map value, I would rather use something like `{"a": 5}`
+- Instead of something like `OrderedHashMap[String, Int]["a" = 5]` to create an ordered hash map value, I would rather use something like `{"a": 5}`
 - Instead of `<>`, I would rather use `[]` for union/sum types, but that conflicts with array types
 - Instead of `[]Type(elem1, elem2, ...)`, I would rather use `[elem1, elem2, ...]` for array literals, but that is harder to type check
 - Instead of `|args| -> ReturnType {...}`, I would rather use `(args) -> ReturnType {}` for function definitions, but that syntax conflicts with order of operations grouping
@@ -204,7 +204,7 @@ A new language for the web, because it's time to stop working around javascript.
         - Certain information is lost when emitting code
           - For example, if you transpile the following to C, it becomes non-trivial for the compiler to emit the javascript because all the metaprogram has is a function pointer:
             ```
-            compiler.emit_js_code(|a: I64| {return a + 1})
+            compiler.emit_js_code(OrderedHashMap[String, Any]["value" = |a: Int| {return a + 1}], "")
             ```
         - The interpreter can act as a sandbox, rather than giving full access to the host system
       - Advantages of the emission and compilation based approach
@@ -220,7 +220,7 @@ A new language for the web, because it's time to stop working around javascript.
       - Maybe this could be done with tags, for example:
         ```
         CounterState : {
-          count: I64,
+          count: UInt,
         }
 
         #page={
@@ -294,9 +294,10 @@ Considering all of this, these design principles are tentative and subject to ch
 
 - TODO: Decide if/how closures that call themselves should be supported
   - By a "closure that calls itself", I mean something like
+
     ```
-    str_repeat = |str: String| -> (I64) -> String {
-      internal = |reps: I64| -> String {
+    str_repeat = |str: String| -> (UInt) -> String {
+      internal = |reps: UInt| -> String {
         if reps <= 0 {
           return ""
         }

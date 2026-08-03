@@ -6,51 +6,53 @@ game_height = 15
 game_size = game_height * game_width
 main_title = "Conway's game of life"
 
-count_pixel_life = |s: [game_size]Bool, x: I64, y: I64| -> I64 {
+count_pixel_life = |s: [game_height][game_width]Bool, x: Int, y: Int| -> UInt {
 	if x < 0 or x >= game_width or y < 0 or y >= game_height {
 		return 0
 	}
-	if s[(y * game_width) + x] {
+	if s[y][x] {
 		return 1
 	}
 	return 0
 }
 
-run_tick = |s: [game_size]Bool| -> [game_size]Bool {
+run_tick = |s: [game_height][game_width]Bool| -> [game_height][game_width]Bool {
     f = false
-    re new_state$ = [game_size]Bool(f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f)
-    for was_alive, index in s {
-        x = index % game_width
-        y = (index - x) / game_width
+	r = [game_width]Bool(f, f, f, f, f, f, f, f, f, f, f, f, f, f, f)
+    re new_state$ = [game_height][game_width]Bool(r, r, r, r, r, r, r, r, r, r, r, r, r, r, r)
+    for row, y in s {
+		for was_alive, x in row {
+	        re surrounding_alive_pixels$ = 0
 
-        re surrounding_alive_pixels$ = 0
+		    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x-1, y-1)
+		    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x,   y-1)
+		    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x+1, y-1)
+		    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x-1, y)
+		    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x+1, y)
+		    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x-1, y+1)
+		    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x,   y+1)
+		    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x+1, y+1)
 
-	    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x-1, y-1)
-	    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x,   y-1)
-	    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x+1, y-1)
-	    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x-1, y)
-	    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x+1, y)
-	    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x-1, y+1)
-	    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x,   y+1)
-	    surrounding_alive_pixels$ = surrounding_alive_pixels$ + count_pixel_life(s, x+1, y+1)
-
-		if was_alive {
-			new_state$ = new_state$ ~ [index] = 2 <= surrounding_alive_pixels$ and surrounding_alive_pixels$ <= 3
-		} else {
-			new_state$ = new_state$ ~ [index] = surrounding_alive_pixels$ == 3
+			if was_alive {
+				new_state$ = new_state$ ~ [y][x] = 2 <= surrounding_alive_pixels$ and surrounding_alive_pixels$ <= 3
+			} else {
+				new_state$ = new_state$ ~ [y][x] = surrounding_alive_pixels$ == 3
+			}
 		}
     }
     return new_state$
 }
 
-game_of_life = |s: [game_size]Bool| -> h.UI {
+game_of_life = |s: [game_height][game_width]Bool| -> h.UI {
     re grid_pixels$ = []h.HtmlElem()
-    for pixel in s {
-        if pixel {
-	        grid_pixels$ = grid_pixels$ :: .Div("background: #FFFFFF;", []h.HtmlElem())
-        } else {
-	        grid_pixels$ = grid_pixels$ :: .Div("background: #000000;", []h.HtmlElem())
-        }
+    for row in s {
+		for pixel in row {
+	        if pixel {
+		        grid_pixels$ = grid_pixels$ :: .Div("background: #FFFFFF;", []h.HtmlElem())
+	        } else {
+		        grid_pixels$ = grid_pixels$ :: .Div("background: #000000;", []h.HtmlElem())
+	        }
+		}
     }
 	grid_style =
         "display: grid;"
@@ -66,36 +68,35 @@ game_of_life = |s: [game_size]Bool| -> h.UI {
 	return h.UI(main_title, ui_contents, |_: h.Key| -> h.UI { return game_of_life(s) })
 }
 
+pulsar_initial_state = [game_height][game_width]Bool(
+    [game_width]Bool(false, false, false, false, false, false, false, false, false, false, false, false, false, false, false),
+    [game_width]Bool(false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false),
+    [game_width]Bool(false, false, false, false, false, false, false, false, false, false, false, false, false, false, false),
+    [game_width]Bool(false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false),
+    [game_width]Bool(false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false),
+    [game_width]Bool(false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false),
+    [game_width]Bool(false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false),
+    [game_width]Bool(false, false, false, false, false, false, false, false, false, false, false, false, false, false, false),
+    [game_width]Bool(false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false),
+    [game_width]Bool(false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false),
+    [game_width]Bool(false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false),
+    [game_width]Bool(false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false),
+    [game_width]Bool(false, false, false, false, false, false, false, false, false, false, false, false, false, false, false),
+    [game_width]Bool(false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false),
+    [game_width]Bool(false, false, false, false, false, false, false, false, false, false, false, false, false, false, false),
+)
+
 site = h.Site(OrderedHashMap[String, () -> h.UI][
-	"/" = || -> h.UI {
-		pulsar_initial_state = [game_size]Bool(
-		    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-		    false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
-		    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-		    false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
-		    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-		    false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
-		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-		    false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false,
-		    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-		    false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false,
-		    false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-		)
-		return game_of_life(pulsar_initial_state)
-	},
+	"/" = || -> h.UI { return game_of_life(pulsar_initial_state) },
 ])
 
-build = |c: Compiler| -> I64 {
+build = |c: Compiler| -> Int {
 	h.build_reactive_site(c, site, "gitignore_conways_game_of_life")
     return 0
 }
 
 // TODO: Add unit test for this
-serve = |c: Compiler| -> I64 {
+serve = |c: Compiler| -> Int {
 	server = http.get_http_server(c.cache, "server")
     h.serve_reactive_site(c, server, site)
 	return 0

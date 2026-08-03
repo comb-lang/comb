@@ -10,7 +10,7 @@ find_primes = || -> [100]Bool {
 	return is_prime$
 }
 
-main = || -> I64 {
+main = || -> Int {
     primes = find_primes()
     for is_prime, i in primes {
 		print("The number ")

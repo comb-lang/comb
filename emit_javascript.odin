@@ -17,6 +17,13 @@ emit_js_func_call :: proc(s: ^GeneralEmitterState, c: CheckedFunctionCall) {
 
 emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: CompileTimeValue) {
     switch comptime in v {
+    case CompileTimeArray:
+        strings.write_byte(&s.b, '[')
+        for elem in comptime.elements {
+            emit_js_comptime_value(s, elem)
+            strings.write_byte(&s.b, ',')
+        }
+        strings.write_byte(&s.b, ']')
     case CompileTimeOrderedHashMapInitialisation:
         strings.write_string(&s.b, "new Map()")
         for key in comptime.order {
@@ -29,11 +36,18 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: CompileTimeValue) {
     case CastFunction:
         strings.write_string(&s.b, "/* TODO: Implement cast in JS emitter */ undefined")
     case BuiltinFunction:
-        strings.write_string(&s.b, "builtin")
-        strings.write_uint(&s.b, uint(comptime))
+        #partial switch comptime {
+        case .print, .println:
+            strings.write_string(&s.b, "console.log")
+        case .eprint, .eprintln:
+            strings.write_string(&s.b, "console.error")
+        case:
+            strings.write_string(&s.b, "builtin")
+            strings.write_uint(&s.b, uint(comptime))
+        }
     case CompileTimeStructInitialisation:
         strings.write_string(&s.b, "init_Type")
-        strings.write_uint(&s.b, uint(comptime.func.return_type.index))
+        strings.write_uint(&s.b, uint(comptime.func.return_type))
         strings.write_byte(&s.b, '(')
         first_arg := true
         for arg in comptime.args {
@@ -79,10 +93,14 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: CompileTimeValue) {
     case BoolValue:
         strings.write_string(&s.b, comptime ? "true" : "false")
     case NumberValue:
-        if comptime.value.is_negated {
+        if comptime.is_negated {
             strings.write_byte(&s.b, '-')
         }
-        strings.write_string(&s.b, big_uint_to_string(comptime.value.absolute_value))
+        strings.write_string(&s.b, big_uint_to_string(comptime.whole_part))
+        if comptime.fraction_part != "" {
+            strings.write_byte(&s.b, '.')
+            strings.write_string(&s.b, comptime.fraction_part)
+        }
     }
 
 }
@@ -119,19 +137,12 @@ emit_js_runtime_value :: proc(b: ^strings.Builder, value: RuntimeValue) {
             strings.write_byte(b, ',')
         }
         strings.write_byte(b, ']')
-    case i64:
-        strings.write_i64(b, v)
+    case f64:
+        strings.write_f64(b, v, 'f')
     case bool:
         strings.write_string(b, v ? "true" : "false")
-    case i32,
-         i16,
-         i8,
-         u64,
-         u32,
-         u16,
-         u8,
-         CastFunction,
-         RuntimeI64OrderedHashMap,
+    case CastFunction,
+         RuntimeIntOrderedHashMap,
          StructTypeInitFunc,
          SumTypeInitFunc,
          BuiltinFunction,
@@ -182,9 +193,23 @@ emit_js_derivation :: proc(
     alteration: DerivationAlteration,
 ) {
     if len(subset_elems) == 0 {
-        assert(alteration.kind == .Replace)
-        emit_js_value(s, alteration.arg^)
-        return
+        switch alteration.kind {
+        case .Replace:
+            emit_js_value(s, alteration.arg^)
+            return
+        case .PipeThroughFunction:
+            emit_js_value(s, alteration.arg^)
+            strings.write_byte(&s.b, '(')
+            if v == nil {
+                strings.write_string(&s.b, "old")
+            } else {
+                emit_js_value(s, v)
+            }
+            strings.write_byte(&s.b, ')')
+            return
+        case:
+            panic("Unreachable")
+        }
     }
 
     switch elem in subset_elems[0] {
@@ -207,7 +232,15 @@ emit_js_derivation :: proc(
         strings.write_byte(&s.b, ',')
         emit_js_value(s, elem.key)
     case FieldAccess:
-        panic("TODO")
+        strings.write_string(&s.b, "object_update(")
+        if v == nil {
+            strings.write_string(&s.b, "old")
+        } else {
+            emit_js_value(s, v)
+        }
+        strings.write_string(&s.b, ",\"field")
+        strings.write_uint(&s.b, uint(elem.field_index))
+        strings.write_byte(&s.b, '"')
     case:
         panic("Unreachable")
     }
@@ -255,7 +288,7 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: CheckedValue) {
         strings.write_byte(&s.b, ']')
     case KeysOfOrderedHashMapWithStringKey:
         emit_js_map_keys_func(s, v.hash_map^)
-    case KeysOfOrderedHashMapWithI64Key:
+    case KeysOfOrderedHashMapWithIntKey:
         emit_js_map_keys_func(s, v.hash_map^)
     case CheckedOrderedHashMapAccess:
         strings.write_string(&s.b, "Map.prototype.get.call(")
@@ -278,7 +311,7 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: CheckedValue) {
         strings.write_string(&s.b, ".length")
     case LengthOfOrderedHashMapWithStringKey:
         panic("TODO")
-    case LengthOfOrderedHashMapWithI64Key:
+    case LengthOfOrderedHashMapWithIntKey:
         panic("TODO")
     case CheckedIndexedAccess:
         emit_js_value(s, v.base^)
@@ -297,10 +330,10 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: CheckedValue) {
         emit_js_func_call(s, v)
     case StructTypeInitFunc:
         strings.write_string(&s.b, "init_Type")
-        strings.write_uint(&s.b, uint(v.return_type.index))
+        strings.write_uint(&s.b, uint(v.return_type))
     case SumTypeInitFunc:
         strings.write_string(&s.b, "init_Type")
-        strings.write_uint(&s.b, uint(v.sum_type.index))
+        strings.write_uint(&s.b, uint(v.sum_type))
         strings.write_string(&s.b, "Variant")
         strings.write_uint(&s.b, uint(v.variant_index))
     case BooleanNotValue:
@@ -368,7 +401,7 @@ emit_js_global_type :: proc(s: ^GeneralEmitterState, index: int) {
     switch t in s.types.m.keys[index].key {
     case GlobalType:
     case OrderedHashMapTypeWithStringKey:
-    case OrderedHashMapTypeWithI64Key:
+    case OrderedHashMapTypeWithIntKey:
     case ArrayType:
     case FuncType:
     case GenericTypeValue:
@@ -484,14 +517,15 @@ emit_js_block_body :: proc(
             strings.write_string(&s.b, "} while (false)")
             emit_js_block(s, nesting_level + 1, nil, stmt.continue_code)
             strings.write_string(&s.b, "}}")
-        case ContinueLoop:
+        case CheckedLoopControlFlow:
             strings.write_string(&s.b, "break loop")
             strings.write_uint(&s.b, stmt.loop_index)
-            strings.write_string(&s.b, "_body;")
-        case BreakLoop:
-            strings.write_string(&s.b, "break loop")
-            strings.write_uint(&s.b, stmt.loop_index)
-            strings.write_byte(&s.b, ';')
+            switch stmt.kind {
+            case .Continue:
+                strings.write_string(&s.b, "_body;")
+            case .Break:
+                strings.write_byte(&s.b, ';')
+            }
         /*
         case CheckedArrayMutation:
             emit_variable(&s.b, stmt.variable)
@@ -553,8 +587,22 @@ emit_javascript :: proc(types: Types, checked_functions: []CheckedFunction) -> s
     s := GeneralEmitterState{strings.builder_make(), types, checked_functions}
     strings.write_string(
         &s.b,
+        "function builtin22(num) {" +
+        "  if (!Number.isInteger(num)) {" +
+        "    throw new Error(\"Attempted to convert float to UInt\")" +
+        "  }" +
+        "  if (num < 0) {" +
+        "    throw new Error(\"Attempted to convert negative number to UInt\")" +
+        "  }" +
+        "  return num" +
+        "}" +
         "function in_map(a, b) {return Map.prototype.has.call(b, a)}" +
         "function with_update(value, key, func) {return value.with(key, func(value[key]))}" +
+        "function object_update(object, field, func) {" +
+        "  const shallow_copy = {...object};" +
+        "  shallow_copy[field] = func(shallow_copy[field]);" +
+        "  return shallow_copy;" +
+        "}" +
         "function map_update(map, key, func) {return new Map(map).set(key, func(map.get(key)))}",
     )
 
@@ -612,4 +660,3 @@ emit_javascript :: proc(types: Types, checked_functions: []CheckedFunction) -> s
 
     return s.b
 }
-

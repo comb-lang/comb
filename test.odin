@@ -134,12 +134,16 @@ example_00_fizzbuzz :: proc(t: ^testing.T) {
 example_01_factorial :: proc(t: ^testing.T) {
     a: Arena
     defer delete_arena(&a, expect_empty = false)
-    ran := run_example_via_c(t, &a, #directory + "examples/01_factorial.code", "")
-    if ran == nil {return}
-    out := ran.(CompilationSuccessful)
-    testing.expect(t, out.compiler.stderr == c_warning)
-    testing.expect(t, out.program.stderr == "")
-    testing.expect(t, out.program.stdout == "120\n")
+    ran := interpret_example(
+        t,
+        &a,
+        FunctionRef{#directory + "examples/01_factorial.code", "main"},
+        "",
+    )
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.compiler.stderr == "")
+    testing.expect(t, ran.program.stderr == "")
+    testing.expect(t, ran.program.stdout == "120\n")
 }
 
 @(test)
@@ -150,111 +154,108 @@ example_02_primes :: proc(t: ^testing.T) {
     testing.expect(t, ran.exit_code == 0)
     // testing.expect(t, out.compiler.stderr == "") // TODO: Implement array bounds checking so this line can be uncommented
     testing.expect(t, ran.program.stderr == "")
-    testing.expect(
-        t,
-        ran.program.stdout ==
-        `The number 1 is not prime
-The number 2 is prime
-The number 3 is prime
-The number 4 is not prime
-The number 5 is prime
-The number 6 is not prime
-The number 7 is prime
-The number 8 is not prime
-The number 9 is not prime
-The number 10 is not prime
-The number 11 is prime
-The number 12 is not prime
-The number 13 is prime
-The number 14 is not prime
-The number 15 is not prime
-The number 16 is not prime
-The number 17 is prime
-The number 18 is not prime
-The number 19 is prime
-The number 20 is not prime
-The number 21 is not prime
-The number 22 is not prime
-The number 23 is prime
-The number 24 is not prime
-The number 25 is not prime
-The number 26 is not prime
-The number 27 is not prime
-The number 28 is not prime
-The number 29 is prime
-The number 30 is not prime
-The number 31 is prime
-The number 32 is not prime
-The number 33 is not prime
-The number 34 is not prime
-The number 35 is not prime
-The number 36 is not prime
-The number 37 is prime
-The number 38 is not prime
-The number 39 is not prime
-The number 40 is not prime
-The number 41 is prime
-The number 42 is not prime
-The number 43 is prime
-The number 44 is not prime
-The number 45 is not prime
-The number 46 is not prime
-The number 47 is prime
-The number 48 is not prime
-The number 49 is not prime
-The number 50 is not prime
-The number 51 is not prime
-The number 52 is not prime
-The number 53 is prime
-The number 54 is not prime
-The number 55 is not prime
-The number 56 is not prime
-The number 57 is not prime
-The number 58 is not prime
-The number 59 is prime
-The number 60 is not prime
-The number 61 is prime
-The number 62 is not prime
-The number 63 is not prime
-The number 64 is not prime
-The number 65 is not prime
-The number 66 is not prime
-The number 67 is prime
-The number 68 is not prime
-The number 69 is not prime
-The number 70 is not prime
-The number 71 is prime
-The number 72 is not prime
-The number 73 is prime
-The number 74 is not prime
-The number 75 is not prime
-The number 76 is not prime
-The number 77 is not prime
-The number 78 is not prime
-The number 79 is prime
-The number 80 is not prime
-The number 81 is not prime
-The number 82 is not prime
-The number 83 is prime
-The number 84 is not prime
-The number 85 is not prime
-The number 86 is not prime
-The number 87 is not prime
-The number 88 is not prime
-The number 89 is prime
-The number 90 is not prime
-The number 91 is not prime
-The number 92 is not prime
-The number 93 is not prime
-The number 94 is not prime
-The number 95 is not prime
-The number 96 is not prime
-The number 97 is prime
-The number 98 is not prime
-The number 99 is not prime
-The number 100 is not prime
-`,
-    )
+    e := TestingTextExpecter{0, ran.program.stdout, t}
+    expect_string(&e, "The number 1 is not prime\n")
+    expect_string(&e, "The number 2 is prime\n")
+    expect_string(&e, "The number 3 is prime\n")
+    expect_string(&e, "The number 4 is not prime\n")
+    expect_string(&e, "The number 5 is prime\n")
+    expect_string(&e, "The number 6 is not prime\n")
+    expect_string(&e, "The number 7 is prime\n")
+    expect_string(&e, "The number 8 is not prime\n")
+    expect_string(&e, "The number 9 is not prime\n")
+    expect_string(&e, "The number 10 is not prime\n")
+    expect_string(&e, "The number 11 is prime\n")
+    expect_string(&e, "The number 12 is not prime\n")
+    expect_string(&e, "The number 13 is prime\n")
+    expect_string(&e, "The number 14 is not prime\n")
+    expect_string(&e, "The number 15 is not prime\n")
+    expect_string(&e, "The number 16 is not prime\n")
+    expect_string(&e, "The number 17 is prime\n")
+    expect_string(&e, "The number 18 is not prime\n")
+    expect_string(&e, "The number 19 is prime\n")
+    expect_string(&e, "The number 20 is not prime\n")
+    expect_string(&e, "The number 21 is not prime\n")
+    expect_string(&e, "The number 22 is not prime\n")
+    expect_string(&e, "The number 23 is prime\n")
+    expect_string(&e, "The number 24 is not prime\n")
+    expect_string(&e, "The number 25 is not prime\n")
+    expect_string(&e, "The number 26 is not prime\n")
+    expect_string(&e, "The number 27 is not prime\n")
+    expect_string(&e, "The number 28 is not prime\n")
+    expect_string(&e, "The number 29 is prime\n")
+    expect_string(&e, "The number 30 is not prime\n")
+    expect_string(&e, "The number 31 is prime\n")
+    expect_string(&e, "The number 32 is not prime\n")
+    expect_string(&e, "The number 33 is not prime\n")
+    expect_string(&e, "The number 34 is not prime\n")
+    expect_string(&e, "The number 35 is not prime\n")
+    expect_string(&e, "The number 36 is not prime\n")
+    expect_string(&e, "The number 37 is prime\n")
+    expect_string(&e, "The number 38 is not prime\n")
+    expect_string(&e, "The number 39 is not prime\n")
+    expect_string(&e, "The number 40 is not prime\n")
+    expect_string(&e, "The number 41 is prime\n")
+    expect_string(&e, "The number 42 is not prime\n")
+    expect_string(&e, "The number 43 is prime\n")
+    expect_string(&e, "The number 44 is not prime\n")
+    expect_string(&e, "The number 45 is not prime\n")
+    expect_string(&e, "The number 46 is not prime\n")
+    expect_string(&e, "The number 47 is prime\n")
+    expect_string(&e, "The number 48 is not prime\n")
+    expect_string(&e, "The number 49 is not prime\n")
+    expect_string(&e, "The number 50 is not prime\n")
+    expect_string(&e, "The number 51 is not prime\n")
+    expect_string(&e, "The number 52 is not prime\n")
+    expect_string(&e, "The number 53 is prime\n")
+    expect_string(&e, "The number 54 is not prime\n")
+    expect_string(&e, "The number 55 is not prime\n")
+    expect_string(&e, "The number 56 is not prime\n")
+    expect_string(&e, "The number 57 is not prime\n")
+    expect_string(&e, "The number 58 is not prime\n")
+    expect_string(&e, "The number 59 is prime\n")
+    expect_string(&e, "The number 60 is not prime\n")
+    expect_string(&e, "The number 61 is prime\n")
+    expect_string(&e, "The number 62 is not prime\n")
+    expect_string(&e, "The number 63 is not prime\n")
+    expect_string(&e, "The number 64 is not prime\n")
+    expect_string(&e, "The number 65 is not prime\n")
+    expect_string(&e, "The number 66 is not prime\n")
+    expect_string(&e, "The number 67 is prime\n")
+    expect_string(&e, "The number 68 is not prime\n")
+    expect_string(&e, "The number 69 is not prime\n")
+    expect_string(&e, "The number 70 is not prime\n")
+    expect_string(&e, "The number 71 is prime\n")
+    expect_string(&e, "The number 72 is not prime\n")
+    expect_string(&e, "The number 73 is prime\n")
+    expect_string(&e, "The number 74 is not prime\n")
+    expect_string(&e, "The number 75 is not prime\n")
+    expect_string(&e, "The number 76 is not prime\n")
+    expect_string(&e, "The number 77 is not prime\n")
+    expect_string(&e, "The number 78 is not prime\n")
+    expect_string(&e, "The number 79 is prime\n")
+    expect_string(&e, "The number 80 is not prime\n")
+    expect_string(&e, "The number 81 is not prime\n")
+    expect_string(&e, "The number 82 is not prime\n")
+    expect_string(&e, "The number 83 is prime\n")
+    expect_string(&e, "The number 84 is not prime\n")
+    expect_string(&e, "The number 85 is not prime\n")
+    expect_string(&e, "The number 86 is not prime\n")
+    expect_string(&e, "The number 87 is not prime\n")
+    expect_string(&e, "The number 88 is not prime\n")
+    expect_string(&e, "The number 89 is prime\n")
+    expect_string(&e, "The number 90 is not prime\n")
+    expect_string(&e, "The number 91 is not prime\n")
+    expect_string(&e, "The number 92 is not prime\n")
+    expect_string(&e, "The number 93 is not prime\n")
+    expect_string(&e, "The number 94 is not prime\n")
+    expect_string(&e, "The number 95 is not prime\n")
+    expect_string(&e, "The number 96 is not prime\n")
+    expect_string(&e, "The number 97 is prime\n")
+    expect_string(&e, "The number 98 is not prime\n")
+    expect_string(&e, "The number 99 is not prime\n")
+    expect_string(&e, "The number 100 is not prime\n")
+    expect_finished(&e)
 }
 
 @(test)
@@ -429,16 +430,16 @@ basic_type_system_test :: proc(t: ^testing.T) {
     types := create_types(&a)
     defer fix_types(types)
     generic_args0 := make([]Type, 1)
-    generic_args0[0] = string_type
+    generic_args0[0] = .String
     generic_args1 := make([]Type, 1)
-    generic_args1[0] = bool_type
+    generic_args1[0] = .Bool
     generic0 := create_type(&types, GenericTypeValue{GlobalValueWithGenericRef{7}, generic_args0})
     generic1 := create_type(&types, GenericTypeValue{GlobalValueWithGenericRef{7}, generic_args0})
-    types.values.d[generic1.type.index].type = i64_type
+    types.values.d[generic1.type].type = .Int
     generic2 := create_type(&types, GenericTypeValue{GlobalValueWithGenericRef{7}, generic_args1})
     testing.expect(t, generic0.type == generic1.type)
     generic0_initialised := get_type(types, generic0.type).value.type
-    testing.expect(t, generic0_initialised == i64_type)
+    testing.expect(t, generic0_initialised == .Int)
     testing.expect(t, generic0.type != generic2.type)
 }
 
@@ -525,22 +526,13 @@ example_10_geometry :: proc(t: ^testing.T) {
 invalid_example_00_uninitialised_global_value_with_generics :: proc(t: ^testing.T) {
     a: Arena
     defer delete_arena(&a, expect_empty = false)
-    ran := run_example_via_c(
-        t,
-        &a,
-        #directory + "examples/invalid/00_uninitialised_global_value_with_generics.code",
-        "",
-    )
+    file :: #directory + "examples/invalid/00_uninitialised_global_value_with_generics.code"
+    ran := run_example_via_c(t, &a, file, "")
     if ran == nil {return}
     out := ran.(CompilationFailed)
     e := TestingTextExpecter{0, out.compiler.stderr, t}
     expect_string(&e, "\n")
-    expect_string(
-        &e,
-        "Error compiling `" +
-        #directory +
-        "examples/invalid/00_uninitialised_global_value_with_generics.code` (15:13)\n",
-    )
+    expect_string(&e, "Error compiling `" + file + "` (15:13)\n")
     expect_string(
         &e,
         "Expected a func type, but got an uninitialised global value with generics\n",
@@ -613,8 +605,8 @@ invalid_example_02_wrong_main_function_type :: proc(t: ^testing.T) {
     e = TestingTextExpecter{0, out.compiler.stderr, t}
     expect_string(&e, "\n")
     expect_string(&e, "Error compiling\n")
-    expect_string(&e, "Got the type `(String, I64) -> I64`\n")
-    expect_string(&e, "Expected the type `() -> I64`\n")
+    expect_string(&e, "Got the type `(String, Int) -> Int`\n")
+    expect_string(&e, "Expected the type `() -> Int`\n")
     expect_string(&e, "\n")
     expect_string(&e, "Erroneously checked with 1 error and 0 warnings in ")
     expect_digits(&e)
@@ -800,19 +792,89 @@ invalid_example_04_invalid_globals :: proc(t: ^testing.T) {
     e = TestingTextExpecter{0, ran.compiler.stderr, t}
     expect_string(&e, "\n")
     expect_string(&e, "Error compiling `" + path + "` (4:12)\n")
-    expect_string(&e, "Expected the type `String` but got the type `I64`\n")
+    expect_string(&e, "Expected the type `String` but got the type `UInt`\n")
     expect_string(&e, "\n")
     expect_string(&e, "Error compiling `" + path + "` (4:19)\n")
-    expect_string(&e, "Expected the type `String` but got the type `I64`\n")
+    expect_string(&e, "Expected the type `String` but got the type `UInt`\n")
     expect_string(&e, "\n")
     expect_string(&e, "Error compiling `" + path + "` (8:17)\n")
     expect_string(&e, "The variable `E` is not defined in the file `" + path + "`\n")
     expect_string(&e, "\n")
+    expect_string(&e, "Error compiling `" + path + "` (19:22)\n")
+    expect_string(&e, "The variable `InvalidType` is not defined in the file `" + path + "`\n")
+    expect_string(&e, "\n")
     expect_string(&e, "Error compiling `" + path + "` (11:13)\n")
-    expect_string(&e, "The value before `.len` is of type `Array[I64]`\n")
+    expect_string(&e, "The value before `.len` is of type `Array[Int]`\n")
     expect_string(&e, "Expected a string type, an array type, or an OrderedHashSet type\n")
     expect_string(&e, "\n")
-    expect_string(&e, "Erroneously checked with 4 errors and 0 warnings in ")
+    expect_string(&e, "Erroneously checked with 5 errors and 0 warnings in ")
+    expect_digits(&e)
+    expect_string(&e, ".")
+    expect_digits(&e)
+    expect_string(&e, " ms\n")
+    expect_finished(&e)
+}
+
+@(test)
+example_13_numbers :: proc(t: ^testing.T) {
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    ran := interpret_example(t, &a, FunctionRef{#directory + "examples/13_numbers.code", "main"})
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.compiler.stderr == "")
+    testing.expect(t, ran.program.stdout == "")
+    testing.expect(t, ran.program.stderr == "")
+}
+
+@(test)
+invalid_example_05_invalid_global_sum_type :: proc(t: ^testing.T) {
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    file :: #directory + "examples/invalid/05_invalid_global_sum_type.code"
+    ran := interpret_example(t, &a, FunctionRef{file, "main"}, "")
+    testing.expect(t, ran.exit_code == 1)
+    // TODO: Check ran.compiler
+    testing.expect(t, ran.program.stdout == "")
+    testing.expect(t, ran.program.stderr == "")
+}
+
+@(test)
+invalid_example_06_mismatching_types :: proc(t: ^testing.T) {
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    file :: #directory + "examples/invalid/06_mismatching_types.code"
+    ran := interpret_example(t, &a, FunctionRef{file, "main"}, "")
+    testing.expect(t, ran.exit_code == 1)
+    e := TestingTextExpecter{0, ran.compiler.stderr, t}
+    expect_string(&e, "\n")
+    expect_string(&e, "Error compiling `" + file + "` (13:10)\n")
+    expect_string(&e, "Expected the type `Pos` but got the type `String`\n")
+    expect_string(&e, "\n")
+    expect_string(&e, "Erroneously checked with 1 error and 0 warnings in ")
+    expect_digits(&e)
+    expect_string(&e, ".")
+    expect_digits(&e)
+    expect_string(&e, " ms\n")
+    expect_finished(&e)
+    testing.expect(t, ran.program.stdout == "")
+    testing.expect(t, ran.program.stderr == "")
+}
+
+@(test)
+invalid_example_07_uses_compiletime_value_at_runtime :: proc(t: ^testing.T) {
+    a: Arena
+    defer delete_arena(&a, expect_empty = false)
+    file :: #directory + "examples/invalid/07_uses_compiletime_value_at_runtime.code"
+    ran := interpret_example(t, &a, FunctionRef{file, "main"}, "")
+    testing.expect(t, ran.exit_code == 1)
+    testing.expect(t, ran.program.stdout == "")
+    testing.expect(t, ran.program.stderr == "")
+    e := TestingTextExpecter{0, ran.compiler.stderr, t}
+    expect_string(&e, "\n")
+    expect_string(&e, "Error compiling `" + file + "` (2:13)\n")
+    expect_string(&e, "This value can only be used at compile time\n")
+    expect_string(&e, "\n")
+    expect_string(&e, "Erroneously checked with 1 error and 0 warnings in ")
     expect_digits(&e)
     expect_string(&e, ".")
     expect_digits(&e)
@@ -847,4 +909,3 @@ invalid_example_04_invalid_globals :: proc(t: ^testing.T) {
 //        }
 //    }
 //}
-

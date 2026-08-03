@@ -226,14 +226,14 @@ compile :: proc(
 
     fmt.wprintfln(compiler.stdout, "Checking...")
     checker_output := check(a, parsed, func.func_name, compiler)
-    function_type := unknown_type
+    function_type := Type.Unknown
     if checker_output.func_ref.index < len(checker_output.checked_funcs) {
         function_type = checker_output.checked_funcs[checker_output.func_ref.index].type
-        if function_type != unknown_type {
+        if function_type != .Unknown {
             // TODO: Include position in error message
             switch c in command {
             case BuildC:
-                if function_type != no_args_to_i64_type {
+                if function_type != .NoArgsToInt {
                     diagnostic(
                         &checker_output.reporter,
                         unknown_pos,
@@ -248,12 +248,12 @@ compile :: proc(
                             checker_output.types,
                             checker_output.globals_without_generic,
                             checker_output.globals_with_generic,
-                            no_args_to_i64_type,
+                            .NoArgsToInt,
                         ),
                     )
                 }
             case Run:
-                if function_type != no_args_to_i64_type && function_type != compiler_to_i64_type {
+                if function_type != .NoArgsToInt && function_type != .CompilerToInt {
                     diagnostic(
                         &checker_output.reporter,
                         unknown_pos,
@@ -268,13 +268,13 @@ compile :: proc(
                             checker_output.types,
                             checker_output.globals_without_generic,
                             checker_output.globals_with_generic,
-                            no_args_to_i64_type,
+                            .NoArgsToInt,
                         ),
                         type_to_string2(
                             checker_output.types,
                             checker_output.globals_without_generic,
                             checker_output.globals_with_generic,
-                            compiler_to_i64_type,
+                            .CompilerToInt,
                         ),
                     )
                 }
@@ -358,7 +358,7 @@ compile :: proc(
         exit_early              = exit_early,
     }
     args: []RuntimeValue
-    if function_type == compiler_to_i64_type {
+    if function_type == .CompilerToInt {
         compiler_cache_struct_fields := make([]RuntimeValue, 3)
         compiler_cache_struct_fields[0] = BuiltinFunction.cache_contains
         compiler_cache_struct_fields[1] = BuiltinFunction.cache_set
@@ -369,11 +369,11 @@ compile :: proc(
         compiler_struct_fields[1] = RuntimeStruct {
             true,
             compiler_cache_struct_fields,
-            compiler_cache_type,
+            .CompilerCache,
         }
 
         args = make([]RuntimeValue, 1)
-        args[0] = RuntimeStruct{true, compiler_struct_fields, compiler_type}
+        args[0] = RuntimeStruct{true, compiler_struct_fields, .Compiler}
     }
     result := interp_execute_function2(
         InterpState{&state, run.long_lived_interp_state},
@@ -383,7 +383,7 @@ compile :: proc(
     if should_exit_early(exit_early) {
         return 1
     } else {
-        return int(result.(i64))
+        return expect_int(result.(f64))
     }
 }
 
@@ -580,7 +580,7 @@ parse_args_after_command :: proc(args_after_command: []string) -> (FunctionRef, 
         return FunctionRef{default_file_name, default_func_name}, watch
     case 1:
         for char in func_ref_args[0] {
-            if !is_alphanumeric_char_rune(char) {
+            if !is_alphanumeric_char_any(char) {
                 return FunctionRef{func_ref_args[0], default_func_name}, watch
             }
         }
@@ -678,4 +678,3 @@ main :: proc() {
         fmt.println(ansi_clear + "Recompiling after source code change...")
     }
 }
-

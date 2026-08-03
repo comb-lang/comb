@@ -2,7 +2,7 @@ h = import "std/html.code"
 http = import "std/http.code"
 
 CounterState = {
-    count: I64,
+    count: UInt,
 }
 
 counter_initial_state = CounterState(1)
@@ -25,13 +25,13 @@ site = h.Site(OrderedHashMap[String, () -> h.UI][
     "/" = || -> h.UI {return counter(counter_initial_state)},
 ])
 
-build = |c: Compiler| -> I64 {
+build = |c: Compiler| -> Int {
     h.build_reactive_site(c, site, "gitignore_counter")
     return 0
 }
 
 // TODO: Add unit test for this
-serve = |c: Compiler| -> I64 {
+serve = |c: Compiler| -> Int {
     server = http.get_http_server(c.cache, "server")
     h.serve_reactive_site(c, server, site)
     return 0

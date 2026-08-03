@@ -29,9 +29,23 @@ IdentNode :: struct {
     has_re_before: bool,
 }
 
+WholeNonNegativeNumber :: struct {
+    digits: string,
+}
+
+DecimalNonNegativeNumber :: struct {
+    integer_part:    string,
+    fractional_part: string,
+}
+
+NonNegativeNumber :: union {
+    WholeNonNegativeNumber,
+    DecimalNonNegativeNumber,
+}
+
 Number :: struct {
-    is_negated:      bool,
-    absolute_digits: string,
+    is_negated:     bool,
+    absolute_value: NonNegativeNumber,
 }
 
 String :: distinct []string
@@ -73,7 +87,7 @@ CheckedFuncRef :: struct {
 //   or a type
 // - For example, something like `HtmlElem[State].Text("hello world")`, where
 //   `HtmlElem[State]` could be either:
-//   - A value with a type like `{ Text: (String) -> I64 }`, or;
+//   - A value with a type like `{ Text: (String) -> Int }`, or;
 //   - A sum type like `< Text{contents: String} >`
 
 /*
@@ -132,6 +146,7 @@ ExtraUnit :: struct {
 LeftToRightUnitJoinMethod :: enum {
     Assign, // =
     Tilde, // ~
+    PipeEquals, // |=
 }
 
 HierarchyUnitJoinMethod :: enum {
@@ -199,7 +214,7 @@ HierarchyJoinedUnits :: struct {
 }
 
 Call :: struct {
-    unit_being_called: ^Unit,
+    unit_being_called: ^UnitWithPos,
     args:              []Unit,
 }
 
@@ -287,8 +302,9 @@ MatchStatement :: struct {
 
 ReturnStatement :: distinct []Unit
 YieldStatement :: distinct []Unit
-ContinueStatement :: struct {
+LoopControlFlow :: struct {
     label: TextAndPos,
+    kind:  LoopControlFlowKind,
 }
 UnreachableStatement :: struct {}
 
@@ -302,13 +318,13 @@ Statement :: struct {
         ReturnStatement,
         YieldStatement,
         MatchStatement,
-        ContinueStatement,
+        LoopControlFlow,
         UnreachableStatement,
     },
 }
 
 FunctionArg :: struct {
-    name:       TextAndPos,
+    name:       Ident,
     value_type: Unit,
 }
 
@@ -379,7 +395,8 @@ print_output_list :: proc(s: ^TreePrinterState, label: string, list: []FunctionO
 
 debug_call :: proc(funcs: []FunctionDefinition, c: Call) {
     debug_nesting += 1
-    debug_unit(funcs, c.unit_being_called^)
+    debug("TODO")
+    // debug_unit(funcs, c.unit_being_called)
     for arg, i in c.args {
         debug("arg %d", i)
         debug_nesting += 1
@@ -401,7 +418,7 @@ debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
         panic("TODO")
     case Number:
         debug("is_negated: %v", v.is_negated)
-        debug("absolute_digits: %s", v.absolute_digits)
+        debug("absolute_value: %v", v.absolute_value)
     case Char:
         panic("TODO")
     case MarkedUnit:
@@ -565,4 +582,3 @@ print_ast :: proc(
 }
 
 */
-

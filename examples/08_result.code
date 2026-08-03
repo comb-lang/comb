@@ -50,7 +50,7 @@ animal_to_str = |animal: Animal| -> String {
 	}
 }
 
-main = || -> I64 {
+main = || -> Int {
     name = readline("Enter the name of an animal: ")
 	match str_to_animal(name) {
 	    animal: .Ok {

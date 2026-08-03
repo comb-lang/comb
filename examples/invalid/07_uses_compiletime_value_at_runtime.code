@@ -1,0 +1,4 @@
+main = || -> Int {
+    println(String + 5)
+    return 0
+}

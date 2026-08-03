@@ -883,11 +883,12 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
         inner := interp_eval_value(s, value.value^)
         switch inner_val in inner {
         case nil: panic("Unreachable: Uninitialised")
-        case f64: if math.floor(inner_val) == inner_val {
-                    return RuntimeString{true, fmt.aprintf("%d", i64(inner_val))}
-                } else {
-                    return RuntimeString{true, fmt.aprintf("%f", inner_val)}
-                }
+        case f64:
+            if value.from_type == .FloatType {
+                return RuntimeString{true, fmt.aprintf("%f", inner_val)}
+            }
+            assert(math.floor(inner_val) == inner_val)
+            return RuntimeString{true, fmt.aprintf("%d", i64(inner_val))}
         case bool: return RuntimeString{false, inner_val ? "true" : "false"}
         case RuntimeString: return inner_val
         case RuntimeArray,

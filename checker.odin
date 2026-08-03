@@ -3896,10 +3896,7 @@ check_derivation_subset :: proc(
         return elements, t.value_type
     case StructType:
         field, ok := unit.unit.(IdentNode)
-        if !ok ||
-           field.has_re_before ||
-           len(field.segments) != 2 ||
-           field.segments[0].ident != "" {
+        if !ok || field.has_re_before || field.segments[0].ident != "" {
             diagnostic(
                 s,
                 unit.pos,
@@ -3922,7 +3919,34 @@ check_derivation_subset :: proc(
         }
         elements := DoubleDynamic(DerivationSubsetElement){}
         dynamic_append_elem(&elements, FieldAccess{field_index.index})
-        return elements, t.types.d[field_index.index]
+        out_type := t.types.d[field_index.index]
+        for i := 2; i < len(field.segments); i += 1 {
+            field_name = field.segments[i]
+            struct_type, is_struct := get_type(s.types, simplify_type(s, out_type)).key.(StructType)
+            if !is_struct {
+                diagnostic(
+                    s,
+                    field_name.pos,
+                    "Cannot use `.` for non-struct type `%s`",
+                    type_to_string(s, out_type),
+                )
+                return DoubleDynamic(DerivationSubsetElement){}, .invalid_type
+            }
+            field_index = lookup(struct_type.m, field_name.ident, string_to_index_procs)
+            if field_index == does_not_exist {
+                diagnostic(
+                    s,
+                    unit.pos,
+                    "The field `%s` dost not exist in the struct type `%s`",
+                    field_name.ident,
+                    type_to_string(s, out_type),
+                )
+                return DoubleDynamic(DerivationSubsetElement){}, .invalid_type
+            }
+            dynamic_append_elem(&elements, FieldAccess{field_index.index})
+            out_type = struct_type.types.d[field_index.index]
+        }
+        return elements, out_type
     case:
         diagnostic(
             s,

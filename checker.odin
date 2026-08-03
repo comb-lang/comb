@@ -599,7 +599,7 @@ expect_runtime_value :: proc(
     if comptime_value, is_comptime_value := v.(CompileTimeValue); is_comptime_value {
         #partial switch _ in comptime_value {
         case Type, GlobalValueWithGenericRef, UninitialisedOrderedHashMapType, Import:
-            diagnostic(s, pos, "This value can only be used at run time")
+            diagnostic(s, pos, "This value can only be used at compile time")
             return nil
         }
     }

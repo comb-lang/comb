@@ -4210,7 +4210,9 @@ check_global_value_without_generic :: proc(
             CheckValueArgs{nil, AnyType{&type}, no_generic_args, nil},
         )
         assert(type == .type_type)
-        if initialised_type != nil {
+        if initialised_type == nil {
+            s.types.values.d[type_value].type = .invalid_type
+        } else {
             s.types.values.d[type_value].type = initialised_type.(CompileTimeValue).(Type)
         }
     }

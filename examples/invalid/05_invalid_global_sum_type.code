@@ -7,7 +7,7 @@ uses_invalid_sum_type = || {
 	_ = []InvalidSumType(.A())
 }
 
-main = || -> I64 {
+main = || -> Int {
 	uses_invalid_sum_type()
 	return 0
 }

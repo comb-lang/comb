@@ -2397,12 +2397,8 @@ check_var_ref_start :: proc(
     if segments[0].ident != "" && segments[0].ident in generic_args {
         return CompileTimeValue(generic_args[segments[0].ident]), .Type, 1
     }
-    if builtin_func, builtin_func_type := get_builtin_func_from_name(segments[0].ident);
-       builtin_func != .invalid_builtin {
-        return CompileTimeValue(builtin_func), builtin_func_type, 1
-    }
-    if builtin_type := get_builtin_type_from_name(segments[0].ident); builtin_type != .Unknown {
-        return CompileTimeValue(builtin_type), .Type, 1
+    if builtin := get_builtin(segments[0].ident); builtin.value != nil {
+        return builtin.value, builtin.type, 1
     }
     if segments[0].ident == "OrderedHashMap" {
         return CompileTimeValue(UninitialisedOrderedHashMapType{}), .Unknown, 1
@@ -3076,7 +3072,6 @@ check_joined_unit_value :: proc(
         )
 
     case .IsGreaterThan, .IsGreaterThanOrEqual, .IsLessThan, .IsLessThanOrEqual:
-        // TODO: Do not assume number types
         val0 := expect_runtime_value(
             s,
             value.unit0.pos,
@@ -3108,7 +3103,6 @@ check_joined_unit_value :: proc(
             case: panic("Unreachable")
             }
         }
-        // TODO: Do not assume number types
         val0_type := Type.Invalid
         val1_type := Type.Invalid
         val0 := expect_runtime_value(
@@ -4332,7 +4326,7 @@ check :: proc(
         // state.file = type.file
         for arg in type.generics {
             expect_camel_case(&state, "generic names", arg)
-            if is_builtin(arg.text) {
+            if get_builtin(arg.text).value != nil {
                 diagnostic(&state, arg.pos, builtins_err, arg.text)
             }
         }
@@ -4357,7 +4351,7 @@ check :: proc(
         // TODO: Iterating over globals as a map is a big source of the
         // non-deterministic error ordering in this compiler
         for global_name, global in file {
-            if is_builtin(global_name) {
+            if get_builtin(global_name).value != nil {
                 diagnostic(&state, Pos{global.pos, &state.files.d[i]}, builtins_err, global_name)
                 continue
             }

@@ -41,50 +41,50 @@ BuiltinFunction :: enum u8 {
     clear_after_cursor,
     make_dir_all,
     expect_uint,
-    invalid_builtin = max(u8),
 }
 
-get_builtin_func_from_name :: proc(name: string) -> (BuiltinFunction, Type) {
-    switch name {
-    case "print": return .print, .StringToNil
-    case "println": return .println, .StringToNil
-    case "eprint": return .eprint, .StringToNil
-    case "eprintln": return .eprintln, .StringToNil
-    case "readline": return .readline, .StringToString
-    case "read_file": return .read_file, .StringToString
-    case "write_file": return .write_file, .StringStringToNil
-    case "clear": return .clear, .NoArgsToNil
-    case "run_executable": return .run_executable, .ArrayOfStringsToNil
-    case "exit": return .exit, .IntToNil
-    case "string_repeat": return .string_repeat, .StringUintToString
-    case "init_http_server": return .init_http_server, .NoArgsToHttpServer
-    case "cast": return .cast_func, .Unknown
-    case "save_cursor_pos": return .save_cursor_pos, .NoArgsToNil
-    case "restore_cursor_pos": return .restore_cursor_pos, .NoArgsToNil
-    case "clear_after_cursor": return .clear_after_cursor, .NoArgsToNil
-    case "make_dir_all": return .make_dir_all, .StringToNil
-    case "expect_uint": return .expect_uint, .FloatToUInt
-    case: return .invalid_builtin, .Invalid
-    }
+GotBuiltin :: struct {
+    value: CompileTimeValue,
+    type:  Type,
 }
 
-get_builtin_type_from_name :: proc(name: string) -> Type {
+// `GotBuiltin.value == nil` if and only if the builtin does not exist
+get_builtin :: proc(name: string) -> GotBuiltin {
     switch name {
-    case "Int": return .Int
-    case "UInt": return .UInt
-    case "Float": return .Float
-    case "Char": return .Char
-    case "Bool": return .Bool
-    case "String": return .String
-    case "Type": return .Type
-    case "ImportedFile": return .ImportedFile
-    case "Any": return .Any
-    case "Compiler": return .Compiler
-    case "CompilerCache": return .CompilerCache
-    case "HttpRequest": return .HttpRequest
-    case "HttpResponse": return .HttpResponse
-    case "HttpServer": return .HttpServer
-    case: return .Unknown
+    case: return GotBuiltin{}
+    case "print": return GotBuiltin{BuiltinFunction.print, .StringToNil}
+    case "println": return GotBuiltin{BuiltinFunction.println, .StringToNil}
+    case "eprint": return GotBuiltin{BuiltinFunction.eprint, .StringToNil}
+    case "eprintln": return GotBuiltin{BuiltinFunction.eprintln, .StringToNil}
+    case "readline": return GotBuiltin{BuiltinFunction.readline, .StringToString}
+    case "read_file": return GotBuiltin{BuiltinFunction.read_file, .StringToString}
+    case "write_file": return GotBuiltin{BuiltinFunction.write_file, .StringStringToNil}
+    case "clear": return GotBuiltin{BuiltinFunction.clear, .NoArgsToNil}
+    case "run_executable": return GotBuiltin{BuiltinFunction.run_executable, .ArrayOfStringsToNil}
+    case "exit": return GotBuiltin{BuiltinFunction.exit, .IntToNil}
+    case "string_repeat": return GotBuiltin{BuiltinFunction.string_repeat, .StringUintToString}
+    case "init_http_server":
+        return GotBuiltin{BuiltinFunction.init_http_server, .NoArgsToHttpServer}
+    case "cast": return GotBuiltin{BuiltinFunction.cast_func, .Unknown}
+    case "save_cursor_pos": return GotBuiltin{BuiltinFunction.save_cursor_pos, .NoArgsToNil}
+    case "restore_cursor_pos": return GotBuiltin{BuiltinFunction.restore_cursor_pos, .NoArgsToNil}
+    case "clear_after_cursor": return GotBuiltin{BuiltinFunction.clear_after_cursor, .NoArgsToNil}
+    case "make_dir_all": return GotBuiltin{BuiltinFunction.make_dir_all, .StringToNil}
+    case "expect_uint": return GotBuiltin{BuiltinFunction.expect_uint, .FloatToUInt}
+    case "Int": return GotBuiltin{Type.Int, .Type}
+    case "UInt": return GotBuiltin{Type.UInt, .Type}
+    case "Float": return GotBuiltin{Type.Float, .Type}
+    case "Char": return GotBuiltin{Type.Char, .Type}
+    case "Bool": return GotBuiltin{Type.Bool, .Type}
+    case "String": return GotBuiltin{Type.String, .Type}
+    case "Type": return GotBuiltin{Type.Type, .Type}
+    case "ImportedFile": return GotBuiltin{Type.ImportedFile, .Type}
+    case "Any": return GotBuiltin{Type.Any, .Type}
+    case "Compiler": return GotBuiltin{Type.Compiler, .Type}
+    case "CompilerCache": return GotBuiltin{Type.CompilerCache, .Type}
+    case "HttpRequest": return GotBuiltin{Type.HttpRequest, .Type}
+    case "HttpResponse": return GotBuiltin{Type.HttpResponse, .Type}
+    case "HttpServer": return GotBuiltin{Type.HttpServer, .Type}
     }
 }
 
@@ -130,48 +130,6 @@ to_str :: proc(s: ^CheckerState, pos: Pos, val: CheckedValue, type: Type) -> Che
     return ToString{from_type, new_clone(val)}
 }
 
-// The boolean returned is whether the name is a builtin
-is_builtin :: proc(name: string) -> bool {
-    switch name {
-    case "Compiler",
-         "CompilerCache",
-         "cast",
-         "print",
-         "println",
-         "eprint",
-         "eprintln",
-         "readline",
-         "read_file",
-         "write_file",
-         "clear",
-         "run_executable",
-         "exit",
-         "save_cursor_pos",
-         "restore_cursor_pos",
-         "clear_after_cursor",
-         "make_dir_all",
-         "Int",
-         "UInt",
-         "Float",
-         "Char",
-         "Bool",
-         "String",
-         "Type",
-         "ImportedFile",
-         "OrderedHashMap",
-         "Any",
-         "to_str",
-         "HttpRequest",
-         "HttpResponse",
-         "HttpServer",
-         "init_http_server",
-         "expect_uint",
-         "string_repeat":
-        return true
-    case: return false
-    }
-}
-
 add_unnamed_variable :: proc(
     s: ^CheckerState,
     variable_type: Type,
@@ -209,7 +167,7 @@ add_variable :: proc(
         TextAndPos{variable.ident, variable.pos},
         can_have_dollar_postfix = true,
     )
-    if is_builtin(variable.ident) {
+    if get_builtin(variable.ident).value != nil {
         diagnostic(s, variable.pos, builtins_err, variable.ident)
         return VariableRef{}, false
     }

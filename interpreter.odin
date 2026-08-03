@@ -1192,7 +1192,7 @@ default_builtin_handler_procedure :: proc(
         io.write_string(data.pipe.stdout, "\033[0J")
         io.flush(data.pipe.stdout)
         return nil
-    case .invalid_builtin, .cast_func: panic("Unreachable")
+    case .cast_func: panic("Unreachable")
     case .expect_uint:
         assert(len(args) == 1)
         arg := args[0].(f64)

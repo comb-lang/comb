@@ -7,6 +7,12 @@ import "core:math/rand"
 import "core:strings"
 import "core:testing"
 
+when ODIN_DEBUG {
+    SourceCodeLocationOnDebug :: runtime.Source_Code_Location
+} else {
+    SourceCodeLocationOnDebug :: struct {}
+}
+
 panicf :: proc(format: string, args: ..any) -> ! {
     panic(fmt.aprintf(format, ..args))
 }

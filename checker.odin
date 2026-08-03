@@ -4134,9 +4134,11 @@ check_global_value_without_generic :: proc(
     //    s.global_values_without_generic[i].value = ref
     //    return check_anonymous_func_body(s, func, func_type, ref, no_generic_args)
     //}
-    if import_value, is_import := value.unit.first_unit.(Import); is_import {
-        global.v = CheckedGlobalValue{.ImportedFile, import_value}
-        return global.v
+    if len(value.unit.extra_units) == 0 {
+        if import_value, is_import := value.unit.first_unit.(Import); is_import {
+            global.v = CheckedGlobalValue{.ImportedFile, import_value}
+            return global.v
+        }
     }
     body: [dynamic]CheckedStatement = nil
     early_exit_if_value_is_type: TypeKey = GlobalType{ref}

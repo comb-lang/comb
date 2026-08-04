@@ -191,6 +191,7 @@ EarlyExitInfo :: union #no_nil {
 
 compile :: proc(
     a: ^utils.Arena,
+    files_cache: ^FilesCache,
     func: FunctionRef,
     compiler: utils.Pipe(io.Writer),
     command: Command,
@@ -209,7 +210,7 @@ compile :: proc(
         )
     }
 
-    parsed, ok := parse_project(a, func.file_name, compiler, exit_early)
+    parsed, ok := parse_project(a, func.file_name, files_cache, compiler, exit_early)
     if !ok {
         return 1
     }
@@ -227,7 +228,7 @@ compile :: proc(
     }
 
     fmt.wprintfln(compiler.stdout, "Checking...")
-    checker_output := check(a, parsed, func.func_name, compiler)
+    checker_output := check(a, parsed, files_cache.files, func.func_name, compiler)
     function_type := Type.Unknown
     if checker_output.func_ref.index < len(checker_output.checked_funcs) {
         function_type = checker_output.checked_funcs[checker_output.func_ref.index].type
@@ -666,8 +667,11 @@ main :: proc() {
     for {
         a: utils.Arena
         defer utils.delete_arena(&a, expect_empty = false)
+        cache := empty_files_cache(&a)
+        defer cleanup_files_cache(cache)
         ret := compile(
             &a,
+            &cache,
             ref,
             std_pipe,
             command,

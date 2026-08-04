@@ -40,8 +40,11 @@ run_example_via_c :: proc(
 ) -> RanExampleViaC {
     compiler_pipe := utils.pipe_mock(a)
     executable: string
+    cache := empty_files_cache(a)
+    defer cleanup_files_cache(cache)
     status := compile(
         a,
+        &cache,
         FunctionRef{absolute_path, "main"},
         compiler_pipe,
         BuildC{&executable},
@@ -100,8 +103,11 @@ interpret_example :: proc(
 ) -> InterpretedExample {
     compiler_pipe := utils.pipe_mock(a)
     program_pipe := utils.pipe_mock(a)
+    cache := empty_files_cache(a)
+    defer cleanup_files_cache(cache)
     status := compile(
         a,
+        &cache,
         func,
         compiler_pipe,
         Run{program_pipe, utils.arena_new(a, LongLivedInterpState)},
@@ -419,8 +425,11 @@ basic_fuzz_test :: proc(t: ^testing.T) {
 
         pipe := utils.pipe_mock(&a)
         defer utils.get_output(pipe)
+        cache := empty_files_cache(&a)
+        defer cleanup_files_cache(cache)
         compile(
             &a,
+            &cache,
             FunctionRef{tmp_file, "main"},
             pipe,
             BuildC{},

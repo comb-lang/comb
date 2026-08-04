@@ -2,10 +2,42 @@ package main
 
 import "core:fmt"
 import "core:io"
+import "core:os"
+import "core:path/filepath"
 import "utils"
 
+FilesCache :: struct {
+    files:     []CompilerFile,
+    files_map: map[string]^CompilerFile,
+}
+
+empty_files_cache :: proc(a: ^utils.Arena) -> FilesCache {
+    return FilesCache{utils.arena_make(a, []CompilerFile, 0, resizable = true), nil}
+}
+
+cleanup_files_cache :: proc(c: FilesCache) {
+    utils.fix_resizable_dynamic(c.files)
+    delete(c.files_map)
+}
+
+read_file :: proc(c: ^FilesCache, absolute_path: string) -> (^CompilerFile, os.Error) {
+    file_ref, exists := c.files_map[absolute_path]
+    if exists {
+        return file_ref, nil
+    }
+    data, data_err := os.read_entire_file(absolute_path, context.allocator)
+    if data_err != nil {
+        return nil, data_err
+    }
+    utils.append_dynamic(
+        &c.files,
+        CompilerFile{string(data), absolute_path, filepath.dir(absolute_path)},
+    )
+    file_ref = &c.files[len(c.files) - 1]
+    return file_ref, nil
+}
+
 DiagnosticReporter :: struct {
-    files:     utils.Multi(CompilerFile),
     io:        utils.Pipe(io.Writer),
     number_of: [DiagnosticType]uint,
 }

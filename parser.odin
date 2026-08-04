@@ -4,7 +4,6 @@ package main
 import "core:fmt"
 import "core:io"
 import "core:mem"
-import "core:os"
 import "core:path/filepath"
 import "utils"
 
@@ -12,12 +11,9 @@ plain_ident_base :: "n identifier with one segment and no `$` sign at the end"
 plain_ident_capitalised :: "A" + plain_ident_base
 plain_ident_normal :: "a" + plain_ident_base
 
-get_file_index :: proc(
-    files: utils.Multi(CompilerFile),
-    ref: ^CompilerFile,
-    loc := #caller_location,
-) -> int {
-    return mem.ptr_sub(ref, &files.d[0])
+get_file_index :: proc(files: []CompilerFile, ref: ^CompilerFile, loc := #caller_location) -> int {
+    // utils.print_call(loc, "get_file_index")
+    return mem.ptr_sub(ref, &files[0])
 }
 
 ParsingContext :: struct {
@@ -35,13 +31,14 @@ ParserState :: struct {
     // Updated every time the parser starts parsing a different file
     using tokenizer_state:          TokenizerState,
 
-    // Grows and shirnks as the nesting increases and decreases
+    // Grows and shrinks as the nesting increases and decreases
     parser_context:                 []ParsingContext,
 
     // Grow as the project is parsed
     using r:                        DiagnosticReporter,
-    files_map:                      map[string]^CompilerFile,
-    parsed_files:                   []map[string]ParsedGlobal,
+    files_cache:                    ^FilesCache,
+    // len(parsed_files) == get_file_index(files_cache.files, tokenizer_state.last_token_pos.file) + 1
+    parsed_files:                   utils.Multi(map[string]ParsedGlobal),
     global_values_without_generics: [dynamic]GlobalValueWithoutGeneric,
     global_values_with_generics:    [dynamic]GlobalValueWithGeneric,
     function_defs:                  [dynamic]FunctionDefinition,
@@ -219,26 +216,13 @@ maybe_parse_initial_unit :: proc(
             diagnostic(&s.r, unknown_pos, "Failed to join filepath: %v", join_err)
             return nil, false
         }
-        if file_ref, exists := s.files_map[joined]; exists {
-            get_next_token(s, true)
-            return Import{file_ref}, true
-        } else {
-            data, data_err := os.read_entire_file(joined, context.allocator)
-            if data_err != nil {
-                diagnostic(&s.r, s.last_token_pos, "Failed to read `%s`: %#v", joined, data_err)
-                return nil, false
-            }
-            utils.append_multi_dynamic(
-                &s.files,
-                len(s.parsed_files),
-                CompilerFile{string(data), joined, filepath.dir(joined)},
-            )
-            ref := &s.files.d[len(s.parsed_files)]
-            utils.append_dynamic(&s.parsed_files, nil)
-            get_next_token(s, true)
-            s.files_map[joined] = ref
-            return Import{ref}, true
+        file_ref, read_err := read_file(s.files_cache, joined)
+        if read_err != nil {
+            diagnostic(&s.r, s.last_token_pos, "Failed to read `%s`: %#v", joined, read_err)
+            return nil, false
         }
+        get_next_token(s, true)
+        return Import{file_ref}, true
 
     case OpenBracketToken:
         elements, ok := parse_units_until(s, is_close_bracket, "`)` to end the tuple")
@@ -1478,7 +1462,8 @@ parse_file :: proc(s: ^ParserState) -> bool {
                 return false
             }
             name := token[0].ident
-            if def, exists := s.parsed_files[get_file_index(s.files, s.last_token_pos.file)][name];
+            if def, exists :=
+                   s.parsed_files.d[get_file_index(s.files_cache.files, s.last_token_pos.file)][name];
                exists {
                 diagnostic(
                     &s.r,
@@ -1572,7 +1557,7 @@ parse_file :: proc(s: ^ParserState) -> bool {
                     return false
                 }
                 if len(generic) == 0 {
-                    s.parsed_files[get_file_index(s.files, s.last_token_pos.file)][name] =
+                    s.parsed_files.d[get_file_index(s.files_cache.files, s.last_token_pos.file)][name] =
                         ParsedGlobal {
                             position.index,
                             u32(len(s.global_values_without_generics)),
@@ -1583,7 +1568,7 @@ parse_file :: proc(s: ^ParserState) -> bool {
                         GlobalValueWithoutGeneric{name, type, s.last_token_pos.file},
                     )
                 } else {
-                    s.parsed_files[get_file_index(s.files, s.last_token_pos.file)][name] =
+                    s.parsed_files.d[get_file_index(s.files_cache.files, s.last_token_pos.file)][name] =
                         ParsedGlobal{position.index, u32(len(s.global_values_with_generics)), true}
                     append_elem(
                         &s.global_values_with_generics,
@@ -1596,9 +1581,7 @@ parse_file :: proc(s: ^ParserState) -> bool {
 }
 
 ParsedProject :: struct {
-    files_map:                     map[string]^CompilerFile,
-    parsed_files:                  []map[string]ParsedGlobal,
-    files:                         utils.Multi(CompilerFile),
+    parsed_files:                  utils.Multi(map[string]ParsedGlobal),
     global_values_without_generic: []GlobalValueWithoutGeneric,
     global_values_with_generics:   []GlobalValueWithGeneric,
     function_defs:                 []FunctionDefinition,
@@ -1607,6 +1590,7 @@ ParsedProject :: struct {
 parse_project :: proc(
     a: ^utils.Arena,
     first_file_relative_path: string,
+    files_cache: ^FilesCache,
     io: utils.Pipe(io.Writer),
     exit_early: EarlyExitInfo,
 ) -> (
@@ -1626,49 +1610,52 @@ parse_project :: proc(
         return ParsedProject{}, false
     }
 
-    fmt.wprintfln(io.stdout, "Reading `%s`...", first_file_absolute_path)
-    data, data_err := os.read_entire_file(first_file_absolute_path, context.allocator)
-    if data_err != nil {
-        fmt.wprintfln(io.stderr, "Failed to read `%s`: %#v", first_file_absolute_path, data_err)
-        return ParsedProject{}, false
-    }
-
     state := ParserState {
-            r = DiagnosticReporter {
-                io = io,
-                files = utils.arena_make_multi(a, utils.Multi(CompilerFile), 1, resizable = true),
-            },
+            r = DiagnosticReporter{io = io},
+            files_cache = files_cache,
             parser_context = utils.arena_make(a, []ParsingContext, 0, resizable = true),
-            parsed_files = utils.arena_make(a, []map[string]ParsedGlobal, 1, resizable = true),
+            parsed_files = utils.arena_make_multi(
+                a,
+                utils.Multi(map[string]ParsedGlobal),
+                1,
+                resizable = true,
+            ),
             a = a,
         }
     defer {
-        utils.fix_resizable_dynamic(state.parsed_files)
+        utils.fix_resizable_multi(state.parsed_files)
         utils.fix_resizable_dynamic(state.parser_context)
-        utils.fix_resizable_multi(state.r.files)
     }
-    state.parsed_files[0] = nil
-    state.r.files.d[0] = CompilerFile {
-        string(data),
-        first_file_absolute_path,
-        filepath.dir(first_file_absolute_path),
+
+    fmt.wprintfln(io.stdout, "Reading `%s`...", first_file_absolute_path)
+    file_ref, read_err := read_file(state.files_cache, first_file_absolute_path)
+    if read_err != nil {
+        fmt.wprintfln(io.stderr, "Failed to read `%s`: %#v", first_file_absolute_path, read_err)
+        return ParsedProject{}, false
     }
-    state.files_map[first_file_absolute_path] = &state.files.d[0]
-    state.last_token_pos.file = &state.files.d[0]
+    state.last_token_pos.file = file_ref
 
     ok := true
     for {
+        utils.append_multi_dynamic(
+            &state.parsed_files,
+            get_file_index(state.files_cache.files, state.last_token_pos.file),
+            nil,
+        )
         file_path := state.last_token_pos.file.file_path
         fmt.printfln("Parsing `%s`...", file_path)
         state.tokenizer_state = TokenizerState {
-            last_token_descriptions_of_other_possible_tokens = utils.arena_make(
-                a,
-                []string,
-                0,
-                resizable = true,
-            ),
-            last_token_pos                                   = Pos{0, state.last_token_pos.file},
-        }
+                last_token_descriptions_of_other_possible_tokens = utils.arena_make(
+                    a,
+                    []string,
+                    0,
+                    resizable = true,
+                ),
+                last_token_pos                                   = Pos {
+                    0,
+                    state.last_token_pos.file,
+                },
+            }
         defer utils.fix_resizable_dynamic(
             state.tokenizer_state.last_token_descriptions_of_other_possible_tokens,
         )
@@ -1676,19 +1663,16 @@ parse_project :: proc(
         if !file_ok {
             ok = false
         }
-        next_index := get_file_index(state.files, state.last_token_pos.file) + 1
-        if next_index >= len(state.parsed_files) {
+        next_index := get_file_index(state.files_cache.files, state.last_token_pos.file) + 1
+        if next_index >= len(state.files_cache.files) {
             break
         }
-        state.last_token_pos.file = &state.files.d[next_index]
+        state.last_token_pos.file = &state.files_cache.files[next_index]
     }
     if exit_early_info, exiting_early := exit_early.(^ExitEarly); exiting_early {
         #partial switch &exit_early_info_value in exit_early_info {
         case ExitEarlyAwaitingSourceCodeChange:
-            exit_early_info_value.files = utils.multi_to_array(
-                state.files,
-                len(state.parsed_files),
-            )
+            exit_early_info_value.files = state.files_cache.files
         case:
             panic("Unreachable")
         }
@@ -1697,9 +1681,7 @@ parse_project :: proc(
         return ParsedProject{}, false
     }
     return ParsedProject {
-            state.files_map,
-            state.parsed_files[:],
-            state.files,
+            state.parsed_files,
             state.global_values_without_generics[:],
             state.global_values_with_generics[:],
             state.function_defs[:],

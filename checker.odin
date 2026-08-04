@@ -78,7 +78,8 @@ CheckerScopeState :: struct {
 
 CheckerState :: struct {
     // The following fields do not change while checking
-    parsed_files:                  []map[string]ParsedGlobal, // len(parsed_files) == len(r.files)
+    parsed_files:                  utils.Multi(map[string]ParsedGlobal), // len(parsed_files) == len(files)
+    files:                         []CompilerFile,
     global_values_without_generic: #soa[]CheckerGlobalValueWithoutGeneric,
     global_values_with_generics:   []GlobalValueWithGeneric,
     func_defs:                     []FunctionDefinition,
@@ -2325,7 +2326,7 @@ check_namespaced_var_ref :: proc(
     int,
 ) {
     namespace_index := get_file_index(s.files, namespace)
-    file_globals := s.parsed_files[namespace_index]
+    file_globals := s.parsed_files.d[namespace_index]
     parsed_global, global_exists := file_globals[segments[index].ident]
     if !global_exists {
         diagnostic(
@@ -2333,7 +2334,7 @@ check_namespaced_var_ref :: proc(
             segments[index].pos,
             "The variable `%s` is not defined in the file `%s`",
             segments[index].ident,
-            s.files.d[namespace_index].file_path,
+            s.files[namespace_index].file_path,
         )
         return nil, .Invalid, 0
     }
@@ -4288,7 +4289,7 @@ get_global_function :: proc(
     Pos,
     bool,
 ) {
-    parsed_global, exists := s.parsed_files[get_file_index(s.files, file_to_search)][name]
+    parsed_global, exists := s.parsed_files.d[get_file_index(s.files, file_to_search)][name]
     if !exists {
         diagnostic(s, usage_pos, "The global `%s` is not defined%s", name, extra_text)
         return CheckedFuncRef{}, unknown_pos, false
@@ -4336,6 +4337,7 @@ CheckerOutput :: struct {
 check :: proc(
     a: ^utils.Arena,
     parsed: ParsedProject,
+    files: []CompilerFile,
     func_name: string,
     io: utils.Pipe(io.Writer),
 ) -> CheckerOutput {
@@ -4345,12 +4347,9 @@ check :: proc(
             utils.make_key_to_index(a, utils.KeyToIndex(GenericInitialisation)),
             utils.arena_make_multi(a, utils.Multi(CheckedGlobalValue), 0, resizable = true),
         },
-        r                             = DiagnosticReporter {
-            parsed.files,
-            io,
-            [DiagnosticType]uint{},
-        },
+        r                             = DiagnosticReporter{io, [DiagnosticType]uint{}},
         parsed_files                  = parsed.parsed_files,
+        files                         = files,
         global_values_without_generic = soa_zip(
             parsed.global_values_without_generic,
             make([]CheckedGlobalValue, len(parsed.global_values_without_generic)),
@@ -4403,13 +4402,14 @@ check :: proc(
         return CheckerOutput{reporter = state.r}
     }
 
-    for file, i in parsed.parsed_files {
+    for &read_file, i in files {
+        file := parsed.parsed_files.d[i]
         // state.file = FileRef{uint(i)}
         // TODO: Iterating over globals as a map is a big source of the
         // non-deterministic error ordering in this compiler
         for global_name, global in file {
             if get_builtin(global_name).value != nil {
-                diagnostic(&state, Pos{global.pos, &state.files.d[i]}, builtins_err, global_name)
+                diagnostic(&state, Pos{global.pos, &read_file}, builtins_err, global_name)
                 continue
             }
             // TODO: Check that the name is the correct case
@@ -4444,7 +4444,7 @@ check :: proc(
     func_ref, _, func_ok := get_global_function(
         &state,
         unknown_pos,
-        &state.files.d[0],
+        &state.files[0],
         func_name,
         "\nTODO: Write hint",
     )

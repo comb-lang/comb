@@ -12,6 +12,7 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
+import "utils"
 import "webserver"
 
 RuntimeValue :: union {
@@ -424,7 +425,7 @@ interp_push_scope :: proc(state: ^ShortLivedInterpState, variable_types: []Type)
 }
 
 interp_pop_scope :: proc(state: ^ShortLivedInterpState, loc := #caller_location) {
-    when debug_interpreter {
+    when utils.debug_interpreter {
         print_call(loc, "interp_pop_scope")
     }
     frame := &state.frames[len(state.frames) - 1]
@@ -510,7 +511,7 @@ interp_destroy_value :: proc(val: ^RuntimeValue, loc := #caller_location) {
 }
 
 interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> RuntimeValue {
-    when debug_interpreter {
+    when utils.debug_interpreter {
         print_call(loc, "interp_clone_value")
     }
     switch v in val {
@@ -577,7 +578,7 @@ interp_exec_statement :: proc(state: InterpState, stmt: CheckedStatement) {
         } else {
             state.control_flow_op = ReturnFromFunction{nil}
         }
-        when debug_interpreter {
+        when utils.debug_interpreter {
             debug("state.control_flow_op set to %v", state.control_flow_op)
         }
 
@@ -1101,7 +1102,7 @@ interp_eval_value :: proc(s: InterpState, v: CheckedValue) -> RuntimeValue {
 
 DefaultBuiltinHandlerData :: struct {
     working_dir: string,
-    pipe:        Pipe(io.Writer),
+    pipe:        utils.Pipe(io.Writer),
     stdin:       io.Reader,
 }
 
@@ -1181,7 +1182,7 @@ default_builtin_handler_procedure :: proc(
         return nil
     case .clear:
         assert(len(args) == 0)
-        fmt.wprint(data.pipe.stdout, ansi_clear)
+        fmt.wprint(data.pipe.stdout, utils.ansi_clear)
         return nil
     case .run_executable:
         panic("TODO")

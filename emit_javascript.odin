@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:strings"
+import "utils"
 
 emit_js_func_call :: proc(s: ^GeneralEmitterState, c: CheckedFunctionCall) {
     emit_js_value(s, c.function^)
@@ -576,7 +577,7 @@ emit_js_block :: proc(
     body: []CheckedStatement,
     loc := #caller_location,
 ) {
-    when debug_emitter {
+    when utils.debug_emitter {
         print_call(loc, "emit_js_block")
     }
     emit_js_block_head(s, nesting_level, variables)
@@ -628,7 +629,7 @@ emit_javascript :: proc(types: Types, checked_functions: []CheckedFunction) -> s
     */
 
     for func, index in checked_functions {
-        when debug_emitter {
+        when utils.debug_emitter {
             debug("emitting function index %d", index)
         }
         strings.write_string(&s.b, "const func")

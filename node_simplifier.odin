@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "utils"
 
 // This file may become an implementation of the node simplifier in a sea of nodes style optimizer
 // See https://github.com/seaofnodes/simple
@@ -115,7 +116,7 @@ iterate_array :: proc(
     loop_index: uint,
     index_variable: VariableRef,
     value_variable: VariableRef,
-    body: ^DoubleDynamic(CheckedStatement),
+    body: ^utils.DoubleDynamic(CheckedStatement),
     body_variables: []Type,
     array_value: CheckedValue,
     array_type: ArrayType,
@@ -128,7 +129,7 @@ iterate_array :: proc(
 
     if_block := make([]CheckedStatement, 1)
     if_block[0] = CheckedLoopControlFlow{loop_index, .Break}
-    dynamic_insert(
+    utils.dynamic_insert(
         body,
         CheckedIf {
             create_joined_values(
@@ -162,7 +163,7 @@ iterate_array :: proc(
         body_variables,
         loop_enter,
         continue_code,
-        dynamic_to_fixed(body^),
+        utils.dynamic_to_fixed(body^),
     }
 }
 
@@ -173,7 +174,7 @@ iterate_start_end_step :: proc(
     start: CheckedValue,
     end: CheckedValue,
     step: CheckedValue,
-    body: ^DoubleDynamic(CheckedStatement),
+    body: ^utils.DoubleDynamic(CheckedStatement),
     body_variables: []Type,
 ) -> CheckedLoop {
     // TODO: Handle when `step` is negative
@@ -181,7 +182,7 @@ iterate_start_end_step :: proc(
     loop_enter[0] = CheckedAssignment{index_variable, start}
     if_block := make([]CheckedStatement, 1)
     if_block[0] = CheckedLoopControlFlow{loop_index, .Break}
-    dynamic_insert(
+    utils.dynamic_insert(
         body,
         CheckedIf {
             create_joined_values(
@@ -203,7 +204,7 @@ iterate_start_end_step :: proc(
         body_variables,
         loop_enter,
         loop_continue,
-        dynamic_to_fixed(body^),
+        utils.dynamic_to_fixed(body^),
     }
 }
 
@@ -213,11 +214,11 @@ iterate_ordered_hash_map :: proc(
     index_variable: VariableRef,
     key_variable: VariableRef,
     value_variable: VariableRef,
-    body: ^DoubleDynamic(CheckedStatement),
+    body: ^utils.DoubleDynamic(CheckedStatement),
     body_variables: []Type,
 ) -> CheckedLoop {
     keys := KeysOfOrderedHashMapWithStringKey{new_clone(hash_map)} // TODO: Handle for Int keys
-    dynamic_insert(
+    utils.dynamic_insert(
         body,
         CheckedAssignment {
             value_variable,

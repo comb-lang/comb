@@ -1,13 +1,14 @@
-package main
+package utils
 
 // Requirements
 // - You only call `resize` for resizable allocations
 // - `dealloc` is called in the reverse order that `alloc` is called in
 // See `arena_test` in `test.odin` for an example
 
+import "../utils"
+import "../virtual"
 import "base:runtime"
 import "core:mem"
-import "virtual"
 
 // For every `virtual.Memory_Block` the `.base` field points to an `ArenaBlockData`
 
@@ -28,7 +29,7 @@ ArenaAllocation :: struct {
     block:                    ^virtual.Memory_Block,
     prev_allocation_in_arena: ^ArenaAllocation,
     prev_allocation_in_block: ^ArenaAllocation,
-    loc:                      SourceCodeLocationOnDebug,
+    loc:                      utils.SourceCodeLocationOnDebug,
 }
 
 get_block_info :: proc(block: ^virtual.Memory_Block) -> ^ArenaBlockInfo {
@@ -146,7 +147,7 @@ arena_make :: proc(
 
 arena_make_multi :: proc(
     a: ^Arena,
-    $T: typeid/Multi($E),
+    $T: typeid/utils.Multi($E),
     len: int,
     resizable := false,
     loc := #caller_location,

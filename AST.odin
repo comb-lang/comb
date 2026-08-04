@@ -1,27 +1,29 @@
 package main
 
+import "utils"
+
 StructUnit :: struct {
-    m:         KeyToIndex(string),
-    positions: Multi(Pos),
-    types:     Multi(Unit),
+    m:         utils.KeyToIndex(string),
+    positions: utils.Multi(Pos),
+    types:     utils.Multi(Unit),
 }
 
 StructType :: struct {
-    m:         KeyToIndex(string),
-    positions: Multi(Pos),
-    types:     Multi(Type),
+    m:         utils.KeyToIndex(string),
+    positions: utils.Multi(Pos),
+    types:     utils.Multi(Type),
 }
 
 SumUnit :: struct {
-    m:         KeyToIndex(string),
-    positions: Multi(Pos),
-    payloads:  Multi(StructUnit),
+    m:         utils.KeyToIndex(string),
+    positions: utils.Multi(Pos),
+    payloads:  utils.Multi(StructUnit),
 }
 
 SumType :: struct {
-    m:         KeyToIndex(string),
-    positions: Multi(Pos),
-    payloads:  Multi(Type), // Always a struct type
+    m:         utils.KeyToIndex(string),
+    positions: utils.Multi(Pos),
+    payloads:  utils.Multi(Type), // Always a struct type
 }
 
 IdentNode :: struct {
@@ -239,13 +241,6 @@ NumericIterator :: struct {
     type:  NumericIteratorType,
 }
 
-Pos :: struct {
-    index: uint,
-    file:  ^CompilerFile,
-}
-
-unknown_pos :: Pos{max(uint), nil}
-
 /*
 IdentAndIndex :: struct {
     ident: string,
@@ -394,21 +389,21 @@ print_output_list :: proc(s: ^TreePrinterState, label: string, list: []FunctionO
 */
 
 debug_call :: proc(funcs: []FunctionDefinition, c: Call) {
-    debug_nesting += 1
-    debug("TODO")
+    utils.debug_nesting += 1
+    utils.debug("TODO")
     // debug_unit(funcs, c.unit_being_called)
     for arg, i in c.args {
-        debug("arg %d", i)
-        debug_nesting += 1
+        utils.debug("arg %d", i)
+        utils.debug_nesting += 1
         debug_unit(funcs, arg)
-        debug_nesting -= 1
+        utils.debug_nesting -= 1
     }
-    debug_nesting -= 1
+    utils.debug_nesting -= 1
 }
 
 debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
-    debug("value at character index %d", unit.pos)
-    debug_nesting += 1
+    utils.debug("value at character index %d", unit.pos)
+    utils.debug_nesting += 1
     switch v in unit.first_unit {
     case UnitsInSquareBrackets:
         panic("TODO")
@@ -417,8 +412,8 @@ debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
     case SumUnit:
         panic("TODO")
     case Number:
-        debug("is_negated: %v", v.is_negated)
-        debug("absolute_value: %v", v.absolute_value)
+        utils.debug("is_negated: %v", v.is_negated)
+        utils.debug("absolute_value: %v", v.absolute_value)
     case Char:
         panic("TODO")
     case MarkedUnit:
@@ -427,50 +422,50 @@ debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
         panic("TODO")
     case Bool:
         if v {
-            debug("The boolean literal `true`")
+            utils.debug("The boolean literal `true`")
         } else {
-            debug("The boolean literal `false`")
+            utils.debug("The boolean literal `false`")
         }
     case FuncDefinitionRef:
-        debug("value is a function definition (TODO)")
+        utils.debug("value is a function definition (TODO)")
     // print_argument_list(s, "inputs:", funcs[v].inputs)
     // print_output_list(s, "outputs:", funcs[v].outputs)
     // print_block(s, funcs, funcs[v].body, "body:")
     case Tuple:
-        debug("tuple:")
+        utils.debug("tuple:")
         for elem in v.elements {
             debug_unit(funcs, elem)
         }
     case CallWithBrackets:
-        debug("call with brackets")
+        utils.debug("call with brackets")
         debug_call(funcs, Call(v))
     case CallWithSquareBrackets:
-        debug("call with square brackets")
+        utils.debug("call with square brackets")
         debug_call(funcs, Call(v))
     case CallWithFrontedSquareBrackets:
-        debug("call with fronted square brackets")
+        utils.debug("call with fronted square brackets")
         debug_call(funcs, Call(v))
     case HierarchyJoinedUnits:
-        debug("joined units")
-        debug_nesting += 1
-        debug("join method: %v", v.join_method)
+        utils.debug("joined units")
+        utils.debug_nesting += 1
+        utils.debug("join method: %v", v.join_method)
         debug_unit(funcs, v.unit0^)
         debug_unit(funcs, v.unit1^)
-        debug_nesting -= 1
+        utils.debug_nesting -= 1
     case IdentNode:
-        debug("ident")
-        debug_nesting += 1
+        utils.debug("ident")
+        utils.debug_nesting += 1
         for segment in v.segments {
-            debug("%q", segment.ident)
+            utils.debug("%q", segment.ident)
         }
-        debug_nesting -= 1
+        utils.debug_nesting -= 1
     case String:
-        debug("string: %v", v)
+        utils.debug("string: %v", v)
     }
     for _ in unit.extra_units {
-        debug("TODO: Handle extra unit")
+        utils.debug("TODO: Handle extra unit")
     }
-    debug_nesting -= 1
+    utils.debug_nesting -= 1
 }
 
 /*

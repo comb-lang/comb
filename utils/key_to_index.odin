@@ -1,4 +1,4 @@
-package main
+package utils
 
 // Zero collision "key to index" implementation
 

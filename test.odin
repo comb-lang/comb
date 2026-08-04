@@ -9,20 +9,16 @@ import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:testing"
-
-Pipe :: struct(T: typeid) {
-    stdout: T,
-    stderr: T,
-}
+import "utils"
 
 CompilationFailed :: struct {
-    compiler: Pipe(string),
+    compiler: utils.Pipe(string),
     status:   int,
 }
 
 CompilationSuccessful :: struct {
-    compiler: Pipe(string),
-    program:  Pipe(string),
+    compiler: utils.Pipe(string),
+    program:  utils.Pipe(string),
 }
 
 RanExampleViaC :: union {
@@ -31,28 +27,28 @@ RanExampleViaC :: union {
 }
 
 InterpretedExample :: struct {
-    compiler:  Pipe(string),
-    program:   Pipe(string),
+    compiler:  utils.Pipe(string),
+    program:   utils.Pipe(string),
     exit_code: int,
 }
 
 run_example_via_c :: proc(
     t: ^testing.T,
-    a: ^Arena,
+    a: ^utils.Arena,
     absolute_path: string,
     stdin_to_send: string,
 ) -> RanExampleViaC {
-    compiler_pipe := pipe_mock(a)
+    compiler_pipe := utils.pipe_mock(a)
     executable: string
     status := compile(
         a,
         FunctionRef{absolute_path, "main"},
         compiler_pipe,
         BuildC{&executable},
-        panic_reader,
+        utils.panic_reader,
         NeverExitEarly{},
     )
-    compiler := get_output(compiler_pipe)
+    compiler := utils.get_output(compiler_pipe)
     if status != 0 {
         return CompilationFailed{compiler, status}
     }
@@ -93,32 +89,36 @@ run_example_via_c :: proc(
         testing.fail(t)
         return nil
     }
-    return CompilationSuccessful{compiler, Pipe(string){string(stdout), string(stderr)}}
+    return CompilationSuccessful{compiler, utils.Pipe(string){string(stdout), string(stderr)}}
 }
 
 interpret_example :: proc(
     t: ^testing.T,
-    a: ^Arena,
+    a: ^utils.Arena,
     func: FunctionRef,
     stdin: string = "",
 ) -> InterpretedExample {
-    compiler_pipe := pipe_mock(a)
-    program_pipe := pipe_mock(a)
+    compiler_pipe := utils.pipe_mock(a)
+    program_pipe := utils.pipe_mock(a)
     status := compile(
         a,
         func,
         compiler_pipe,
-        Run{program_pipe, arena_new(a, LongLivedInterpState)},
-        make_reader(a, stdin),
+        Run{program_pipe, utils.arena_new(a, LongLivedInterpState)},
+        utils.make_reader(a, stdin),
         NeverExitEarly{},
     )
-    return InterpretedExample{get_output(compiler_pipe), get_output(program_pipe), status}
+    return InterpretedExample {
+        utils.get_output(compiler_pipe),
+        utils.get_output(program_pipe),
+        status,
+    }
 }
 
 @(test)
 example_00_fizzbuzz :: proc(t: ^testing.T) {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     ran := interpret_example(t, &a, FunctionRef{#directory + "examples/00_fizzbuzz.code", "main"})
     testing.expect(t, ran.exit_code == 0)
     testing.expect(t, ran.compiler.stderr == "")
@@ -132,8 +132,8 @@ example_00_fizzbuzz :: proc(t: ^testing.T) {
 
 @(test)
 example_01_factorial :: proc(t: ^testing.T) {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
         &a,
@@ -148,114 +148,114 @@ example_01_factorial :: proc(t: ^testing.T) {
 
 @(test)
 example_02_primes :: proc(t: ^testing.T) {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     ran := interpret_example(t, &a, FunctionRef{#directory + "examples/02_primes.code", "main"})
     testing.expect(t, ran.exit_code == 0)
     // testing.expect(t, out.compiler.stderr == "") // TODO: Implement array bounds checking so this line can be uncommented
     testing.expect(t, ran.program.stderr == "")
-    e := TestingTextExpecter{0, ran.program.stdout, t}
-    expect_string(&e, "The number 1 is not prime\n")
-    expect_string(&e, "The number 2 is prime\n")
-    expect_string(&e, "The number 3 is prime\n")
-    expect_string(&e, "The number 4 is not prime\n")
-    expect_string(&e, "The number 5 is prime\n")
-    expect_string(&e, "The number 6 is not prime\n")
-    expect_string(&e, "The number 7 is prime\n")
-    expect_string(&e, "The number 8 is not prime\n")
-    expect_string(&e, "The number 9 is not prime\n")
-    expect_string(&e, "The number 10 is not prime\n")
-    expect_string(&e, "The number 11 is prime\n")
-    expect_string(&e, "The number 12 is not prime\n")
-    expect_string(&e, "The number 13 is prime\n")
-    expect_string(&e, "The number 14 is not prime\n")
-    expect_string(&e, "The number 15 is not prime\n")
-    expect_string(&e, "The number 16 is not prime\n")
-    expect_string(&e, "The number 17 is prime\n")
-    expect_string(&e, "The number 18 is not prime\n")
-    expect_string(&e, "The number 19 is prime\n")
-    expect_string(&e, "The number 20 is not prime\n")
-    expect_string(&e, "The number 21 is not prime\n")
-    expect_string(&e, "The number 22 is not prime\n")
-    expect_string(&e, "The number 23 is prime\n")
-    expect_string(&e, "The number 24 is not prime\n")
-    expect_string(&e, "The number 25 is not prime\n")
-    expect_string(&e, "The number 26 is not prime\n")
-    expect_string(&e, "The number 27 is not prime\n")
-    expect_string(&e, "The number 28 is not prime\n")
-    expect_string(&e, "The number 29 is prime\n")
-    expect_string(&e, "The number 30 is not prime\n")
-    expect_string(&e, "The number 31 is prime\n")
-    expect_string(&e, "The number 32 is not prime\n")
-    expect_string(&e, "The number 33 is not prime\n")
-    expect_string(&e, "The number 34 is not prime\n")
-    expect_string(&e, "The number 35 is not prime\n")
-    expect_string(&e, "The number 36 is not prime\n")
-    expect_string(&e, "The number 37 is prime\n")
-    expect_string(&e, "The number 38 is not prime\n")
-    expect_string(&e, "The number 39 is not prime\n")
-    expect_string(&e, "The number 40 is not prime\n")
-    expect_string(&e, "The number 41 is prime\n")
-    expect_string(&e, "The number 42 is not prime\n")
-    expect_string(&e, "The number 43 is prime\n")
-    expect_string(&e, "The number 44 is not prime\n")
-    expect_string(&e, "The number 45 is not prime\n")
-    expect_string(&e, "The number 46 is not prime\n")
-    expect_string(&e, "The number 47 is prime\n")
-    expect_string(&e, "The number 48 is not prime\n")
-    expect_string(&e, "The number 49 is not prime\n")
-    expect_string(&e, "The number 50 is not prime\n")
-    expect_string(&e, "The number 51 is not prime\n")
-    expect_string(&e, "The number 52 is not prime\n")
-    expect_string(&e, "The number 53 is prime\n")
-    expect_string(&e, "The number 54 is not prime\n")
-    expect_string(&e, "The number 55 is not prime\n")
-    expect_string(&e, "The number 56 is not prime\n")
-    expect_string(&e, "The number 57 is not prime\n")
-    expect_string(&e, "The number 58 is not prime\n")
-    expect_string(&e, "The number 59 is prime\n")
-    expect_string(&e, "The number 60 is not prime\n")
-    expect_string(&e, "The number 61 is prime\n")
-    expect_string(&e, "The number 62 is not prime\n")
-    expect_string(&e, "The number 63 is not prime\n")
-    expect_string(&e, "The number 64 is not prime\n")
-    expect_string(&e, "The number 65 is not prime\n")
-    expect_string(&e, "The number 66 is not prime\n")
-    expect_string(&e, "The number 67 is prime\n")
-    expect_string(&e, "The number 68 is not prime\n")
-    expect_string(&e, "The number 69 is not prime\n")
-    expect_string(&e, "The number 70 is not prime\n")
-    expect_string(&e, "The number 71 is prime\n")
-    expect_string(&e, "The number 72 is not prime\n")
-    expect_string(&e, "The number 73 is prime\n")
-    expect_string(&e, "The number 74 is not prime\n")
-    expect_string(&e, "The number 75 is not prime\n")
-    expect_string(&e, "The number 76 is not prime\n")
-    expect_string(&e, "The number 77 is not prime\n")
-    expect_string(&e, "The number 78 is not prime\n")
-    expect_string(&e, "The number 79 is prime\n")
-    expect_string(&e, "The number 80 is not prime\n")
-    expect_string(&e, "The number 81 is not prime\n")
-    expect_string(&e, "The number 82 is not prime\n")
-    expect_string(&e, "The number 83 is prime\n")
-    expect_string(&e, "The number 84 is not prime\n")
-    expect_string(&e, "The number 85 is not prime\n")
-    expect_string(&e, "The number 86 is not prime\n")
-    expect_string(&e, "The number 87 is not prime\n")
-    expect_string(&e, "The number 88 is not prime\n")
-    expect_string(&e, "The number 89 is prime\n")
-    expect_string(&e, "The number 90 is not prime\n")
-    expect_string(&e, "The number 91 is not prime\n")
-    expect_string(&e, "The number 92 is not prime\n")
-    expect_string(&e, "The number 93 is not prime\n")
-    expect_string(&e, "The number 94 is not prime\n")
-    expect_string(&e, "The number 95 is not prime\n")
-    expect_string(&e, "The number 96 is not prime\n")
-    expect_string(&e, "The number 97 is prime\n")
-    expect_string(&e, "The number 98 is not prime\n")
-    expect_string(&e, "The number 99 is not prime\n")
-    expect_string(&e, "The number 100 is not prime\n")
-    expect_finished(&e)
+    e := utils.TestingTextExpecter{0, ran.program.stdout, t}
+    utils.expect_string(&e, "The number 1 is not prime\n")
+    utils.expect_string(&e, "The number 2 is prime\n")
+    utils.expect_string(&e, "The number 3 is prime\n")
+    utils.expect_string(&e, "The number 4 is not prime\n")
+    utils.expect_string(&e, "The number 5 is prime\n")
+    utils.expect_string(&e, "The number 6 is not prime\n")
+    utils.expect_string(&e, "The number 7 is prime\n")
+    utils.expect_string(&e, "The number 8 is not prime\n")
+    utils.expect_string(&e, "The number 9 is not prime\n")
+    utils.expect_string(&e, "The number 10 is not prime\n")
+    utils.expect_string(&e, "The number 11 is prime\n")
+    utils.expect_string(&e, "The number 12 is not prime\n")
+    utils.expect_string(&e, "The number 13 is prime\n")
+    utils.expect_string(&e, "The number 14 is not prime\n")
+    utils.expect_string(&e, "The number 15 is not prime\n")
+    utils.expect_string(&e, "The number 16 is not prime\n")
+    utils.expect_string(&e, "The number 17 is prime\n")
+    utils.expect_string(&e, "The number 18 is not prime\n")
+    utils.expect_string(&e, "The number 19 is prime\n")
+    utils.expect_string(&e, "The number 20 is not prime\n")
+    utils.expect_string(&e, "The number 21 is not prime\n")
+    utils.expect_string(&e, "The number 22 is not prime\n")
+    utils.expect_string(&e, "The number 23 is prime\n")
+    utils.expect_string(&e, "The number 24 is not prime\n")
+    utils.expect_string(&e, "The number 25 is not prime\n")
+    utils.expect_string(&e, "The number 26 is not prime\n")
+    utils.expect_string(&e, "The number 27 is not prime\n")
+    utils.expect_string(&e, "The number 28 is not prime\n")
+    utils.expect_string(&e, "The number 29 is prime\n")
+    utils.expect_string(&e, "The number 30 is not prime\n")
+    utils.expect_string(&e, "The number 31 is prime\n")
+    utils.expect_string(&e, "The number 32 is not prime\n")
+    utils.expect_string(&e, "The number 33 is not prime\n")
+    utils.expect_string(&e, "The number 34 is not prime\n")
+    utils.expect_string(&e, "The number 35 is not prime\n")
+    utils.expect_string(&e, "The number 36 is not prime\n")
+    utils.expect_string(&e, "The number 37 is prime\n")
+    utils.expect_string(&e, "The number 38 is not prime\n")
+    utils.expect_string(&e, "The number 39 is not prime\n")
+    utils.expect_string(&e, "The number 40 is not prime\n")
+    utils.expect_string(&e, "The number 41 is prime\n")
+    utils.expect_string(&e, "The number 42 is not prime\n")
+    utils.expect_string(&e, "The number 43 is prime\n")
+    utils.expect_string(&e, "The number 44 is not prime\n")
+    utils.expect_string(&e, "The number 45 is not prime\n")
+    utils.expect_string(&e, "The number 46 is not prime\n")
+    utils.expect_string(&e, "The number 47 is prime\n")
+    utils.expect_string(&e, "The number 48 is not prime\n")
+    utils.expect_string(&e, "The number 49 is not prime\n")
+    utils.expect_string(&e, "The number 50 is not prime\n")
+    utils.expect_string(&e, "The number 51 is not prime\n")
+    utils.expect_string(&e, "The number 52 is not prime\n")
+    utils.expect_string(&e, "The number 53 is prime\n")
+    utils.expect_string(&e, "The number 54 is not prime\n")
+    utils.expect_string(&e, "The number 55 is not prime\n")
+    utils.expect_string(&e, "The number 56 is not prime\n")
+    utils.expect_string(&e, "The number 57 is not prime\n")
+    utils.expect_string(&e, "The number 58 is not prime\n")
+    utils.expect_string(&e, "The number 59 is prime\n")
+    utils.expect_string(&e, "The number 60 is not prime\n")
+    utils.expect_string(&e, "The number 61 is prime\n")
+    utils.expect_string(&e, "The number 62 is not prime\n")
+    utils.expect_string(&e, "The number 63 is not prime\n")
+    utils.expect_string(&e, "The number 64 is not prime\n")
+    utils.expect_string(&e, "The number 65 is not prime\n")
+    utils.expect_string(&e, "The number 66 is not prime\n")
+    utils.expect_string(&e, "The number 67 is prime\n")
+    utils.expect_string(&e, "The number 68 is not prime\n")
+    utils.expect_string(&e, "The number 69 is not prime\n")
+    utils.expect_string(&e, "The number 70 is not prime\n")
+    utils.expect_string(&e, "The number 71 is prime\n")
+    utils.expect_string(&e, "The number 72 is not prime\n")
+    utils.expect_string(&e, "The number 73 is prime\n")
+    utils.expect_string(&e, "The number 74 is not prime\n")
+    utils.expect_string(&e, "The number 75 is not prime\n")
+    utils.expect_string(&e, "The number 76 is not prime\n")
+    utils.expect_string(&e, "The number 77 is not prime\n")
+    utils.expect_string(&e, "The number 78 is not prime\n")
+    utils.expect_string(&e, "The number 79 is prime\n")
+    utils.expect_string(&e, "The number 80 is not prime\n")
+    utils.expect_string(&e, "The number 81 is not prime\n")
+    utils.expect_string(&e, "The number 82 is not prime\n")
+    utils.expect_string(&e, "The number 83 is prime\n")
+    utils.expect_string(&e, "The number 84 is not prime\n")
+    utils.expect_string(&e, "The number 85 is not prime\n")
+    utils.expect_string(&e, "The number 86 is not prime\n")
+    utils.expect_string(&e, "The number 87 is not prime\n")
+    utils.expect_string(&e, "The number 88 is not prime\n")
+    utils.expect_string(&e, "The number 89 is prime\n")
+    utils.expect_string(&e, "The number 90 is not prime\n")
+    utils.expect_string(&e, "The number 91 is not prime\n")
+    utils.expect_string(&e, "The number 92 is not prime\n")
+    utils.expect_string(&e, "The number 93 is not prime\n")
+    utils.expect_string(&e, "The number 94 is not prime\n")
+    utils.expect_string(&e, "The number 95 is not prime\n")
+    utils.expect_string(&e, "The number 96 is not prime\n")
+    utils.expect_string(&e, "The number 97 is prime\n")
+    utils.expect_string(&e, "The number 98 is not prime\n")
+    utils.expect_string(&e, "The number 99 is not prime\n")
+    utils.expect_string(&e, "The number 100 is not prime\n")
+    utils.expect_finished(&e)
 }
 
 @(test)
@@ -264,8 +264,8 @@ example_03_fibonacci :: proc(t: ^testing.T) {
     err := os.remove_all(file)
     testing.expect(t, err == nil || err.(os.General_Error) == .Not_Exist)
 
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     ran := interpret_example(t, &a, FunctionRef{#directory + "examples/03_fibonacci.code", "main"})
     testing.expect(t, ran.exit_code == 0)
     // testing.expect(ran.compiler.stderr == "") // TODO: Implement array bounds checking so this line can be uncommented
@@ -280,8 +280,8 @@ example_03_fibonacci :: proc(t: ^testing.T) {
 
 @(test)
 example_04_linked_list :: proc(t: ^testing.T) {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
         &a,
@@ -294,27 +294,27 @@ example_04_linked_list :: proc(t: ^testing.T) {
 }
 
 expect_ui_render :: proc(
-    t: ^TestingTextExpecter,
+    t: ^utils.TestingTextExpecter,
     text: string,
     focused_button_num: int,
     pos := #caller_location,
 ) {
-    expect_string(t, ansi_clear + "- ", pos)
-    expect_string(t, text, pos)
-    expect_string(t, "\n", pos)
+    utils.expect_string(t, utils.ansi_clear + "- ", pos)
+    utils.expect_string(t, text, pos)
+    utils.expect_string(t, "\n", pos)
     for i in 1 ..= 3 {
-        expect_string(t, i == focused_button_num ? "- Focused button\n" : "- Button\n", pos)
-        expect_string(t, "  - Text ", pos)
-        expect_string(t, fmt.aprintf("%d", i), pos)
-        expect_string(t, "\n", pos)
+        utils.expect_string(t, i == focused_button_num ? "- Focused button\n" : "- Button\n", pos)
+        utils.expect_string(t, "  - Text ", pos)
+        utils.expect_string(t, fmt.aprintf("%d", i), pos)
+        utils.expect_string(t, "\n", pos)
     }
-    expect_string(t, "Enter either `next`, `prev`, `click`, or `quit`: ", pos)
+    utils.expect_string(t, "Enter either `next`, `prev`, `click`, or `quit`: ", pos)
 }
 
 @(test)
 example_05_ui :: proc(t: ^testing.T) {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
         &a,
@@ -325,7 +325,7 @@ example_05_ui :: proc(t: ^testing.T) {
     testing.expect(t, ran.compiler.stderr == "")
     testing.expect(t, ran.program.stderr == "")
 
-    text_expecter := TestingTextExpecter{0, ran.program.stdout, t}
+    text_expecter := utils.TestingTextExpecter{0, ran.program.stdout, t}
     expect_ui_render(&text_expecter, "Initial text", 1)
     expect_ui_render(&text_expecter, "Initial text", 2) // After next
     expect_ui_render(&text_expecter, "Text 2", 2) // After click
@@ -336,8 +336,8 @@ example_05_ui :: proc(t: ^testing.T) {
     expect_ui_render(&text_expecter, "Text 1", 3) // After next
     expect_ui_render(&text_expecter, "Text 1", 3) // After next
     expect_ui_render(&text_expecter, "Text 3", 3) // After click
-    expect_string(&text_expecter, ansi_clear)
-    expect_finished(&text_expecter)
+    utils.expect_string(&text_expecter, utils.ansi_clear)
+    utils.expect_finished(&text_expecter)
 }
 
 /*
@@ -365,8 +365,8 @@ example_06_counter :: proc(t: ^testing.T) {
     err := os.remove_all(file)
     testing.expect(t, err == nil || err.(os.General_Error) == .Not_Exist)
 
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     ran := interpret_example(t, &a, FunctionRef{#directory + "examples/06_counter.code", "build"})
     testing.expect(t, ran.exit_code == 0)
     testing.expect(t, ran.compiler.stderr == "")
@@ -379,8 +379,8 @@ example_07_conways_game_of_life :: proc(t: ^testing.T) {
     err := os.remove_all(file)
     testing.expect(t, err == nil || err.(os.General_Error) == .Not_Exist)
 
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
         &a,
@@ -403,11 +403,11 @@ basic_fuzz_test :: proc(t: ^testing.T) {
         testing.fail_now(t, "err2 != nil")
     }
 
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
 
     for _ in 0 ..< 100 {
-        code := random_string(800)
+        code := utils.random_string(800)
 
         // `%q` rather then `%s` to escape invalid runes and ANSI terminal escape codes
         fmt.printfln("Randomly generated code is:\n%q", code)
@@ -417,16 +417,23 @@ basic_fuzz_test :: proc(t: ^testing.T) {
             testing.fail_now(t, "err3 != nil")
         }
 
-        pipe := pipe_mock(&a)
-        defer get_output(pipe)
-        compile(&a, FunctionRef{tmp_file, "main"}, pipe, BuildC{}, panic_reader, NeverExitEarly{})
+        pipe := utils.pipe_mock(&a)
+        defer utils.get_output(pipe)
+        compile(
+            &a,
+            FunctionRef{tmp_file, "main"},
+            pipe,
+            BuildC{},
+            utils.panic_reader,
+            NeverExitEarly{},
+        )
     }
 }
 
 @(test)
 basic_type_system_test :: proc(t: ^testing.T) {
-    a := Arena{}
-    defer delete_arena(&a, expect_empty = false)
+    a := utils.Arena{}
+    defer utils.delete_arena(&a, expect_empty = false)
     types := create_types(&a)
     defer fix_types(types)
     generic_args0 := make([]Type, 1)
@@ -446,8 +453,8 @@ basic_type_system_test :: proc(t: ^testing.T) {
 @(test)
 example_08_result :: proc(t: ^testing.T) {
     // TODO: Test inputs other than `dog`
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
         &a,
@@ -464,8 +471,8 @@ example_08_result :: proc(t: ^testing.T) {
 
 @(test)
 example_09_hashmap :: proc(t: ^testing.T) {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
         &a,
@@ -480,140 +487,149 @@ example_09_hashmap :: proc(t: ^testing.T) {
 
 @(test)
 example_10_geometry :: proc(t: ^testing.T) {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     ran := run_example_via_c(t, &a, #directory + "examples/10_geometry.code", "")
     if ran == nil {return}
     out := ran.(CompilationSuccessful)
     testing.expect(t, out.compiler.stderr == c_warning)
     testing.expect(t, out.program.stderr == "")
-    e := TestingTextExpecter{0, out.program.stdout, t}
-    expect_string(&e, "                              cc                              \n")
-    expect_string(&e, "                    cccccccccccccccccccccc                    \n")
-    expect_string(&e, "                cccc                      cccc                \n")
-    expect_string(&e, "            cccc                              cccc            \n")
-    expect_string(&e, "          cccc                                  cccc          \n")
-    expect_string(&e, "        cccc                                      cccc        \n")
-    expect_string(&e, "      cccc                                          cccc      \n")
-    expect_string(&e, "      cc                                              cc      \n")
-    expect_string(&e, "    cc                                                  cc    \n")
-    expect_string(&e, "    cc                                                  cc    \n")
-    expect_string(&e, "  cc                                                      cc  \n")
-    expect_string(&e, "  cc                                                      cc  \n")
-    expect_string(&e, "  cc                                                      cc  \n")
-    expect_string(&e, "  cc                                                      cc  \n")
-    expect_string(&e, "  cc                                                      cc  \n")
-    expect_string(&e, "cccc                                                      cccc\n")
-    expect_string(&e, "  cc                                                      cctt\n")
-    expect_string(&e, "  cc                                                      tttt\n")
-    expect_string(&e, "  cc                                                    tttttt\n")
-    expect_string(&e, "  cc                                                  tttttttt\n")
-    expect_string(&e, "  cc                                                tttttttttt\n")
-    expect_string(&e, "    cc                                            tttttttttttt\n")
-    expect_string(&e, "    cc                                          tttttttttttttt\n")
-    expect_string(&e, "      cc                                      tttttttttttttttt\n")
-    expect_string(&e, "      cccc                                  tttttttttttttttttt\n")
-    expect_string(&e, "        cccc                              tttttttttttttttttttt\n")
-    expect_string(&e, "          cccc                          tttttttttttttttttttttt\n")
-    expect_string(&e, "            cccc                      tttttttttttttttttttttttt\n")
-    expect_string(&e, "                cccc                tttttttttttttttttttttttttt\n")
-    expect_string(&e, "                    cccccccccccccctttttttttttttttttttttttttttt\n")
-    expect_string(&e, "                              cctttttttttttttttttttttttttttttt\n")
-    expect_finished(&e)
+    e := utils.TestingTextExpecter{0, out.program.stdout, t}
+    utils.expect_string(&e, "                              cc                              \n")
+    utils.expect_string(&e, "                    cccccccccccccccccccccc                    \n")
+    utils.expect_string(&e, "                cccc                      cccc                \n")
+    utils.expect_string(&e, "            cccc                              cccc            \n")
+    utils.expect_string(&e, "          cccc                                  cccc          \n")
+    utils.expect_string(&e, "        cccc                                      cccc        \n")
+    utils.expect_string(&e, "      cccc                                          cccc      \n")
+    utils.expect_string(&e, "      cc                                              cc      \n")
+    utils.expect_string(&e, "    cc                                                  cc    \n")
+    utils.expect_string(&e, "    cc                                                  cc    \n")
+    utils.expect_string(&e, "  cc                                                      cc  \n")
+    utils.expect_string(&e, "  cc                                                      cc  \n")
+    utils.expect_string(&e, "  cc                                                      cc  \n")
+    utils.expect_string(&e, "  cc                                                      cc  \n")
+    utils.expect_string(&e, "  cc                                                      cc  \n")
+    utils.expect_string(&e, "cccc                                                      cccc\n")
+    utils.expect_string(&e, "  cc                                                      cctt\n")
+    utils.expect_string(&e, "  cc                                                      tttt\n")
+    utils.expect_string(&e, "  cc                                                    tttttt\n")
+    utils.expect_string(&e, "  cc                                                  tttttttt\n")
+    utils.expect_string(&e, "  cc                                                tttttttttt\n")
+    utils.expect_string(&e, "    cc                                            tttttttttttt\n")
+    utils.expect_string(&e, "    cc                                          tttttttttttttt\n")
+    utils.expect_string(&e, "      cc                                      tttttttttttttttt\n")
+    utils.expect_string(&e, "      cccc                                  tttttttttttttttttt\n")
+    utils.expect_string(&e, "        cccc                              tttttttttttttttttttt\n")
+    utils.expect_string(&e, "          cccc                          tttttttttttttttttttttt\n")
+    utils.expect_string(&e, "            cccc                      tttttttttttttttttttttttt\n")
+    utils.expect_string(&e, "                cccc                tttttttttttttttttttttttttt\n")
+    utils.expect_string(&e, "                    cccccccccccccctttttttttttttttttttttttttttt\n")
+    utils.expect_string(&e, "                              cctttttttttttttttttttttttttttttt\n")
+    utils.expect_finished(&e)
 }
 
 @(test)
 invalid_example_00_uninitialised_global_value_with_generics :: proc(t: ^testing.T) {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     file :: #directory + "examples/invalid/00_uninitialised_global_value_with_generics.code"
     ran := run_example_via_c(t, &a, file, "")
     if ran == nil {return}
     out := ran.(CompilationFailed)
-    e := TestingTextExpecter{0, out.compiler.stderr, t}
-    expect_string(&e, "\n")
-    expect_string(&e, "Error compiling `" + file + "` (15:13)\n")
-    expect_string(
+    e := utils.TestingTextExpecter{0, out.compiler.stderr, t}
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Error compiling `" + file + "` (15:13)\n")
+    utils.expect_string(
         &e,
         "Expected a func type, but got an uninitialised global value with generics\n",
     )
-    expect_string(&e, "Hint: Try initialising the global value with something like `debug[T]`\n")
-    expect_string(&e, "\n")
-    expect_string(&e, "Erroneously checked with 1 error and 0 warnings in ")
-    expect_digits(&e)
-    expect_string(&e, ".")
-    expect_digits(&e)
-    expect_string(&e, " ms\n")
-    expect_finished(&e)
+    utils.expect_string(
+        &e,
+        "Hint: Try initialising the global value with something like `debug[T]`\n",
+    )
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Erroneously checked with 1 error and 0 warnings in ")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, ".")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, " ms\n")
+    utils.expect_finished(&e)
 }
 
 @(test)
 invalid_example_01_wrong_identifier_casing :: proc(t: ^testing.T) {
     file :: #directory + "examples/invalid/01_wrong_identifier_casing.code"
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     ran := run_example_via_c(t, &a, file, "")
     if ran == nil {return}
     out := ran.(CompilationSuccessful)
     testing.expect(t, out.program.stderr == "")
     testing.expect(t, out.program.stdout == "Hello world\n")
     testing.expect(t, out.compiler.stderr == c_warning)
-    e := TestingTextExpecter{0, out.compiler.stdout, t}
+    e := utils.TestingTextExpecter{0, out.compiler.stdout, t}
     fmt.println(out.compiler.stdout)
-    expect_string(&e, "Reading `" + file + "`...\n")
-    expect_string(&e, "Checking...\n")
-    expect_string(&e, "\n")
-    expect_string(&e, "Warning compiling `" + #directory)
-    expect_string(&e, "examples/invalid/01_wrong_identifier_casing.code` (7:8)\n")
-    expect_string(&e, "Expected generic names to be `CamelCase`, got `ok`\n")
-    expect_string(&e, "First character in a camel case identifier must be an uppercase letter\n")
-    expect_string(&e, "Got 'o'\n")
-    expect_string(&e, "\n")
-    expect_string(&e, "Warning compiling `" + #directory)
-    expect_string(&e, "examples/invalid/01_wrong_identifier_casing.code` (7:12)\n")
-    expect_string(&e, "Expected generic names to be `CamelCase`, got `err`\n")
-    expect_string(&e, "First character in a camel case identifier must be an uppercase letter\n")
-    expect_string(&e, "Got 'e'\n")
-    expect_string(&e, "\n")
-    expect_string(&e, "Successfully checked with 0 errors and 2 warnings in ")
-    expect_digits(&e)
-    expect_string(&e, ".")
-    expect_digits(&e)
-    expect_string(&e, " ms\n")
-    expect_string(&e, "Emitting C code...\n")
-    expect_done_message(&e)
-    expect_finished(&e)
+    utils.expect_string(&e, "Reading `" + file + "`...\n")
+    utils.expect_string(&e, "Checking...\n")
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Warning compiling `" + #directory)
+    utils.expect_string(&e, "examples/invalid/01_wrong_identifier_casing.code` (7:8)\n")
+    utils.expect_string(&e, "Expected generic names to be `CamelCase`, got `ok`\n")
+    utils.expect_string(
+        &e,
+        "First character in a camel case identifier must be an uppercase letter\n",
+    )
+    utils.expect_string(&e, "Got 'o'\n")
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Warning compiling `" + #directory)
+    utils.expect_string(&e, "examples/invalid/01_wrong_identifier_casing.code` (7:12)\n")
+    utils.expect_string(&e, "Expected generic names to be `CamelCase`, got `err`\n")
+    utils.expect_string(
+        &e,
+        "First character in a camel case identifier must be an uppercase letter\n",
+    )
+    utils.expect_string(&e, "Got 'e'\n")
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Successfully checked with 0 errors and 2 warnings in ")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, ".")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, " ms\n")
+    utils.expect_string(&e, "Emitting C code...\n")
+    utils.expect_done_message(&e)
+    utils.expect_finished(&e)
 }
 
 @(test)
 invalid_example_02_wrong_main_function_type :: proc(t: ^testing.T) {
     file :: #directory + "examples/invalid/02_wrong_main_function_type.code"
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     ran := run_example_via_c(t, &a, file, "")
     if ran == nil {return}
     out := ran.(CompilationFailed)
 
     testing.expect(t, out.status == 1)
 
-    e := TestingTextExpecter{0, out.compiler.stdout, t}
-    expect_string(&e, "Reading `" + file + "`...\n")
-    expect_string(&e, "Checking...\n")
-    expect_done_message(&e)
-    expect_finished(&e)
+    e := utils.TestingTextExpecter{0, out.compiler.stdout, t}
+    utils.expect_string(&e, "Reading `" + file + "`...\n")
+    utils.expect_string(&e, "Checking...\n")
+    utils.expect_done_message(&e)
+    utils.expect_finished(&e)
 
-    e = TestingTextExpecter{0, out.compiler.stderr, t}
-    expect_string(&e, "\n")
-    expect_string(&e, "Error compiling\n")
-    expect_string(&e, "Got the type `(String, Int) -> Int`\n")
-    expect_string(&e, "Expected the type `() -> Int`\n")
-    expect_string(&e, "\n")
-    expect_string(&e, "Erroneously checked with 1 error and 0 warnings in ")
-    expect_digits(&e)
-    expect_string(&e, ".")
-    expect_digits(&e)
-    expect_string(&e, " ms\n")
-    expect_finished(&e)
+    e = utils.TestingTextExpecter{0, out.compiler.stderr, t}
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Error compiling\n")
+    utils.expect_string(&e, "Got the type `(String, Int) -> Int`\n")
+    utils.expect_string(&e, "Expected the type `() -> Int`\n")
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Erroneously checked with 1 error and 0 warnings in ")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, ".")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, " ms\n")
+    utils.expect_finished(&e)
 }
 
 // Just to test `arena.odin`, so no proper error handling
@@ -623,20 +639,20 @@ TreeNode :: union {
     []TreeNode,
 }
 
-string_to_node :: proc(a: ^Arena, i: ^int, text: string) -> TreeNode {
+string_to_node :: proc(a: ^utils.Arena, i: ^int, text: string) -> TreeNode {
     for text[i^] == ' ' {
         i^ += 1
     }
     switch text[i^] {
     case '(':
         i^ += 1
-        children := arena_make(a, []TreeNode, 0, resizable = true)
+        children := utils.arena_make(a, []TreeNode, 0, resizable = true)
         for text[i^] != ')' {
             child := string_to_node(a, i, text)
-            append_dynamic(&children, child)
+            utils.append_dynamic(&children, child)
         }
         i^ += 1
-        fix_resizable_dynamic(children)
+        utils.fix_resizable_dynamic(children)
         return children
     case '`':
         i^ += 1
@@ -655,22 +671,22 @@ string_to_node :: proc(a: ^Arena, i: ^int, text: string) -> TreeNode {
 node_to_string := proc(d: ^[]byte, node: TreeNode) {
     switch n in node {
     case string:
-        append_dynamic(d, '`')
+        utils.append_dynamic(d, '`')
         for c in transmute([]byte)n {
-            append_dynamic(d, c)
+            utils.append_dynamic(d, c)
         }
-        append_dynamic(d, '`')
+        utils.append_dynamic(d, '`')
     case []TreeNode:
-        append_dynamic(d, '(')
+        utils.append_dynamic(d, '(')
         first_child := true
         for child in n {
             if first_child == false {
-                append_dynamic(d, ' ')
+                utils.append_dynamic(d, ' ')
             }
             node_to_string(d, child)
             first_child = false
         }
-        append_dynamic(d, ')')
+        utils.append_dynamic(d, ')')
     case:
         panic("Unreachable")
     }
@@ -678,8 +694,8 @@ node_to_string := proc(d: ^[]byte, node: TreeNode) {
 
 @(test)
 arena_test :: proc(t: ^testing.T) {
-    a := Arena{}
-    defer delete_arena(&a, expect_empty = false)
+    a := utils.Arena{}
+    defer utils.delete_arena(&a, expect_empty = false)
 
     my_tree_string :: "(((`a` `b` `c`) `d` (`e` `f`)) `g` `h`)"
 
@@ -690,33 +706,33 @@ arena_test :: proc(t: ^testing.T) {
     // Even though `my_tree_dynamic_array` was not created with
     // `resizable = false`, it is still resizable because the last
     // allocation is always resizable
-    my_tree_dynamic_array := arena_make(&a, []byte, 0, resizable = false)
-    defer dealloc(raw_data(my_tree_dynamic_array))
+    my_tree_dynamic_array := utils.arena_make(&a, []byte, 0, resizable = false)
+    defer utils.dealloc(raw_data(my_tree_dynamic_array))
     node_to_string(&my_tree_dynamic_array, my_tree_node)
     my_tree_string2 := string(my_tree_dynamic_array)
     if my_tree_string != my_tree_string2 {
         testing.fail_now(t, fmt.aprintf("%s != %s", my_tree_string, my_tree_string2))
     }
 
-    my_int := arena_new(&a, int)
-    defer dealloc(my_int)
+    my_int := utils.arena_new(&a, int)
+    defer utils.dealloc(my_int)
     my_int^ = 5
     defer testing.expect(t, my_int^ == 5)
 
-    fibonacci_numbers := arena_make(&a, []int, 0, resizable = false)
-    defer dealloc(raw_data(fibonacci_numbers))
-    append_dynamic_elems(&fibonacci_numbers, 0, 1, 1)
+    fibonacci_numbers := utils.arena_make(&a, []int, 0, resizable = false)
+    defer utils.dealloc(raw_data(fibonacci_numbers))
+    utils.append_dynamic_elems(&fibonacci_numbers, 0, 1, 1)
 
     for len(fibonacci_numbers) < 15 {
-        append_dynamic(
+        utils.append_dynamic(
             &fibonacci_numbers,
             fibonacci_numbers[len(fibonacci_numbers) - 1] +
             fibonacci_numbers[len(fibonacci_numbers) - 2],
         )
     }
 
-    fibonacci_string := aprintf(&a, "%v", fibonacci_numbers)
-    defer dealloc(raw_data(fibonacci_string))
+    fibonacci_string := utils.aprintf(&a, "%v", fibonacci_numbers)
+    defer utils.dealloc(raw_data(fibonacci_string))
     if fibonacci_string != "[0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377]" {
         testing.fail_now(t, fmt.aprintf("Fibonacci string is %q", fibonacci_string))
     }
@@ -724,8 +740,8 @@ arena_test :: proc(t: ^testing.T) {
 
 @(test)
 example_12_lambda_functions :: proc(t: ^testing.T) {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
         &a,
@@ -739,86 +755,89 @@ example_12_lambda_functions :: proc(t: ^testing.T) {
 
 @(test)
 invalid_example_03_constants_and_reassignables_with_same_name :: proc(t: ^testing.T) {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     path :: #directory + "examples/invalid/03_constants_and_reassignables_with_same_name.code"
     ran := interpret_example(t, &a, FunctionRef{path, "main"})
     testing.expect(t, ran.exit_code == 0)
     testing.expect(t, ran.program.stderr == "")
     testing.expect(t, ran.program.stdout == "")
     testing.expect(t, ran.compiler.stderr == "")
-    e := TestingTextExpecter{0, ran.compiler.stdout, t}
-    expect_string(&e, "Reading `" + path + "`...\n")
-    expect_string(&e, "Checking...\n")
-    expect_string(&e, "\n")
-    expect_string(&e, "Warning compiling `" + path + "` (7:2)\n")
-    expect_string(
+    e := utils.TestingTextExpecter{0, ran.compiler.stdout, t}
+    utils.expect_string(&e, "Reading `" + path + "`...\n")
+    utils.expect_string(&e, "Checking...\n")
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Warning compiling `" + path + "` (7:2)\n")
+    utils.expect_string(
         &e,
         "Declaring variable called `hello` when variable called `hello$` is already declared\n",
     )
-    expect_string(&e, "\n")
-    expect_string(&e, "Warning compiling `" + path + "` (13:5)\n")
-    expect_string(
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Warning compiling `" + path + "` (13:5)\n")
+    utils.expect_string(
         &e,
         "Declaring variable called `hi$` when variable called `hi` is already declared\n",
     )
-    expect_string(&e, "\n")
-    expect_string(&e, "Successfully checked with 0 errors and 2 warnings in ")
-    expect_digits(&e)
-    expect_string(&e, ".")
-    expect_digits(&e)
-    expect_string(&e, " ms\n")
-    expect_string(&e, "Interpreting `main`...\n")
-    expect_done_message(&e)
-    expect_finished(&e)
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Successfully checked with 0 errors and 2 warnings in ")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, ".")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, " ms\n")
+    utils.expect_string(&e, "Interpreting `main`...\n")
+    utils.expect_done_message(&e)
+    utils.expect_finished(&e)
 }
 
 @(test)
 invalid_example_04_invalid_globals :: proc(t: ^testing.T) {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     path :: #directory + "examples/invalid/04_invalid_globals.code"
     ran := interpret_example(t, &a, FunctionRef{path, "main"})
     testing.expect(t, ran.exit_code == 1)
     testing.expect(t, ran.program.stdout == "")
     testing.expect(t, ran.program.stderr == "")
 
-    e := TestingTextExpecter{0, ran.compiler.stdout, t}
-    expect_string(&e, "Reading `" + path + "`...\n")
-    expect_string(&e, "Checking...\n")
-    expect_done_message(&e)
-    expect_finished(&e)
+    e := utils.TestingTextExpecter{0, ran.compiler.stdout, t}
+    utils.expect_string(&e, "Reading `" + path + "`...\n")
+    utils.expect_string(&e, "Checking...\n")
+    utils.expect_done_message(&e)
+    utils.expect_finished(&e)
 
-    e = TestingTextExpecter{0, ran.compiler.stderr, t}
-    expect_string(&e, "\n")
-    expect_string(&e, "Error compiling `" + path + "` (4:12)\n")
-    expect_string(&e, "Expected the type `String` but got the type `UInt`\n")
-    expect_string(&e, "\n")
-    expect_string(&e, "Error compiling `" + path + "` (4:19)\n")
-    expect_string(&e, "Expected the type `String` but got the type `UInt`\n")
-    expect_string(&e, "\n")
-    expect_string(&e, "Error compiling `" + path + "` (8:17)\n")
-    expect_string(&e, "The variable `E` is not defined in the file `" + path + "`\n")
-    expect_string(&e, "\n")
-    expect_string(&e, "Error compiling `" + path + "` (19:22)\n")
-    expect_string(&e, "The variable `InvalidType` is not defined in the file `" + path + "`\n")
-    expect_string(&e, "\n")
-    expect_string(&e, "Error compiling `" + path + "` (11:13)\n")
-    expect_string(&e, "The value before `.len` is of type `Array[Int]`\n")
-    expect_string(&e, "Expected a string type, an array type, or an OrderedHashSet type\n")
-    expect_string(&e, "\n")
-    expect_string(&e, "Erroneously checked with 5 errors and 0 warnings in ")
-    expect_digits(&e)
-    expect_string(&e, ".")
-    expect_digits(&e)
-    expect_string(&e, " ms\n")
-    expect_finished(&e)
+    e = utils.TestingTextExpecter{0, ran.compiler.stderr, t}
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (4:12)\n")
+    utils.expect_string(&e, "Expected the type `String` but got the type `UInt`\n")
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (4:19)\n")
+    utils.expect_string(&e, "Expected the type `String` but got the type `UInt`\n")
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (8:17)\n")
+    utils.expect_string(&e, "The variable `E` is not defined in the file `" + path + "`\n")
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (19:22)\n")
+    utils.expect_string(
+        &e,
+        "The variable `InvalidType` is not defined in the file `" + path + "`\n",
+    )
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (11:13)\n")
+    utils.expect_string(&e, "The value before `.len` is of type `Array[Int]`\n")
+    utils.expect_string(&e, "Expected a string type, an array type, or an OrderedHashSet type\n")
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Erroneously checked with 5 errors and 0 warnings in ")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, ".")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, " ms\n")
+    utils.expect_finished(&e)
 }
 
 @(test)
 example_13_numbers :: proc(t: ^testing.T) {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     ran := interpret_example(t, &a, FunctionRef{#directory + "examples/13_numbers.code", "main"})
     testing.expect(t, ran.exit_code == 0)
     testing.expect(t, ran.compiler.stderr == "")
@@ -828,8 +847,8 @@ example_13_numbers :: proc(t: ^testing.T) {
 
 @(test)
 invalid_example_05_invalid_global_sum_type :: proc(t: ^testing.T) {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     file :: #directory + "examples/invalid/05_invalid_global_sum_type.code"
     ran := interpret_example(t, &a, FunctionRef{file, "main"}, "")
     testing.expect(t, ran.exit_code == 1)
@@ -840,46 +859,46 @@ invalid_example_05_invalid_global_sum_type :: proc(t: ^testing.T) {
 
 @(test)
 invalid_example_06_mismatching_types :: proc(t: ^testing.T) {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     file :: #directory + "examples/invalid/06_mismatching_types.code"
     ran := interpret_example(t, &a, FunctionRef{file, "main"}, "")
     testing.expect(t, ran.exit_code == 1)
-    e := TestingTextExpecter{0, ran.compiler.stderr, t}
-    expect_string(&e, "\n")
-    expect_string(&e, "Error compiling `" + file + "` (13:10)\n")
-    expect_string(&e, "Expected the type `Pos` but got the type `String`\n")
-    expect_string(&e, "\n")
-    expect_string(&e, "Erroneously checked with 1 error and 0 warnings in ")
-    expect_digits(&e)
-    expect_string(&e, ".")
-    expect_digits(&e)
-    expect_string(&e, " ms\n")
-    expect_finished(&e)
+    e := utils.TestingTextExpecter{0, ran.compiler.stderr, t}
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Error compiling `" + file + "` (13:10)\n")
+    utils.expect_string(&e, "Expected the type `Pos` but got the type `String`\n")
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Erroneously checked with 1 error and 0 warnings in ")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, ".")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, " ms\n")
+    utils.expect_finished(&e)
     testing.expect(t, ran.program.stdout == "")
     testing.expect(t, ran.program.stderr == "")
 }
 
 @(test)
 invalid_example_07_uses_compiletime_value_at_runtime :: proc(t: ^testing.T) {
-    a: Arena
-    defer delete_arena(&a, expect_empty = false)
+    a: utils.Arena
+    defer utils.delete_arena(&a, expect_empty = false)
     file :: #directory + "examples/invalid/07_uses_compiletime_value_at_runtime.code"
     ran := interpret_example(t, &a, FunctionRef{file, "main"}, "")
     testing.expect(t, ran.exit_code == 1)
     testing.expect(t, ran.program.stdout == "")
     testing.expect(t, ran.program.stderr == "")
-    e := TestingTextExpecter{0, ran.compiler.stderr, t}
-    expect_string(&e, "\n")
-    expect_string(&e, "Error compiling `" + file + "` (2:13)\n")
-    expect_string(&e, "This value can only be used at compile time\n")
-    expect_string(&e, "\n")
-    expect_string(&e, "Erroneously checked with 1 error and 0 warnings in ")
-    expect_digits(&e)
-    expect_string(&e, ".")
-    expect_digits(&e)
-    expect_string(&e, " ms\n")
-    expect_finished(&e)
+    e := utils.TestingTextExpecter{0, ran.compiler.stderr, t}
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Error compiling `" + file + "` (2:13)\n")
+    utils.expect_string(&e, "This value can only be used at compile time\n")
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Erroneously checked with 1 error and 0 warnings in ")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, ".")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, " ms\n")
+    utils.expect_finished(&e)
 }
 
 // TODO: Add a fuzz test where the code that gets compiled never has any syntax errors

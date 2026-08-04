@@ -9,17 +9,8 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:time"
-
-debug_tokenizer :: false // You can use this to debug the parser
-debug_parser :: false
-debug_parser_output :: false
-debug_checker :: false
-debug_emitter :: false
-debug_key_to_index :: false
-debug_interpreter :: false
-debug_diagnostics :: false
-debug_arena :: false
-debug_dynamic_array :: false
+import "lsp"
+import "utils"
 
 c_warning :: "WARNING: The C emitter is basically unmaintained at this point, and there are many things which it does not implement\n"
 
@@ -59,6 +50,16 @@ source_code_location_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> b
     return true
 }
 
+time_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+    if verb != 'v' {
+        return false
+    }
+    t := cast(^time.Time)arg.data
+    h, m, s := time.clock(t^)
+    fmt.wprintf(fi.writer, "%d:%d:%d", h, m, s, flush = false)
+    return true
+}
+
 @(init)
 init :: proc "contextless" () {
     context = runtime.default_context()
@@ -66,6 +67,7 @@ init :: proc "contextless" () {
     user_formatters[Pos] = position_formatter
     user_formatters[TokenContents] = token_formatter
     user_formatters[runtime.Source_Code_Location] = source_code_location_formatter
+    user_formatters[time.Time] = time_formatter
     fmt.set_user_formatters(user_formatters)
 }
 
@@ -114,7 +116,7 @@ BuildC :: struct {
 }
 
 Run :: struct {
-    program_io:              Pipe(io.Writer),
+    program_io:              utils.Pipe(io.Writer),
     long_lived_interp_state: ^LongLivedInterpState,
 }
 
@@ -188,9 +190,9 @@ EarlyExitInfo :: union #no_nil {
 }
 
 compile :: proc(
-    a: ^Arena,
+    a: ^utils.Arena,
     func: FunctionRef,
-    compiler: Pipe(io.Writer),
+    compiler: utils.Pipe(io.Writer),
     command: Command,
     stdin: io.Reader,
     exit_early: EarlyExitInfo,
@@ -212,7 +214,7 @@ compile :: proc(
         return 1
     }
 
-    when debug_parser_output {
+    when utils.debug_parser_output {
         debug("Printing function defs")
         debug_nesting += 1
         for function_def, i in state.function_defs {
@@ -580,7 +582,7 @@ parse_args_after_command :: proc(args_after_command: []string) -> (FunctionRef, 
         return FunctionRef{default_file_name, default_func_name}, watch
     case 1:
         for char in func_ref_args[0] {
-            if !is_alphanumeric_char_any(char) {
+            if !utils.is_alphanumeric_char_any(char) {
                 return FunctionRef{func_ref_args[0], default_func_name}, watch
             }
         }
@@ -619,7 +621,7 @@ main :: proc() {
     stderr_writer: bufio.Writer
     bufio.writer_init_with_buf(&stdout_writer, os.to_stream(os.stdout), stdout_buf[:])
     bufio.writer_init_with_buf(&stderr_writer, os.to_stream(os.stderr), stderr_buf[:])
-    std_pipe := Pipe(io.Writer) {
+    std_pipe := utils.Pipe(io.Writer) {
         bufio.writer_to_writer(&stdout_writer),
         bufio.writer_to_writer(&stderr_writer),
     }
@@ -629,6 +631,18 @@ main :: proc() {
         print_help(1)
     }
 
+    expect_args_finished :: proc(command: string) {
+        extra := os.args[2:]
+        if len(extra) > 0 {
+            fmt.eprintfln(
+                "Did not expect any extra argument to be passed to the `%s` command",
+                command,
+            )
+            fmt.eprintfln("Got %d extra arguments", len(extra))
+            os.exit(1)
+        }
+    }
+
     command: Command
     switch os.args[1] {
     case "build_c":
@@ -636,7 +650,12 @@ main :: proc() {
     case "run":
         command = Run{std_pipe, new(LongLivedInterpState)}
     case "help":
+        expect_args_finished("help")
         print_help(0)
+    case "lsp":
+        expect_args_finished("lsp")
+        lsp.run_lsp()
+        return
     case:
         fmt.eprintfln("Unexpected command `%s`", os.args[1])
         print_help(1)
@@ -645,14 +664,14 @@ main :: proc() {
     ref, watch := parse_args_after_command(os.args[2:])
     early_exit_info: EarlyExitInfo = watch ? new(ExitEarly) : NeverExitEarly{}
     for {
-        a: Arena
-        defer delete_arena(&a, expect_empty = false)
+        a: utils.Arena
+        defer utils.delete_arena(&a, expect_empty = false)
         ret := compile(
             &a,
             ref,
             std_pipe,
             command,
-            io.to_reader(os.to_stream(os.stdin)),
+            io.Reader(os.to_stream(os.stdin)),
             early_exit_info,
         )
         switch exit_early in early_exit_info {
@@ -675,6 +694,6 @@ main :: proc() {
             case ExitEarlyAfterSourceCodeChanged:
             }
         }
-        fmt.println(ansi_clear + "Recompiling after source code change...")
+        fmt.println(utils.ansi_clear + "Recompiling after source code change...")
     }
 }

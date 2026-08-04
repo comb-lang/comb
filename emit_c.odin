@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:strings"
+import "utils"
 
 GeneralEmitterState :: struct {
     b:             strings.Builder,
@@ -27,7 +28,7 @@ emit_variable :: proc(b: ^strings.Builder, variable: VariableRef) {
 
 // Does not include the `struct`
 emit_struct_type :: proc(b: ^strings.Builder, type: StructType, loc := #caller_location) {
-    when debug_emitter {
+    when utils.debug_emitter {
         print_call(loc, "emit_struct_type")
     }
     strings.write_byte(b, '{')
@@ -294,7 +295,7 @@ emit_c_block_head :: proc(
     variables: []Type,
     loc := #caller_location,
 ) {
-    when debug_emitter {
+    when utils.debug_emitter {
         print_call(loc, "emit_c_block_head")
     }
     for type, index in variables {
@@ -313,7 +314,7 @@ emit_c_block_body :: proc(
     body: []CheckedStatement,
     loc := #caller_location,
 ) {
-    when debug_emitter {
+    when utils.debug_emitter {
         print_call(loc, "emit_c_block_body")
         print_arg("nesting_level", nesting_level)
         print_arg("body", body)
@@ -447,7 +448,7 @@ emit_c_block :: proc(
     body: []CheckedStatement,
     loc := #caller_location,
 ) {
-    when debug_emitter {
+    when utils.debug_emitter {
         print_call(loc, "emit_c_block")
     }
     emit_c_block_head(s, nesting_level, variables)
@@ -463,7 +464,7 @@ emit_forward_struct_definition :: proc(s: ^CEmitterState, name: string) {
 }
 
 emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_location) {
-    when debug_emitter {
+    when utils.debug_emitter {
         print_call(loc, "emit_c_global_type")
     }
     name := fmt.aprintf("Type%d", index)
@@ -637,7 +638,7 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
 }
 
 emit_function_head :: proc(s: ^CEmitterState, func_index: int, type: Type) {
-    when debug_emitter {
+    when utils.debug_emitter {
         debug("emitting function index %d", func_index)
     }
     info := get_type(s.types, type).key.(FuncType)

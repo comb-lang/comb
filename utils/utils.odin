@@ -1,6 +1,7 @@
-package main
+package utils
 
 import "base:runtime"
+import "core:bufio"
 import "core:fmt"
 import "core:io"
 import "core:math/rand"
@@ -101,6 +102,12 @@ finish_building :: proc(s: StringBuilder) -> string {
     data := (^[]byte)(s.data)
     fix_resizable_dynamic(data^)
     return string(data^)
+}
+
+delete_builder :: proc(s: StringBuilder) {
+    data := (^[]byte)(s.data)
+    dealloc(raw_data(data^))
+    dealloc(data)
 }
 
 aprintf :: proc(a: ^Arena, format: string, args: ..any) -> string {
@@ -223,21 +230,31 @@ build_error_info :: proc(
     first_location: runtime.Source_Code_Location,
     other_locations: []runtime.Source_Code_Location,
 ) -> strings.Builder {
-    add_code_location :: proc(b: ^strings.Builder, loc: runtime.Source_Code_Location) {
-        strings.write_string(b, "expect_string called from file ")
-        strings.write_string(b, loc.file_path)
-        strings.write_string(b, " at line ")
-        strings.write_int(b, int(loc.line))
-        strings.write_string(b, " column ")
-        strings.write_int(b, int(loc.column))
-        strings.write_byte(b, '\n')
-    }
-    builder := strings.builder_make()
-    add_code_location(&builder, first_location)
+    format :: "expect_string called from %v"
+    b := strings.builder_make()
+    fmt.sbprintfln(&b, format, first_location)
     for other_location in other_locations {
-        add_code_location(&builder, other_location)
+        fmt.sbprintfln(&b, format, other_location)
     }
-    return builder
+    return b
+}
+
+// The string returned is the error
+expect_string_helper :: proc(
+    expected: string,
+    got: string,
+    first_location: runtime.Source_Code_Location,
+    other_locations: []runtime.Source_Code_Location,
+) -> string {
+    if got == expected {
+        return ""
+    }
+    builder := build_error_info(first_location, other_locations)
+    strings.write_string(&builder, "Mismatching expect_string: Got ")
+    strings.write_quoted_string(&builder, got)
+    strings.write_string(&builder, " expected ")
+    strings.write_quoted_string(&builder, expected)
+    return strings.to_string(builder)
 }
 
 expect_string :: proc(
@@ -248,19 +265,76 @@ expect_string :: proc(
 ) {
     start := comparer.index
     comparer.index += len(expected)
-    if comparer.index > len(comparer.got_text) {
-        builder := build_error_info(first_location, other_locations)
-        strings.write_string(&builder, "Expected text is longer than got text")
-        testing.fail_now(comparer.t, strings.to_string(builder))
+    err := expect_string_helper(
+        expected,
+        comparer.got_text[start:min(comparer.index, uint(len(comparer.got_text)))],
+        first_location,
+        other_locations,
+    )
+    if err != "" {
+        testing.fail_now(comparer.t, err)
     }
-    got := comparer.got_text[start:comparer.index]
-    if got != expected {
-        builder := build_error_info(first_location, other_locations)
-        strings.write_string(&builder, "Mismatching expect_string: Got ")
-        strings.write_quoted_string(&builder, got)
-        strings.write_string(&builder, " expected ")
-        strings.write_quoted_string(&builder, expected)
-        testing.fail_now(comparer.t, strings.to_string(builder))
+}
+
+expect_string2 :: proc(r: ^bufio.Reader, expected: string, loc := #caller_location) {
+    assert(expected != "")
+    got := make([]byte, len(expected))
+    defer delete(got)
+    n, err := bufio.reader_read(r, got)
+    if n == 0 {
+        panicf("Failed to read: %v", err)
+    }
+    assert(err == nil || err == .EOF)
+    expect_string_helper(expected, string(got[:n]), loc, nil)
+}
+
+parse_uint :: proc(r: ^bufio.Reader) -> uint {
+    b, err := bufio.reader_read_byte(r)
+    assert(err == nil)
+    assert('0' <= b && b <= '9')
+
+    n := uint(b - '0')
+    for {
+        b, err = bufio.reader_read_byte(r)
+        if err == .EOF {
+            return n
+        }
+        assert(err == nil)
+        if !('0' <= b && b <= '9') {
+            bufio.reader_unread_byte(r)
+            return n
+        }
+
+        n = n * 10 + uint(b - '0')
+    }
+}
+
+is_nothing_char :: proc(c: byte) -> bool {
+    return c == ' ' || c == '\t'
+}
+
+is_letter :: proc(c: $T) -> bool {
+    return c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
+}
+
+is_alphanumeric_char_any :: proc(c: $T) -> bool {
+    return is_letter(c) || ('0' <= c && c <= '9')
+}
+
+is_alphanumeric_char :: proc(c: byte) -> bool {
+    return is_alphanumeric_char_any(c)
+}
+
+is_digit_char :: proc(c: byte) -> bool {
+    return '0' <= c && c <= '9'
+}
+
+is_symbol_char :: proc(c: byte) -> bool {
+    switch c {
+    case '=', '+', '-', '*', '/', '.', '<', '>', '%', '~', '&', '!':
+        return true
+    case:
+        return false
     }
 }
 
@@ -446,109 +520,10 @@ write :: proc(output_builder: ^OutputBuilder) {
 }
 */
 
-DiagnosticType :: enum {
-    Error,
-    Warning,
+Pipe :: struct(T: typeid) {
+    stdout: T,
+    stderr: T,
 }
-
-DiagnosticReporter :: struct {
-    files:     Multi(CompilerFile),
-    io:        Pipe(io.Writer),
-    number_of: [DiagnosticType]uint,
-}
-
-diagnostic_header :: proc(r: ^DiagnosticReporter, pos: Pos, type: DiagnosticType) -> io.Writer {
-    w := type == .Error ? r.io.stderr : r.io.stdout
-    if r.number_of[.Error] + r.number_of[.Warning] == 0 {
-        io.write_byte(w, '\n')
-    }
-    r.number_of[type] += 1
-    // TODO: use bold text for header
-    switch type {
-    case .Error:
-        io.write_string(w, "Error")
-    case .Warning:
-        io.write_string(w, "Warning")
-    case:
-        panic("Unreachable")
-    }
-    io.write_string(w, " compiling")
-    if pos != unknown_pos {
-        fmt.wprintf(w, " %v", pos, flush = false)
-    }
-    io.write_byte(w, '\n')
-    return w
-}
-
-diagnostic_footer :: proc(w: io.Writer) {
-    io.write_string(w, "\n\n")
-    io.flush(w)
-}
-
-// Set the position to `unknown_pos` to not have a position for the error message
-diagnostic :: proc(
-    r: ^DiagnosticReporter,
-    position: Pos,
-    message_fmt: string,
-    message_args: ..any,
-    type: DiagnosticType = .Error,
-    loc := #caller_location,
-) {
-    when debug_diagnostics {
-        print_call(loc, "diagnostic")
-    }
-    w := diagnostic_header(r, position, type)
-    fmt.wprintf(w, message_fmt, ..message_args)
-    diagnostic_footer(w)
-}
-
-/*
-err :: proc(
-    s: ^CheckerState,
-    position: Pos,
-    message_fmt: string,
-    message_args: ..any,
-    loc := #caller_location,
-) {
-    diagnostic_before :=
-        s.diagnostics_info.number_of_errors + s.diagnostics_info.number_of_warnings > 0
-    s.diagnostics_info.number_of_errors += 1
-    diagnostic(
-        s.stderr,
-        s.files.file[:len(s.files)],
-        position,
-        message_fmt,
-        ..message_args,
-        type = .Error,
-        newline_before = !diagnostic_before,
-        newline_after = true,
-        loc = loc,
-    )
-}
-
-warn :: proc(
-    s: ^CheckerState,
-    position: Pos,
-    message_fmt: string,
-    message_args: ..any,
-    loc := #caller_location,
-) {
-    diagnostic_before :=
-        s.diagnostics_info.number_of_errors + s.diagnostics_info.number_of_warnings > 0
-    s.diagnostics_info.number_of_warnings += 1
-    diagnostic(
-        s.stderr,
-        s.files.file[:len(s.files)],
-        position,
-        message_fmt,
-        ..message_args,
-        type = "Warning",
-        newline_before = !diagnostic_before,
-        newline_after = true,
-        loc = loc,
-    )
-}
-*/
 
 debug_nesting := 0
 

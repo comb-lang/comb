@@ -5,6 +5,7 @@ package main
 
 import "core:fmt"
 import "core:strings"
+import "utils"
 
 builtins_err :: "`%s` is a builtin\nCannot override builtins"
 
@@ -174,7 +175,7 @@ add_unnamed_variable :: proc(
     variable_is_re: bool,
     loc := #caller_location,
 ) -> VariableRef {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "add_unnamed_variable")
     }
     var_ref := VariableRef{len(s.scopes) - 1, len(s.scopes[len(s.scopes) - 1].variables)}
@@ -195,7 +196,7 @@ add_variable :: proc(
     VariableRef,
     bool,
 ) {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "add_variable")
     }
     // TODO: Add a warning for unused variables
@@ -217,7 +218,7 @@ add_variable :: proc(
     if variable.has_dollar_at_end {
         alt_ident = variable.ident[:len(variable.ident) - 1]
     } else {
-        alt_ident = aprintf(s.a, "%s$", variable.ident)
+        alt_ident = utils.aprintf(s.a, "%s$", variable.ident)
     }
     if alt_ident in s.variables_map {
         diagnostic(

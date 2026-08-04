@@ -5,6 +5,7 @@ import "core:io"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "utils"
 
 VariableRef :: struct {
     nesting_level: uint,
@@ -60,8 +61,8 @@ CheckedGlobalValue :: struct {
 }
 
 GenericInitialisations :: struct {
-    m:      KeyToIndex(GenericInitialisation),
-    values: Multi(CheckedGlobalValue),
+    m:      utils.KeyToIndex(GenericInitialisation),
+    values: utils.Multi(CheckedGlobalValue),
 }
 
 CheckerScopeState :: struct {
@@ -83,7 +84,7 @@ CheckerState :: struct {
     func_defs:                     []FunctionDefinition,
 
     // The following fields change while checking
-    a:                             ^Arena,
+    a:                             ^utils.Arena,
     using r:                       DiagnosticReporter,
     generic_initialisations:       GenericInitialisations,
     checked_functions:             [dynamic]CheckedFunction,
@@ -226,7 +227,7 @@ Func :: struct {
     ref:         CheckedFuncRef,
     // For when variables defined in one function are accessible from an inline
     // function
-    lambda_args: Multi(VariableRef),
+    lambda_args: utils.Multi(VariableRef),
 }
 CheckedValue :: union {
     CompileTimeValue,
@@ -440,7 +441,7 @@ check_struct_type :: proc(
     type: StructUnit,
     generic_args: map[string]Type,
 ) -> Type {
-    field_types := arena_make_multi(s.a, Multi(Type), len(type.m.keys))
+    field_types := utils.arena_make_multi(s.a, utils.Multi(Type), len(type.m.keys))
     ok := true
     for field, i in type.m.keys {
         expect_snake_case(
@@ -560,7 +561,7 @@ check_type :: proc(
     generic_args: map[string]Type,
     loc := #caller_location,
 ) -> Type {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "check_type")
     }
     body := make([dynamic]CheckedStatement)
@@ -599,7 +600,7 @@ expect_runtime_value :: proc(
     v: CheckedValue,
     loc := #caller_location,
 ) -> CheckedValue {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "expect_runtime_value")
     }
     if comptime_value, is_comptime_value := v.(CompileTimeValue); is_comptime_value {
@@ -755,7 +756,7 @@ CheckedStatement :: union {
 
 non_compiletime_global_err :: "This value is not a compile time known constant\nAll global values must be compile time known constants"
 
-generic_initialisation_to_index_procs :: KeyToIndexProcs(GenericInitialisation) {
+generic_initialisation_to_index_procs :: utils.KeyToIndexProcs(GenericInitialisation) {
     proc(g: GenericInitialisation) -> u32 {
         return g.global.index ~ get_hash_of_array_of_types(g.args)
     },
@@ -790,7 +791,7 @@ check_comptime_func_call :: proc(
         return nil
     }
 
-    ref, res := lookup_or_insert(
+    ref, res := utils.lookup_or_insert(
         &s.generic_initialisations.m,
         GenericInitialisation{global, generic_args},
         generic_initialisation_to_index_procs,
@@ -802,7 +803,10 @@ check_comptime_func_call :: proc(
         }
         return finish_checking_value(s, pos, type, value.value, value.type, "")
     } else {
-        resize_multi(&s.generic_initialisations.values, len(s.generic_initialisations.m.keys))
+        utils.resize_multi(
+            &s.generic_initialisations.values,
+            len(s.generic_initialisations.m.keys),
+        )
         s.generic_initialisations.values.d[ref.index] = CheckedGlobalValue{.Unknown, nil}
     }
 
@@ -950,7 +954,7 @@ initialise_global_type_without_generic :: proc(
 */
 
 simplify_type :: proc(s: ^CheckerState, type: Type, loc := #caller_location) -> Type {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "simplify_type")
         print_arg("type", type)
     }
@@ -965,7 +969,7 @@ simplify_type :: proc(s: ^CheckerState, type: Type, loc := #caller_location) -> 
             return cur_type
         case:
             if got.value.type != .Unknown {
-                panicf("got.value.type == %v", got.value.type)
+                utils.panicf("got.value.type == %v", got.value.type)
             }
             return cur_type
         }
@@ -985,7 +989,7 @@ get_sum_type :: proc(
     Type,
     bool,
 ) {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "get_sum_type")
         print_arg("pos", pos)
         print_arg("type", type)
@@ -993,7 +997,7 @@ get_sum_type :: proc(
     simplified := simplify_type(s, type)
     sum_type, is_sum_type := get_type(s.types, simplified).key.(SumType)
     if is_sum_type {
-        when debug_checker {
+        when utils.debug_checker {
             debug("returned SumType(StructType) is %#v", sum_type)
         }
         return sum_type, simplified, true
@@ -1026,7 +1030,10 @@ get_func_type_from_struct_type :: proc(
     func_return_types[0] = return_type
     created := create_type(
         &s.types,
-        FuncType{multi_to_array(struct_type.types, len(struct_type.m.keys)), func_return_types},
+        FuncType {
+            utils.multi_to_array(struct_type.types, len(struct_type.m.keys)),
+            func_return_types,
+        },
     )
     return created.type
 }
@@ -1040,7 +1047,7 @@ get_func_type :: proc(
     type: Type,
     loc := #caller_location,
 ) -> Type {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "get_func_type")
         print_arg("type", type_to_string(s, type))
     }
@@ -1107,7 +1114,7 @@ type_is_subset :: proc(
     superset: Type,
     loc := #caller_location,
 ) -> bool {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "type_is_subset")
         debug("type: %v", get_type(s.types, type))
         debug("superset: %v", get_type(s.types, superset))
@@ -1166,7 +1173,7 @@ finish_checking_value :: proc(
     extra_text: string,
     loc := #caller_location,
 ) -> CheckedValue {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "finish_checking_value")
     }
     got_value_mut := got_value
@@ -1212,7 +1219,7 @@ expect_value_of_type :: proc(
     extra_text: string,
     loc := #caller_location,
 ) -> bool {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "expect_value_of_type")
         print_arg("expected", expected)
         print_arg("got_type", type_to_string(s, got_type))
@@ -1265,7 +1272,7 @@ expect_exact_type :: proc(
     extra_text: string,
     loc := #caller_location,
 ) -> bool {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "expect_exact_type")
     }
     if !type_is_subset(s, got, expected) {
@@ -1287,7 +1294,7 @@ get_variable_type :: proc(
     variable: VariableRef,
     loc := #caller_location,
 ) -> Type {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "get variable type")
     }
     return s.scopes[variable.nesting_level].variables[variable.index].type
@@ -1310,7 +1317,7 @@ type_to_string2 :: proc(
     t: Type,
     loc := #caller_location,
 ) -> string {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "type_to_string2")
     }
     builder := strings.builder_make()
@@ -1347,7 +1354,7 @@ build_type_string :: proc(
     t: Type,
     loc := #caller_location,
 ) {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "build type string")
     }
     // TODO: Format the string better
@@ -1488,7 +1495,7 @@ build_type_string :: proc(
 }
 
 pop_scope :: proc(s: ^CheckerState, loc := #caller_location) {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "pop_scope")
     }
     pop(&s.scopes)
@@ -1594,7 +1601,7 @@ check_mutation :: proc(
     generic_args: map[string]Type,
     loc := #caller_location,
 ) -> bool {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "check_mutation")
     }
     ident, is_ident := unit.first_unit.(IdentNode)
@@ -1702,7 +1709,7 @@ check_block :: proc(
     []Type,
     bool,
 ) {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "check_block")
     }
     for stmt, stmt_index in block {
@@ -1905,7 +1912,7 @@ check_block :: proc(
                             loop_index,
                             index_ref,
                             elem_ref,
-                            &DoubleDynamic(CheckedStatement){loop_body_array, 0},
+                            &utils.DoubleDynamic(CheckedStatement){loop_body_array, 0},
                             loop_variables,
                             v,
                             t,
@@ -1948,7 +1955,7 @@ check_block :: proc(
                             index,
                             key,
                             value_var,
-                            &DoubleDynamic(CheckedStatement){loop_body_array, 0},
+                            &utils.DoubleDynamic(CheckedStatement){loop_body_array, 0},
                             loop_variables,
                         ),
                     )
@@ -2029,7 +2036,7 @@ check_block :: proc(
                         start,
                         end,
                         step,
-                        &DoubleDynamic(CheckedStatement){loop_body_array, 0},
+                        &utils.DoubleDynamic(CheckedStatement){loop_body_array, 0},
                         loop_variables,
                     ),
                 )
@@ -2184,7 +2191,7 @@ check_block :: proc(
             variant_has_branch := make([]bool, len(val_sum_type.m.keys))
             variant_branch_positions := make([]Pos, len(val_sum_type.m.keys))
 
-            branches := arena_make(s.a, []CheckedMatchBranch, len(val_sum_type.m.keys))
+            branches := utils.arena_make(s.a, []CheckedMatchBranch, len(val_sum_type.m.keys))
             for branch in value.branches {
                 append_elem(&s.scopes, Scope{})
                 defer pop_scope(s)
@@ -2221,8 +2228,8 @@ check_block :: proc(
                 }
 
                 variant_name := type_variable.segments[1].ident
-                variant := lookup(val_sum_type.m, variant_name, string_to_index_procs)
-                if variant == does_not_exist {
+                variant := utils.lookup(val_sum_type.m, variant_name, utils.string_to_index_procs)
+                if variant == utils.does_not_exist {
                     diagnostic(
                         s,
                         branch_type.pos,
@@ -2297,7 +2304,7 @@ check_block :: proc(
 
         }
 
-        when debug_checker {
+        when utils.debug_checker {
             debug("length of body is %d", len(body))
         }
     }
@@ -2458,7 +2465,7 @@ check_var_ref :: proc(
     a: CheckValueArgs,
     loc := #caller_location,
 ) -> CheckedValue {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "check_var_ref")
         print_arg("segments", segments)
         print_arg("a", a)
@@ -2495,8 +2502,8 @@ check_var_ref :: proc(
             return nil
         }
 
-        variant := lookup(sum_type.m, segments[1].ident, string_to_index_procs)
-        if variant == does_not_exist {
+        variant := utils.lookup(sum_type.m, segments[1].ident, utils.string_to_index_procs)
+        if variant == utils.does_not_exist {
             diagnostic(
                 s,
                 pos,
@@ -2533,7 +2540,7 @@ check_var_ref :: proc(
         args_ok := true
         for arg, i in call.args {
             expected_type := variant.fields[i].type
-            when debug_checker {
+            when utils.debug_checker {
                 debug("expected_type is %#v", expected_type)
             }
             checked_args[i] = check_value(s, arg, body, &expected_type)
@@ -2605,8 +2612,8 @@ check_var_ref :: proc(
         if !ok {
             return nil
         }
-        field := lookup(struct_type.m, extra_segment.ident, string_to_index_procs)
-        if field == does_not_exist {
+        field := utils.lookup(struct_type.m, extra_segment.ident, utils.string_to_index_procs)
+        if field == utils.does_not_exist {
             diagnostic(
                 s,
                 extra_segment.pos,
@@ -2631,7 +2638,7 @@ check_array_initialisation :: proc(
     a: CheckValueArgs,
     loc := #caller_location,
 ) -> CheckedValue {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "check_array_initialisation")
     }
     array_type_value, ok := check_array_type(s, array_type_pos, array_type_node, a.generic_args)
@@ -2726,13 +2733,13 @@ check_function_call :: proc(
         CheckedFunctionCall,
         CompileTimeValue,
     } {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "check_function_call")
         print_arg("expected_return_types", expected_return_types)
     }
 
     func_args: []Type = ---
-    when debug_checker {
+    when utils.debug_checker {
         func_args = nil // So that `func_args` can be printed by `debug_arg` without causing a segfault
     }
     expected_type := FunctionWithExpectedReturnTypes{&func_args, expected_return_types}
@@ -3358,7 +3365,7 @@ check_initial_value :: proc(
         if a.early_exit_if_value_is_type != nil {
             return finish_checking_early_return_type(s, pos, a)
         }
-        variant_payloads := arena_make_multi(s.a, Multi(Type), len(value.m.keys))
+        variant_payloads := utils.arena_make_multi(s.a, utils.Multi(Type), len(value.m.keys))
         ok := true
         for key, i in value.m.keys {
             expect_camel_case(
@@ -3756,7 +3763,7 @@ check_derivation_subset :: proc(
     generic_args: map[string]Type,
     body: ^[dynamic]CheckedStatement,
 ) -> (
-    DoubleDynamic(DerivationSubsetElement),
+    utils.DoubleDynamic(DerivationSubsetElement),
     Type,
 ) {
     if call, is_call := unit.unit.(CallWithSquareBrackets); is_call {
@@ -3768,7 +3775,7 @@ check_derivation_subset :: proc(
             body,
         )
         if type == .Invalid {
-            return DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
         }
         array_type, is_array := get_type(s.types, simplify_type(s, type)).key.(ArrayType)
         if !is_array {
@@ -3778,7 +3785,7 @@ check_derivation_subset :: proc(
                 "Square bracket call expects an array\nGot the type `%s`",
                 type_to_string(s, type),
             )
-            return DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
         }
         subset_elem := check_array_index_derivation_subset(
             s,
@@ -3788,9 +3795,9 @@ check_derivation_subset :: proc(
             generic_args,
         )
         if subset_elem.index == nil {
-            return DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
         }
-        dynamic_append_elem(&subset, subset_elem)
+        utils.dynamic_append_elem(&subset, subset_elem)
         return subset, array_type.item_type
     }
     #partial switch t in get_type(s.types, simplify_type(s, derivation_base_type)).key {
@@ -3812,11 +3819,11 @@ check_derivation_subset :: proc(
                 type_to_string(s, derivation_base_type),
                 unit.unit,
             )
-            return DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
         }
         subset_elem := check_array_index_derivation_subset(s, unit.pos, args, body, generic_args)
         if subset_elem.index == nil {
-            return DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
         }
         if unit_being_called != nil {
             elems, type := check_derivation_subset(
@@ -3826,11 +3833,11 @@ check_derivation_subset :: proc(
                 generic_args,
                 body,
             )
-            dynamic_insert(&elems, subset_elem)
+            utils.dynamic_insert(&elems, subset_elem)
             return elems, type
         } else {
-            elems := DoubleDynamic(DerivationSubsetElement){}
-            dynamic_append_elem(&elems, subset_elem)
+            elems := utils.DoubleDynamic(DerivationSubsetElement){}
+            utils.dynamic_append_elem(&elems, subset_elem)
             return elems, t.item_type
         }
     case OrderedHashMapTypeWithStringKey:
@@ -3842,7 +3849,7 @@ check_derivation_subset :: proc(
                 "For ordered hash map type `%s`\nCan only use unit in square brackets as derivation subset",
                 type_to_string(s, derivation_base_type),
             )
-            return DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
         }
         if len(unit_in_square_brackets.elements) != 1 {
             diagnostic(
@@ -3851,7 +3858,7 @@ check_derivation_subset :: proc(
                 "Expected 1 value in square brackets\nGot %d values",
                 len(unit_in_square_brackets.elements),
             )
-            return DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
         }
         key := check_value(
             s,
@@ -3859,10 +3866,10 @@ check_derivation_subset :: proc(
             CheckValueArgs{body, .String, generic_args, nil},
         )
         if key == nil {
-            return DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
         }
-        elements := DoubleDynamic(DerivationSubsetElement){}
-        dynamic_append_elem(&elements, StringOrderedHashMapAccess{key})
+        elements := utils.DoubleDynamic(DerivationSubsetElement){}
+        utils.dynamic_append_elem(&elements, StringOrderedHashMapAccess{key})
         return elements, t.value_type
     case StructType:
         field, ok := unit.unit.(IdentNode)
@@ -3873,11 +3880,11 @@ check_derivation_subset :: proc(
                 "For struct type `%s`\nCan only use ident with 2 segments where first segment is empty and `re` is not before the ident as derivation subset",
                 type_to_string(s, derivation_base_type),
             )
-            return DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
         }
         field_name := field.segments[1]
-        field_index := lookup(t.m, field_name.ident, string_to_index_procs)
-        if field_index == does_not_exist {
+        field_index := utils.lookup(t.m, field_name.ident, utils.string_to_index_procs)
+        if field_index == utils.does_not_exist {
             diagnostic(
                 s,
                 unit.pos,
@@ -3885,10 +3892,10 @@ check_derivation_subset :: proc(
                 field_name.ident,
                 type_to_string(s, derivation_base_type),
             )
-            return DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
         }
-        elements := DoubleDynamic(DerivationSubsetElement){}
-        dynamic_append_elem(&elements, FieldAccess{field_index.index})
+        elements := utils.DoubleDynamic(DerivationSubsetElement){}
+        utils.dynamic_append_elem(&elements, FieldAccess{field_index.index})
         out_type := t.types.d[field_index.index]
         for i := 2; i < len(field.segments); i += 1 {
             field_name = field.segments[i]
@@ -3900,10 +3907,14 @@ check_derivation_subset :: proc(
                     "Cannot use `.` for non-struct type `%s`",
                     type_to_string(s, out_type),
                 )
-                return DoubleDynamic(DerivationSubsetElement){}, .Invalid
+                return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
             }
-            field_index = lookup(struct_type.m, field_name.ident, string_to_index_procs)
-            if field_index == does_not_exist {
+            field_index = utils.lookup(
+                struct_type.m,
+                field_name.ident,
+                utils.string_to_index_procs,
+            )
+            if field_index == utils.does_not_exist {
                 diagnostic(
                     s,
                     unit.pos,
@@ -3911,9 +3922,9 @@ check_derivation_subset :: proc(
                     field_name.ident,
                     type_to_string(s, out_type),
                 )
-                return DoubleDynamic(DerivationSubsetElement){}, .Invalid
+                return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
             }
-            dynamic_append_elem(&elements, FieldAccess{field_index.index})
+            utils.dynamic_append_elem(&elements, FieldAccess{field_index.index})
             out_type = struct_type.types.d[field_index.index]
         }
         return elements, out_type
@@ -3924,7 +3935,7 @@ check_derivation_subset :: proc(
             "Cannot have derivation subset when the type of the derivation base is `%s`",
             type_to_string(s, derivation_base_type),
         )
-        return DoubleDynamic(DerivationSubsetElement){}, .Invalid
+        return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
     }
 }
 
@@ -3979,7 +3990,7 @@ check_value :: proc(
     a: CheckValueArgs,
     loc := #caller_location,
 ) -> CheckedValue {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "check_value")
         print_arg("v", v)
     }
@@ -4041,7 +4052,7 @@ check_value :: proc(
         }
         value = CheckedDerivation {
             new_clone(value),
-            DerivationSubset{dynamic_to_fixed(derivation_subset)},
+            DerivationSubset{utils.dynamic_to_fixed(derivation_subset)},
             alteration,
         }
 
@@ -4051,14 +4062,14 @@ check_value :: proc(
     return finish_checking_value(s, v.pos, a.type, value, type, "")
 }
 
-get_inline_func_fields :: proc(s: ^CheckerState) -> (InlineFuncFields, Multi(VariableRef)) {
+get_inline_func_fields :: proc(s: ^CheckerState) -> (InlineFuncFields, utils.Multi(VariableRef)) {
     if len(s.variables_map) == 0 {
-        return InlineFuncFields{}, Multi(VariableRef){nil}
+        return InlineFuncFields{}, utils.Multi(VariableRef){nil}
     }
     variables_from_outer_scope: map[string]VariableRef
     scope0: Scope
-    lambda_args := arena_make_multi(s.a, Multi(VariableRef), 0, resizable = true)
-    defer fix_resizable_multi(lambda_args)
+    lambda_args := utils.arena_make_multi(s.a, utils.Multi(VariableRef), 0, resizable = true)
+    defer utils.fix_resizable_multi(lambda_args)
 
     for var_name, var_ref in s.variables_map {
         variable := s.scopes[var_ref.nesting_level].variables[var_ref.index]
@@ -4069,7 +4080,7 @@ get_inline_func_fields :: proc(s: ^CheckerState) -> (InlineFuncFields, Multi(Var
         }
 
         variables_from_outer_scope[var_name] = VariableRef{0, len(scope0.variables)}
-        append_multi_dynamic(&lambda_args, len(scope0.variables), var_ref)
+        utils.append_multi_dynamic(&lambda_args, len(scope0.variables), var_ref)
         append(&scope0.variables, variable)
     }
 
@@ -4159,7 +4170,7 @@ check_global_value_without_generic :: proc(
     ref: GlobalValueWithoutGenericRef,
     loc := #caller_location,
 ) -> CheckedGlobalValue {
-    when debug_checker {
+    when utils.debug_checker {
         print_call(loc, "check_global_value_without_generic")
     }
     global := &s.global_values_without_generic[ref.index]
@@ -4195,7 +4206,7 @@ check_global_value_without_generic :: proc(
         CheckValueArgs{&body, AnyType{&type}, no_generic_args, early_exit_if_value_is_type},
     )
     s.scope_state = old_scope_state
-    when debug_checker {
+    when utils.debug_checker {
         debug(
             "Checked global with name `%s` and type `%v`",
             global.ast_node.name,
@@ -4323,16 +4334,16 @@ CheckerOutput :: struct {
 }
 
 check :: proc(
-    a: ^Arena,
+    a: ^utils.Arena,
     parsed: ParsedProject,
     func_name: string,
-    io: Pipe(io.Writer),
+    io: utils.Pipe(io.Writer),
 ) -> CheckerOutput {
     state := CheckerState {
         a                             = a,
         generic_initialisations       = GenericInitialisations {
-            make_key_to_index(a, KeyToIndex(GenericInitialisation)),
-            arena_make_multi(a, Multi(CheckedGlobalValue), 0, resizable = true),
+            utils.make_key_to_index(a, utils.KeyToIndex(GenericInitialisation)),
+            utils.arena_make_multi(a, utils.Multi(CheckedGlobalValue), 0, resizable = true),
         },
         r                             = DiagnosticReporter {
             parsed.files,
@@ -4350,8 +4361,8 @@ check :: proc(
     }
     defer {
         fix_types(state.types)
-        fix_key_to_index(state.generic_initialisations.m)
-        fix_resizable_multi(state.generic_initialisations.values)
+        utils.fix_key_to_index(state.generic_initialisations.m)
+        utils.fix_resizable_multi(state.generic_initialisations.values)
     }
 
     for _, i in state.global_values_without_generic {

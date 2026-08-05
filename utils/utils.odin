@@ -8,6 +8,24 @@ import "core:math/rand"
 import "core:strings"
 import "core:testing"
 
+Position :: struct {
+    line: uint,
+    col:  uint `json:"character"`,
+}
+
+get_position :: proc(p: Pos) -> Position {
+    out := Position{1, 1}
+    for char in p.file.code[:p.index] {
+        if char == '\n' {
+            out.line += 1
+            out.col = 1
+        } else {
+            out.col += 1
+        }
+    }
+    return out
+}
+
 OverriddenCloseHandlerStreamData :: struct {
     original_stream: io.Stream,
     new_data:        rawptr,

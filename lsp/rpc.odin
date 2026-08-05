@@ -38,11 +38,6 @@ TextDocumentIdentifier :: struct {
     uri: string,
 }
 
-Position :: struct {
-    line:      uint,
-    character: uint,
-}
-
 DidOpenTextDocumentNotification :: struct {
     using _: Notification,
     params:  DidOpenTextDocumentParams,
@@ -69,7 +64,7 @@ DidOpenTextDocumentParams :: struct {
 
 TextDocumentPositionParams :: struct {
     text_document: TextDocumentIdentifier `json:"textDocument"`,
-    position:      Position,
+    position:      utils.Position,
 }
 
 RequestData :: struct {
@@ -99,8 +94,8 @@ Severity :: enum {
 }
 
 Range :: struct {
-    start: Position,
-    end:   Position,
+    start: utils.Position,
+    end:   utils.Position,
 }
 
 Diagnostic :: struct {

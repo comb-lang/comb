@@ -19,17 +19,8 @@ write_position :: proc(w: io.Writer, pos: utils.Pos) {
     io.write_string(w, pos.file.file_path)
     io.write_byte(w, '`')
     if pos.index != max(uint) {
-        line := 1
-        column := 1
-        for char in pos.file.code[:pos.index] {
-            if char == '\n' {
-                line += 1
-                column = 1
-            } else {
-                column += 1
-            }
-        }
-        fmt.wprintf(w, " (%d:%d)", line, column, flush = false)
+        p := utils.get_position(pos)
+        fmt.wprintf(w, " (%d:%d)", p.line, p.col, flush = false)
     }
 }
 

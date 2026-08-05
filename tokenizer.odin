@@ -302,8 +302,8 @@ wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
     when utils.debug_diagnostics {
         print_call(loc, "wrong_token_err")
     }
-    w := diagnostic_header(&state.r, state.last_token_pos, .Error)
-    defer diagnostic_footer(w)
+    w := state.r.diagnostic_header(state.r.data, state.last_token_pos, .Error)
+    defer io.close(w)
 
     for c in state.parser_context {
         io.write_string(w, "While parsing ")

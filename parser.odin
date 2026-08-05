@@ -109,8 +109,8 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
         }
         i, result := utils.lookup_or_insert(&out.m, field.text, utils.string_to_index_procs)
         if result == .LookedUp {
-            s.r.diagnostic(
-                s.r.data,
+            diagnostic(
+                s.r,
                 field.pos,
                 "There is already a field called `%s` defined in this struct at %v",
                 field.text,
@@ -217,18 +217,12 @@ maybe_parse_initial_unit :: proc(
             context.allocator,
         )
         if join_err != nil {
-            s.r.diagnostic(s.r.data, unknown_pos, "Failed to join filepath: %v", join_err)
+            diagnostic(s.r, unknown_pos, "Failed to join filepath: %v", join_err)
             return nil, false
         }
         file_ref, read_err := utils.read_file(s.files_cache, joined)
         if read_err != nil {
-            s.r.diagnostic(
-                s.r.data,
-                s.last_token_pos,
-                "Failed to read `%s`: %#v",
-                joined,
-                read_err,
-            )
+            diagnostic(s.r, s.last_token_pos, "Failed to read `%s`: %#v", joined, read_err)
             return nil, false
         }
         get_next_token(s, true)
@@ -305,8 +299,8 @@ maybe_parse_initial_unit :: proc(
                     utils.string_to_index_procs,
                 )
                 if result == .LookedUp {
-                    s.r.diagnostic(
-                        s.r.data,
+                    diagnostic(
+                        s.r,
                         variant_name.pos,
                         "There is already a variant called `%s` in this sum type at %v",
                         variant_name.ident,
@@ -798,8 +792,8 @@ parse_for_loop :: proc(s: ^ParserState) -> (ForInLoop, bool) {
             break variables_loop
         case CommaToken:
             if variable_index >= 3 {
-                s.r.diagnostic(
-                    s.r.data,
+                diagnostic(
+                    s.r,
                     s.last_token_pos,
                     "There cannot be more than 3 variables in a for loop head (the iteration the for loop is on, the key of the thing being iterated over, and the value of the thing being iterated over)",
                 )
@@ -1475,8 +1469,8 @@ parse_file :: proc(s: ^ParserState) {
             if def, exists :=
                    s.parsed_files.d[get_file_index(s.files_cache.files, s.last_token_pos.file)][name];
                exists {
-                s.r.diagnostic(
-                    s.r.data,
+                diagnostic(
+                    s.r,
                     position,
                     "The global `%s` is already declared at %v",
                     name,
@@ -1502,8 +1496,8 @@ parse_file :: proc(s: ^ParserState) {
 
                     if segments[0].ident in generic_map {
                         pos := generic_map[segments[0].ident]
-                        s.r.diagnostic(
-                            s.r.data,
+                        diagnostic(
+                            s.r,
                             s.last_token_pos,
                             "There is already a generic argument called `%s` defined on %v in this global type",
                             segments[0].ident,
@@ -1539,8 +1533,8 @@ parse_file :: proc(s: ^ParserState) {
                 get_next_token(s, false)
 
                 if len(generic) == 0 {
-                    s.r.diagnostic(
-                        s.r.data,
+                    diagnostic(
+                        s.r,
                         position,
                         "The parser is interpreting this as a non-generic value\nThe empty `[]` can be omitted",
                         type = .Warning,
@@ -1564,7 +1558,7 @@ parse_file :: proc(s: ^ParserState) {
                 get_next_token(s, false)
                 type, ok := parse_unit(s)
                 if !ok {
-                    assert(s.r->has_errors())
+                    assert(s.r.has_errors(s.r.data))
                     return
                 }
                 if len(generic) == 0 {

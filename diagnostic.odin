@@ -49,12 +49,11 @@ standard_diagnostic_header :: proc(data: rawptr, pos: Pos, type: DiagnosticType)
         fmt.wprintf(w, " %v", pos, flush = false)
     }
     io.write_byte(w, '\n')
-    return w
-}
-
-diagnostic_footer :: proc(w: io.Writer) {
-    io.write_string(w, "\n\n")
-    io.flush(w)
+    return utils.override_close_handler(w, nil, proc(d: ^utils.OverriddenCloseHandlerStreamData) {
+        io.write_string(d.original_stream, "\n\n")
+        io.flush(d.original_stream)
+        d.original_stream = utils.panic_stream
+    })
 }
 
 DiagnosticType :: enum {
@@ -78,10 +77,9 @@ diagnostic :: proc(
     when utils.debug_diagnostics {
         print_call(loc, "diagnostic")
     }
-    r := cast(^StandardDiagnosticReporter)data
-    w := diagnostic_header(r, position, type)
+    w := r.diagnostic_header(r.data, position, type)
     fmt.wprintf(w, message_fmt, ..message_args)
-    diagnostic_footer(w)
+    io.close(w)
 }
 
 /*

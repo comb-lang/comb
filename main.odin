@@ -262,7 +262,7 @@ compile :: proc(
     }
 
     reporter_data := new_clone(StandardDiagnosticReporter{io = compiler})
-    reporter := DiagnosticReporter{reporter_data, standard_has_errors, standard_diagnostic}
+    reporter := DiagnosticReporter{reporter_data, standard_has_errors, standard_diagnostic_header}
     checker_output := parse_and_check(
         a,
         files_cache,
@@ -281,8 +281,8 @@ compile :: proc(
             switch c in command {
             case BuildC:
                 if function_type != .NoArgsToInt {
-                    reporter.diagnostic(
-                        reporter.data,
+                    diagnostic(
+                        reporter,
                         unknown_pos,
                         "Got the type `%s`\nExpected the type `%s`",
                         type_to_string2(
@@ -301,8 +301,8 @@ compile :: proc(
                 }
             case Run:
                 if function_type != .NoArgsToInt && function_type != .CompilerToInt {
-                    reporter.diagnostic(
-                        reporter.data,
+                    diagnostic(
+                        reporter,
                         unknown_pos,
                         "Got the type `%s`\nExpected the type `%s` or `%s`",
                         type_to_string2(

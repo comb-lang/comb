@@ -9,10 +9,9 @@ import "core:strings"
 import "core:testing"
 
 OverriddenCloseHandlerStreamData :: struct {
-    original_data:        rawptr,
-    original_stream_proc: io.Stream_Proc,
-    new_data:             rawptr,
-    new_close_proc:       proc(data: rawptr),
+    original_stream: io.Stream,
+    new_data:        rawptr,
+    new_close_proc:  proc(data: ^OverriddenCloseHandlerStreamData),
 }
 
 overridden_close_handler_stream_proc :: proc(
@@ -27,28 +26,21 @@ overridden_close_handler_stream_proc :: proc(
 ) {
     d := cast(^OverriddenCloseHandlerStreamData)data
     if mode != .Close {
-        return d.original_stream_proc(d.original_data, mode, p, offset, whence)
+        return d.original_stream.procedure(d.original_stream.data, mode, p, offset, whence)
     }
     assert(p == nil && offset == 0 && whence == io.Seek_From(0))
-    d.new_close_proc(d.new_data)
+    d->new_close_proc()
     return 0, nil
 }
 
 override_close_handler :: proc(
     s: io.Stream,
     new_close_proc_data: rawptr,
-    new_close_proc: proc(data: rawptr),
+    new_close_proc: proc(data: ^OverriddenCloseHandlerStreamData),
 ) -> io.Stream {
     return io.Stream {
         overridden_close_handler_stream_proc,
-        new_clone(
-            OverriddenCloseHandlerStreamData {
-                s.data,
-                s.procedure,
-                new_close_proc_data,
-                new_close_proc,
-            },
-        ),
+        new_clone(OverriddenCloseHandlerStreamData{s, new_close_proc_data, new_close_proc}),
     }
 }
 
@@ -109,7 +101,7 @@ panic_stream_proc :: proc(
     panic("Unreachable")
 }
 
-panic_reader :: io.Reader{panic_stream_proc, nil}
+panic_stream :: io.Stream{panic_stream_proc, nil}
 
 string_builder_stream_proc :: proc(
     data: rawptr,

@@ -21,6 +21,8 @@ write_position :: proc(w: io.Writer, pos: utils.Pos) {
     io.write_byte(w, '`')
     if pos.index != max(uint) {
         p := utils.get_position(pos)
+        p.line += 1
+        p.col += 1
         fmt.wprintf(w, " (%d:%d)", p.line, p.col, flush = false)
     }
 }
@@ -119,51 +121,6 @@ Command :: union #no_nil {
     Run,
 }
 
-parse_and_check :: proc(
-    a: ^utils.Arena,
-    files_cache: ^utils.FilesCache,
-    first_file: ^utils.CompilerFile,
-    func_name: string,
-    comp: utils.Pipe(io.Writer),
-    exit_early: compiler.EarlyExitInfo,
-    diagnostic_reporter: utils.DiagnosticReporter,
-) -> compiler.CheckerOutput {
-    parsed := compiler.parse_project(
-        a,
-        files_cache,
-        first_file,
-        comp,
-        exit_early,
-        diagnostic_reporter,
-    )
-    if diagnostic_reporter.has_errors(diagnostic_reporter.data) {
-        return compiler.CheckerOutput{}
-    }
-
-    when utils.debug_parser_output {
-        debug("Printing function defs")
-        debug_nesting += 1
-        for function_def, i in state.function_defs {
-            debug("Function def %d", i)
-            debug_nesting += 1
-            debug("%#v", function_def)
-            debug_nesting -= 1
-        }
-        debug_nesting -= 1
-    }
-
-    fmt.wprintfln(comp.stdout, "Checking...")
-    return compiler.check(
-        a,
-        parsed,
-        files_cache.files,
-        func_name,
-        first_file,
-        comp,
-        diagnostic_reporter,
-    )
-}
-
 compile :: proc(
     a: ^utils.Arena,
     files_cache: ^utils.FilesCache,
@@ -207,7 +164,7 @@ compile :: proc(
         utils.standard_has_errors,
         utils.standard_diagnostic_header,
     }
-    checker_output := parse_and_check(
+    checker_output := compiler.parse_and_check(
         a,
         files_cache,
         first_file,

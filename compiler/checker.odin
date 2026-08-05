@@ -576,7 +576,7 @@ check_type :: proc(
     loc := #caller_location,
 ) -> Type {
     when utils.debug_checker {
-        print_call(loc, "check_type")
+        utils.print_call(loc, "check_type")
     }
     body := make([dynamic]CheckedStatement)
     value := check_value(s, type, CheckValueArgs{&body, .Type, generic_args, nil})
@@ -615,7 +615,7 @@ expect_runtime_value :: proc(
     loc := #caller_location,
 ) -> CheckedValue {
     when utils.debug_checker {
-        print_call(loc, "expect_runtime_value")
+        utils.print_call(loc, "expect_runtime_value")
     }
     if comptime_value, is_comptime_value := v.(CompileTimeValue); is_comptime_value {
         #partial switch _ in comptime_value {
@@ -951,7 +951,7 @@ initialise_global_type_without_generic :: proc(
     loc := #caller_location,
 ) -> Type {
     when true {
-        print_call(loc, "initialise_global_type_without_generic")
+        utils.print_call(loc, "initialise_global_type_without_generic")
     }
     // TODO: Check for cycles
     type := s.global_values_without_generic[i]
@@ -969,8 +969,8 @@ initialise_global_type_without_generic :: proc(
 
 simplify_type :: proc(s: ^CheckerState, type: Type, loc := #caller_location) -> Type {
     when utils.debug_checker {
-        print_call(loc, "simplify_type")
-        print_arg("type", type)
+        utils.print_call(loc, "simplify_type")
+        utils.print_arg("type", type)
     }
     cur_type := type
     for {
@@ -1004,15 +1004,15 @@ get_sum_type :: proc(
     bool,
 ) {
     when utils.debug_checker {
-        print_call(loc, "get_sum_type")
-        print_arg("pos", pos)
-        print_arg("type", type)
+        utils.print_call(loc, "get_sum_type")
+        utils.print_arg("pos", pos)
+        utils.print_arg("type", type)
     }
     simplified := simplify_type(s, type)
     sum_type, is_sum_type := get_type(s.types, simplified).key.(SumType)
     if is_sum_type {
         when utils.debug_checker {
-            debug("returned SumType(StructType) is %#v", sum_type)
+            utils.debug("returned SumType(StructType) is %#v", sum_type)
         }
         return sum_type, simplified, true
     }
@@ -1074,8 +1074,8 @@ get_func_type :: proc(
     loc := #caller_location,
 ) -> Type {
     when utils.debug_checker {
-        print_call(loc, "get_func_type")
-        print_arg("type", type_to_string(s, type))
+        utils.print_call(loc, "get_func_type")
+        utils.print_arg("type", type_to_string(s, type))
     }
     simplified := simplify_type(s, type)
     if simplified == .Type && value != nil {
@@ -1144,9 +1144,9 @@ type_is_subset :: proc(
     loc := #caller_location,
 ) -> bool {
     when utils.debug_checker {
-        print_call(loc, "type_is_subset")
-        debug("type: %v", get_type(s.types, type))
-        debug("superset: %v", get_type(s.types, superset))
+        utils.print_call(loc, "type_is_subset")
+        utils.debug("type: %v", get_type(s.types, type))
+        utils.debug("superset: %v", get_type(s.types, superset))
     }
     if type == superset {
         return true
@@ -1203,7 +1203,7 @@ finish_checking_value :: proc(
     loc := #caller_location,
 ) -> CheckedValue {
     when utils.debug_checker {
-        print_call(loc, "finish_checking_value")
+        utils.print_call(loc, "finish_checking_value")
     }
     got_value_mut := got_value
     if expect_value_of_type(s, pos, type, &got_value_mut, got_type, extra_text) {
@@ -1249,9 +1249,9 @@ expect_value_of_type :: proc(
     loc := #caller_location,
 ) -> bool {
     when utils.debug_checker {
-        print_call(loc, "expect_value_of_type")
-        print_arg("expected", expected)
-        print_arg("got_type", type_to_string(s, got_type))
+        utils.print_call(loc, "expect_value_of_type")
+        utils.print_arg("expected", expected)
+        utils.print_arg("got_type", type_to_string(s, got_type))
     }
     switch e in expected {
     case AnyType:
@@ -1302,7 +1302,7 @@ expect_exact_type :: proc(
     loc := #caller_location,
 ) -> bool {
     when utils.debug_checker {
-        print_call(loc, "expect_exact_type")
+        utils.print_call(loc, "expect_exact_type")
     }
     if !type_is_subset(s, got, expected) {
         utils.diagnostic(
@@ -1324,7 +1324,7 @@ get_variable_type :: proc(
     loc := #caller_location,
 ) -> Type {
     when utils.debug_checker {
-        print_call(loc, "get variable type")
+        utils.print_call(loc, "get variable type")
     }
     return s.scopes[variable.nesting_level].variables[variable.index].type
 }
@@ -1347,7 +1347,7 @@ type_to_string2 :: proc(
     loc := #caller_location,
 ) -> string {
     when utils.debug_checker {
-        print_call(loc, "type_to_string2")
+        utils.print_call(loc, "type_to_string2")
     }
     builder := strings.builder_make()
     build_type_string(types, globals_without_generic, globals_with_generic, &builder, t)
@@ -1384,7 +1384,7 @@ build_type_string :: proc(
     loc := #caller_location,
 ) {
     when utils.debug_checker {
-        print_call(loc, "build type string")
+        utils.print_call(loc, "build type string")
     }
     // TODO: Format the string better
     #partial switch t {
@@ -1525,7 +1525,7 @@ build_type_string :: proc(
 
 pop_scope :: proc(s: ^CheckerState, loc := #caller_location) {
     when utils.debug_checker {
-        print_call(loc, "pop_scope")
+        utils.print_call(loc, "pop_scope")
     }
     pop(&s.scopes)
     for var_name, var_ref in s.variables_map {
@@ -1631,7 +1631,7 @@ check_mutation :: proc(
     loc := #caller_location,
 ) -> bool {
     when utils.debug_checker {
-        print_call(loc, "check_mutation")
+        utils.print_call(loc, "check_mutation")
     }
     ident, is_ident := unit.first_unit.(IdentNode)
     if !is_ident || len(ident.segments) != 1 {
@@ -1744,7 +1744,7 @@ check_block :: proc(
     bool,
 ) {
     when utils.debug_checker {
-        print_call(loc, "check_block")
+        utils.print_call(loc, "check_block")
     }
     for stmt, stmt_index in block {
         switch value in stmt.value {
@@ -2347,7 +2347,7 @@ check_block :: proc(
         }
 
         when utils.debug_checker {
-            debug("length of body is %d", len(body))
+            utils.debug("length of body is %d", len(body))
         }
     }
     variables := s.scopes[len(s.scopes) - 1].variables
@@ -2508,9 +2508,9 @@ check_var_ref :: proc(
     loc := #caller_location,
 ) -> CheckedValue {
     when utils.debug_checker {
-        print_call(loc, "check_var_ref")
-        print_arg("segments", segments)
-        print_arg("a", a)
+        utils.print_call(loc, "check_var_ref")
+        utils.print_arg("segments", segments)
+        utils.print_arg("a", a)
     }
     if len(segments) == 2 && segments[0].ident == "" {
         expected_return_type: Type = ---
@@ -2583,7 +2583,7 @@ check_var_ref :: proc(
         for arg, i in call.args {
             expected_type := variant.fields[i].type
             when utils.debug_checker {
-                debug("expected_type is %#v", expected_type)
+                utils.debug("expected_type is %#v", expected_type)
             }
             checked_args[i] = check_value(s, arg, body, &expected_type)
             if checked_args[i] == nil {
@@ -2681,7 +2681,7 @@ check_array_initialisation :: proc(
     loc := #caller_location,
 ) -> CheckedValue {
     when utils.debug_checker {
-        print_call(loc, "check_array_initialisation")
+        utils.print_call(loc, "check_array_initialisation")
     }
     array_type_value, ok := check_array_type(s, array_type_pos, array_type_node, a.generic_args)
     if !ok {
@@ -2776,8 +2776,8 @@ check_function_call :: proc(
         CompileTimeValue,
     } {
     when utils.debug_checker {
-        print_call(loc, "check_function_call")
-        print_arg("expected_return_types", expected_return_types)
+        utils.print_call(loc, "check_function_call")
+        utils.print_arg("expected_return_types", expected_return_types)
     }
 
     func_args: []Type = ---
@@ -4036,8 +4036,8 @@ check_value :: proc(
     loc := #caller_location,
 ) -> CheckedValue {
     when utils.debug_checker {
-        print_call(loc, "check_value")
-        print_arg("v", v)
+        utils.print_call(loc, "check_value")
+        utils.print_arg("v", v)
     }
 
     if len(v.extra_units) == 0 {
@@ -4216,7 +4216,7 @@ check_global_value_without_generic :: proc(
     loc := #caller_location,
 ) -> CheckedGlobalValue {
     when utils.debug_checker {
-        print_call(loc, "check_global_value_without_generic")
+        utils.print_call(loc, "check_global_value_without_generic")
     }
     global := &s.global_values_without_generic[ref.index]
     if global.v.type != .Unknown {
@@ -4252,7 +4252,7 @@ check_global_value_without_generic :: proc(
     )
     s.scope_state = old_scope_state
     when utils.debug_checker {
-        debug(
+        utils.debug(
             "Checked global with name `%s` and type `%v`",
             global.ast_node.name,
             type_to_string(s, type),
@@ -4500,8 +4500,6 @@ check :: proc(
         if diagnostic_reporter.has_errors(diagnostic_reporter.data) {
             return CheckerOutput{}
         }
-    } else {
-        assert(func_file == nil)
     }
 
     return CheckerOutput {

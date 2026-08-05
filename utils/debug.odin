@@ -10,3 +10,4 @@ debug_interpreter :: false
 debug_diagnostics :: false
 debug_arena :: false
 debug_dynamic_array :: false
+debug_builder :: false

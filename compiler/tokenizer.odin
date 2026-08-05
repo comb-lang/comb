@@ -300,7 +300,7 @@ skip :: proc(s: ^TokenizerState, should_continue: proc(_: byte) -> bool) -> Skip
 
 wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
     when utils.debug_diagnostics {
-        print_call(loc, "wrong_token_err")
+        utils.print_call(loc, "wrong_token_err")
     }
     w := state.r.diagnostic_header(state.r.data, state.last_token_pos, .Error)
     defer io.close(w)
@@ -384,9 +384,9 @@ get_next_token :: proc(
     loc := #caller_location,
 ) {
     when utils.debug_tokenizer {
-        print_call(loc, "get next token")
+        utils.print_call(loc, "get next token")
         defer {
-            debug("last token set to %v", state.last_token)
+            utils.debug("last token set to %v", state.last_token)
         }
     }
     utils.clear_dynamic(&state.last_token_descriptions_of_other_possible_tokens)

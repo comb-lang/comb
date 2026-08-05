@@ -398,8 +398,8 @@ CreatedType :: struct {
 
 create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> CreatedType {
     when utils.debug_checker {
-        print_call(loc, "create_type")
-        debug("value: %v", value)
+        utils.print_call(loc, "create_type")
+        utils.debug("value: %v", value)
     }
     type, result := utils.lookup_or_insert(
         &types.m,
@@ -414,7 +414,7 @@ create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> C
 
     out := CreatedType{Type(type.index), types.values.d[type.index], result}
     when utils.debug_checker {
-        debug("out: %v", out)
+        utils.debug("out: %v", out)
     }
     return out
 }

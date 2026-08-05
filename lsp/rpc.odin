@@ -11,6 +11,9 @@ Request :: union {
     LspInitialize,
     DidOpenTextDocumentNotification,
     DidChangeTextDocumentNotification,
+    DidSaveTextDocumentNotification,
+    Shutdown,
+    Exit,
 }
 
 ResponseData :: struct {
@@ -48,6 +51,12 @@ DidChangeTextDocumentNotification :: struct {
     params:  DidChangeTextDocumentParams,
 }
 
+DidSaveTextDocumentNotification :: struct {}
+
+Shutdown :: struct {}
+
+Exit :: struct {}
+
 DidChangeTextDocumentParams :: struct {
     text_document:   TextDocumentIdentifier `json:"textDocument"`,
     content_changes: []TextDocumentContentChangeEvent `json:"contentChanges"`,
@@ -74,6 +83,11 @@ RequestData :: struct {
 Response :: union {
     InitializeResponse,
     PublishDiagnosticNotification,
+    ShutdownResponse,
+}
+
+ShutdownResponse :: struct {
+    using _: ResponseData,
 }
 
 PublishDiagnosticNotification :: struct {
@@ -136,24 +150,27 @@ Info :: struct {
 }
 
 // TODO: Update server info
+@(private = "package")
 server_info :: Info{"programming_language", "0.0.1"}
 
+@(private = "package")
 ServerCapabilities :: struct {
     text_document_sync: TextDocumentSync `json:"textDocumentSync"`,
 }
 
+@(private = "package")
 send_response :: proc(data: Response) {
     builder := utils.make_builder(&lsp_state.a)
     defer utils.delete_builder(builder)
     opt := json.Marshal_Options{}
     err := json.marshal_to_writer(builder, data, &opt)
     if err != nil {
-        fmt.wprintfln(lsp_state.debug_writer, "Failed to marshal: %v", err)
+        fmt.wprintfln(utils.debug_writer, "Failed to marshal: %v", err)
         os.exit(1)
     }
     json_str := utils.finish_building(builder)
     fmt.wprintf(lsp_state.writer, "Content-Length: %d\r\n\r\n%s", len(json_str), json_str)
-    fmt.wprintf(lsp_state.debug_writer, "Sent message ```\n%s\n```", json_str)
+    fmt.wprintf(utils.debug_writer, "Sent message ```\n%s\n```", json_str)
 }
 
 receive_request :: proc() -> Request {
@@ -174,7 +191,7 @@ receive_request :: proc() -> Request {
         assert(num_read > 0)
         n += num_read
     }
-    fmt.wprintfln(lsp_state.debug_writer, "Got content ```\n%s\n```", content)
+    fmt.wprintfln(utils.debug_writer, "Got content ```\n%s\n```", content)
 
     raw := LspInitialMessage{}
     err2 := json.unmarshal(content, &raw)
@@ -196,10 +213,16 @@ receive_request :: proc() -> Request {
         err3 := json.unmarshal(content, &out)
         assert(err3 == nil)
         return out
+    case "textDocument/didSave":
+        return DidSaveTextDocumentNotification{}
     case "initialized":
         return LspInitialized{}
+    case "shutdown":
+        return Shutdown{}
+    case "exit":
+        return Exit{}
     case:
-        fmt.wprintfln(lsp_state.debug_writer, "TODO: Handle method %q", raw.method)
+        fmt.wprintfln(utils.debug_writer, "TODO: Handle method %q", raw.method)
         return nil
     }
 }

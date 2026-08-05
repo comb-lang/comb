@@ -431,7 +431,7 @@ interp_push_scope :: proc(state: ^ShortLivedInterpState, variable_types: []compi
 
 interp_pop_scope :: proc(state: ^ShortLivedInterpState, loc := #caller_location) {
     when utils.debug_interpreter {
-        print_call(loc, "interp_pop_scope")
+        utils.print_call(loc, "interp_pop_scope")
     }
     frame := &state.frames[len(state.frames) - 1]
     scope := pop(&frame.scopes)
@@ -444,7 +444,7 @@ interp_pop_scope :: proc(state: ^ShortLivedInterpState, loc := #caller_location)
 interp_destroy_value :: proc(val: ^RuntimeValue, loc := #caller_location) {
     /*
     when debug_interpreter {
-        print_call(loc, "interp_destroy_value")
+        utils.print_call(loc, "interp_destroy_value")
     }
     switch &v in val {
     case RuntimeStringOrderedHashMap:
@@ -517,7 +517,7 @@ interp_destroy_value :: proc(val: ^RuntimeValue, loc := #caller_location) {
 
 interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> RuntimeValue {
     when utils.debug_interpreter {
-        print_call(loc, "interp_clone_value")
+        utils.print_call(loc, "interp_clone_value")
     }
     switch v in val {
     case nil:
@@ -584,7 +584,7 @@ interp_exec_statement :: proc(state: InterpState, stmt: compiler.CheckedStatemen
             state.control_flow_op = ReturnFromFunction{nil}
         }
         when utils.debug_interpreter {
-            debug("state.control_flow_op set to %v", state.control_flow_op)
+            utils.debug("state.control_flow_op set to %v", state.control_flow_op)
         }
 
     case compiler.CheckedIf:
@@ -646,7 +646,7 @@ interp_exec_statement :: proc(state: InterpState, stmt: compiler.CheckedStatemen
             loc := #caller_location,
         ) -> ^RuntimeValue {
             when debug_interpreter {
-                print_call(loc, "get_mutable_value")
+                utils.print_call(loc, "get_mutable_value")
             }
             #partial switch v in value {
             case CheckedArrayAccess:

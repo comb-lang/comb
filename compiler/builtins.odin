@@ -181,7 +181,7 @@ add_unnamed_variable :: proc(
     loc := #caller_location,
 ) -> VariableRef {
     when utils.debug_checker {
-        print_call(loc, "add_unnamed_variable")
+        utils.print_call(loc, "add_unnamed_variable")
     }
     var_ref := VariableRef{len(s.scopes) - 1, len(s.scopes[len(s.scopes) - 1].variables)}
     append_soa_elem(
@@ -202,7 +202,7 @@ add_variable :: proc(
     bool,
 ) {
     when utils.debug_checker {
-        print_call(loc, "add_variable")
+        utils.print_call(loc, "add_variable")
     }
     // TODO: Add a warning for unused variables
     expect_snake_case(

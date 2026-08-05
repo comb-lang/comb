@@ -1,23 +1,38 @@
 package lsp
 
+import "../compiler"
 import "../utils"
 import "base:runtime"
 import "core:bufio"
 import "core:fmt"
 import "core:io"
 import "core:os"
+import "core:strings"
 import "core:time"
 
 LspState :: struct {
-    files_cache:  utils.FilesCache,
-    entry_point:  ^utils.CompilerFile,
-    reader:       bufio.Reader,
-    writer:       io.Writer,
-    debug_writer: io.Writer,
-    a:            utils.Arena,
+    files_cache: utils.FilesCache,
+    diagnostics: LspDiagnosticReporterData,
+    entry_point: ^utils.CompilerFile,
+    reader:      bufio.Reader,
+    writer:      io.Writer,
+    a:           utils.Arena,
 }
 
 @(private = "package")
+uri_prefix :: "file://"
+
+@(private = "package")
+from_uri :: proc(uri: string) -> string {
+    assert(uri[:len(uri_prefix)] == uri_prefix)
+    return uri[len(uri_prefix):]
+}
+
+@(private = "package")
+to_uri :: proc(path: string) -> string {
+    return strings.join([]string{uri_prefix, path}, "")
+}
+
 lsp_state: LspState
 
 run_lsp :: proc() {
@@ -45,18 +60,18 @@ run_lsp :: proc() {
     bufio.reader_init_with_buf(&lsp_state.reader, io.Reader(os.to_stream(os.stdin)), reader_buf[:])
 
     lsp_state.files_cache = utils.empty_files_cache(&lsp_state.a)
-    lsp_state.debug_writer = bufio.writer_to_writer(&debug_writer)
+    utils.debug_writer = bufio.writer_to_writer(&debug_writer)
 
     context.assertion_failure_proc = proc(
         prefix: string,
         message: string,
         loc: runtime.Source_Code_Location,
     ) -> ! {
-        fmt.wprintfln(lsp_state.debug_writer, "%v: %s: %s", loc, prefix, message)
+        fmt.wprintfln(utils.debug_writer, "%v: %s: %s", loc, prefix, message)
         os.exit(1)
     }
 
-    fmt.wprintfln(lsp_state.debug_writer, "Lsp started at %v", time.now())
+    fmt.wprintfln(utils.debug_writer, "Lsp started at %v", time.now())
 
     initialize_request := receive_request().(LspInitialize)
     send_response(
@@ -66,35 +81,74 @@ run_lsp :: proc() {
         },
     )
     _ = receive_request().(LspInitialized)
-    fmt.wprintln(lsp_state.debug_writer, "Starting main loop...")
+    fmt.wprintln(utils.debug_writer, "Starting main loop...")
 
     for {
         message := receive_request()
-        fmt.wprintfln(lsp_state.debug_writer, "Received message: %v", message)
+        fmt.wprintfln(utils.debug_writer, "Received message: %v", message)
         switch m in message {
         case LspInitialize, LspInitialized:
             panic("Unexpected initialize message while running LSP")
+        case Exit:
+            panic("Unexpected exit message while running LSP")
+        case Shutdown:
+            send_response(ShutdownResponse{ResponseData{jsonrpc, nil}})
+            _ = receive_request().(Exit)
+            return
+        case DidSaveTextDocumentNotification:
         case DidOpenTextDocumentNotification:
             lsp_state.entry_point = utils.set_file(
                 &lsp_state.files_cache,
-                m.params.text_document.uri,
+                from_uri(m.params.text_document.uri),
                 m.params.text_document.text,
             )
         case DidChangeTextDocumentNotification:
             assert(len(m.params.content_changes) == 1)
             lsp_state.entry_point = utils.set_file(
                 &lsp_state.files_cache,
-                m.params.text_document.uri,
+                from_uri(m.params.text_document.uri),
                 m.params.content_changes[0].text,
             )
         }
-        // TODO: Compile
-        send_response(
-            PublishDiagnosticNotification {
-                Notification{jsonrpc, "textDocument/publishDiagnostics"},
-                PublishDiagnosticParams{},
-            },
-        )
 
+        lsp_state.diagnostics.diagnostics_include_errors = false
+        fmt.wprintln(utils.debug_writer, "Iterating diagnostics")
+        for key, diagnostics in lsp_state.diagnostics.diagnostics {
+            lsp_state.diagnostics.diagnostics[key] = utils.arena_make(
+                &lsp_state.a,
+                []Diagnostic,
+                0,
+                resizable = true,
+            )
+        }
+        fmt.wprintln(utils.debug_writer, "Finished iterating diagnostics")
+
+        compiler.parse_and_check(
+            &lsp_state.a,
+            &lsp_state.files_cache,
+            lsp_state.entry_point,
+            "",
+            utils.Pipe(io.Stream){utils.debug_writer, utils.debug_writer},
+            compiler.NeverExitEarly{}, // TODO: Exit early if the source code is edited
+            lsp_diagnostic_reporter,
+        )
+        fmt.wprintln(utils.debug_writer, "Finished parse and check")
+        for file_index, diagnostics in lsp_state.diagnostics.diagnostics {
+            fmt.wprintfln(
+                utils.debug_writer,
+                "Responsding with diagnostics for file index %d",
+                file_index,
+            )
+            send_response(
+                PublishDiagnosticNotification {
+                    Notification{jsonrpc, "textDocument/publishDiagnostics"},
+                    PublishDiagnosticParams {
+                        to_uri(lsp_state.files_cache.files[file_index].file_path),
+                        diagnostics,
+                    },
+                },
+            )
+            utils.fix_resizable_dynamic(diagnostics)
+        }
     }
 }

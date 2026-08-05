@@ -174,7 +174,7 @@ maybe_parse_initial_unit :: proc(
     bool,
 ) {
     when utils.debug_parser {
-        print_call(loc, "maybe_parse_initial_unit")
+        utils.print_call(loc, "maybe_parse_initial_unit")
     }
     e :: proc(s: ^ParserState) -> (UnitWithoutPos, bool) {
         utils.append_dynamic_elems(
@@ -472,7 +472,7 @@ maybe_parse_initial_unit :: proc(
 
 parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWithoutPos {
     when utils.debug_parser {
-        print_call(loc, "parse_initial_unit")
+        utils.print_call(loc, "parse_initial_unit")
     }
     out, ok := maybe_parse_initial_unit(s)
     if out == nil {
@@ -545,7 +545,7 @@ create_joined_unit :: proc(
 // Returns `nil` on failure
 parse_unit_with_pos :: proc(s: ^ParserState, loc := #caller_location) -> UnitWithoutPos {
     when utils.debug_parser {
-        print_call(loc, "parse_unit_without_pos")
+        utils.print_call(loc, "parse_unit_without_pos")
     }
     pos := s.last_token_pos
     unit := parse_initial_unit(s)
@@ -1595,7 +1595,6 @@ ParserOutput :: struct {
 parse_project :: proc(
     a: ^utils.Arena,
     files_cache: ^utils.FilesCache,
-    first_file: ^utils.CompilerFile,
     io: utils.Pipe(io.Writer),
     exit_early: EarlyExitInfo,
     diagnostic_reporter: utils.DiagnosticReporter,
@@ -1607,7 +1606,7 @@ parse_project :: proc(
             parsed_files   = utils.arena_make_multi(
                 a,
                 utils.Multi(map[string]ParsedGlobal),
-                1,
+                0,
                 resizable = true,
             ),
             a              = a,
@@ -1617,16 +1616,16 @@ parse_project :: proc(
         utils.fix_resizable_dynamic(state.parser_context)
     }
 
-    state.last_token_pos.file = first_file
+    state.last_token_pos.file = &state.files_cache.files[0]
 
     for {
+        file_path := state.last_token_pos.file.file_path
+        fmt.wprintfln(io.stdout, "Parsing `%s`...", file_path)
         utils.append_multi_dynamic(
             &state.parsed_files,
             get_file_index(state.files_cache.files, state.last_token_pos.file),
             nil,
         )
-        file_path := state.last_token_pos.file.file_path
-        fmt.printfln("Parsing `%s`...", file_path)
         state.tokenizer_state = TokenizerState {
                 last_token_descriptions_of_other_possible_tokens = utils.arena_make(
                     a,

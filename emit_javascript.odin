@@ -580,7 +580,7 @@ emit_js_block :: proc(
     loc := #caller_location,
 ) {
     when utils.debug_emitter {
-        print_call(loc, "emit_js_block")
+        utils.print_call(loc, "emit_js_block")
     }
     emit_js_block_head(s, nesting_level, variables)
     emit_js_block_body(s, nesting_level, body)
@@ -635,7 +635,7 @@ emit_javascript :: proc(
 
     for func, index in checked_functions {
         when utils.debug_emitter {
-            debug("emitting function index %d", index)
+            utils.debug("emitting function index %d", index)
         }
         strings.write_string(&s.b, "const func")
         strings.write_int(&s.b, index)

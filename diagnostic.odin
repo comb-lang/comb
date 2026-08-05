@@ -5,6 +5,18 @@ import "core:io"
 import "utils"
 
 DiagnosticReporter :: struct {
+    data:              rawptr,
+    has_errors:        proc(data: rawptr) -> bool,
+    // Once the consumer has finished writing the contents of the diagnostic, it should call `io.close` on the returned `io.Writer`
+    diagnostic_header: proc(
+        data: rawptr,
+        // Set to `unknown_pos` to not have a position for the diagnostic
+        pos: Pos,
+        type: DiagnosticType,
+    ) -> io.Writer,
+}
+
+StandardDiagnosticReporter :: struct {
     io:        utils.Pipe(io.Writer),
     number_of: [DiagnosticType]uint,
 }
@@ -16,7 +28,8 @@ Pos :: struct {
 
 unknown_pos :: Pos{max(uint), nil}
 
-diagnostic_header :: proc(r: ^DiagnosticReporter, pos: Pos, type: DiagnosticType) -> io.Writer {
+standard_diagnostic_header :: proc(data: rawptr, pos: Pos, type: DiagnosticType) -> io.Writer {
+    r := cast(^StandardDiagnosticReporter)data
     w := type == .Error ? r.io.stderr : r.io.stdout
     if r.number_of[.Error] + r.number_of[.Warning] == 0 {
         io.write_byte(w, '\n')
@@ -49,9 +62,13 @@ DiagnosticType :: enum {
     Warning,
 }
 
-// Set the position to `unknown_pos` to not have a position for the error message
+standard_has_errors :: proc(data: rawptr) -> bool {
+    r := cast(^StandardDiagnosticReporter)data
+    return r.number_of[.Error] > 0
+}
+
 diagnostic :: proc(
-    r: ^DiagnosticReporter,
+    r: DiagnosticReporter,
     position: Pos,
     message_fmt: string,
     message_args: ..any,
@@ -61,6 +78,7 @@ diagnostic :: proc(
     when utils.debug_diagnostics {
         print_call(loc, "diagnostic")
     }
+    r := cast(^StandardDiagnosticReporter)data
     w := diagnostic_header(r, position, type)
     fmt.wprintf(w, message_fmt, ..message_args)
     diagnostic_footer(w)

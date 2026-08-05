@@ -197,10 +197,11 @@ parse_and_check :: proc(
     func_name: string,
     compiler: utils.Pipe(io.Writer),
     exit_early: EarlyExitInfo,
+    diagnostic_reporter: DiagnosticReporter,
 ) -> CheckerOutput {
-    parsed := parse_project(a, files_cache, first_file, compiler, exit_early)
-    if parsed.reporter.number_of[.Error] > 0 {
-        return CheckerOutput{reporter = parsed.reporter}
+    parsed := parse_project(a, files_cache, first_file, compiler, exit_early, diagnostic_reporter)
+    if diagnostic_reporter.has_errors(diagnostic_reporter.data) {
+        return CheckerOutput{}
     }
 
     when utils.debug_parser_output {
@@ -216,7 +217,7 @@ parse_and_check :: proc(
     }
 
     fmt.wprintfln(compiler.stdout, "Checking...")
-    return check(a, parsed, files_cache.files, func_name, compiler)
+    return check(a, parsed, files_cache.files, func_name, compiler, diagnostic_reporter)
 }
 
 compile :: proc(
@@ -260,6 +261,8 @@ compile :: proc(
         return 1
     }
 
+    reporter_data := new_clone(StandardDiagnosticReporter{io = compiler})
+    reporter := DiagnosticReporter{reporter_data, standard_has_errors, standard_diagnostic}
     checker_output := parse_and_check(
         a,
         files_cache,
@@ -267,6 +270,7 @@ compile :: proc(
         func.func_name,
         compiler,
         exit_early,
+        reporter,
     )
 
     function_type := Type.Unknown
@@ -277,8 +281,8 @@ compile :: proc(
             switch c in command {
             case BuildC:
                 if function_type != .NoArgsToInt {
-                    diagnostic(
-                        &checker_output.reporter,
+                    reporter.diagnostic(
+                        reporter.data,
                         unknown_pos,
                         "Got the type `%s`\nExpected the type `%s`",
                         type_to_string2(
@@ -297,8 +301,8 @@ compile :: proc(
                 }
             case Run:
                 if function_type != .NoArgsToInt && function_type != .CompilerToInt {
-                    diagnostic(
-                        &checker_output.reporter,
+                    reporter.diagnostic(
+                        reporter.data,
                         unknown_pos,
                         "Got the type `%s`\nExpected the type `%s` or `%s`",
                         type_to_string2(
@@ -329,23 +333,23 @@ compile :: proc(
 
     errors, warnings: string = ---, ---
 
-    if checker_output.reporter.number_of[.Error] == 1 {
+    if reporter_data.number_of[.Error] == 1 {
         errors = fmt.aprint("1 error")
     } else {
-        errors = fmt.aprintf("%d errors", checker_output.reporter.number_of[.Error])
+        errors = fmt.aprintf("%d errors", reporter_data.number_of[.Error])
     }
     defer delete_string(errors)
 
-    if checker_output.reporter.number_of[.Warning] == 1 {
+    if reporter_data.number_of[.Warning] == 1 {
         warnings = fmt.aprint("1 warning")
     } else {
-        warnings = fmt.aprintf("%d warnings", checker_output.reporter.number_of[.Warning])
+        warnings = fmt.aprintf("%d warnings", reporter_data.number_of[.Warning])
     }
     defer delete_string(warnings)
 
     elapsed_ms := time.duration_milliseconds(time.since(start))
 
-    if checker_output.reporter.number_of[.Error] > 0 {
+    if reporter_data.number_of[.Error] > 0 {
         fmt.wprintfln(
             compiler.stderr,
             "Erroneously checked with %s and %s in %f ms",

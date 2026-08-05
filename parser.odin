@@ -109,8 +109,8 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
         }
         i, result := utils.lookup_or_insert(&out.m, field.text, utils.string_to_index_procs)
         if result == .LookedUp {
-            diagnostic(
-                &s.r,
+            s.r.diagnostic(
+                s.r.data,
                 field.pos,
                 "There is already a field called `%s` defined in this struct at %v",
                 field.text,
@@ -217,12 +217,18 @@ maybe_parse_initial_unit :: proc(
             context.allocator,
         )
         if join_err != nil {
-            diagnostic(&s.r, unknown_pos, "Failed to join filepath: %v", join_err)
+            s.r.diagnostic(s.r.data, unknown_pos, "Failed to join filepath: %v", join_err)
             return nil, false
         }
         file_ref, read_err := utils.read_file(s.files_cache, joined)
         if read_err != nil {
-            diagnostic(&s.r, s.last_token_pos, "Failed to read `%s`: %#v", joined, read_err)
+            s.r.diagnostic(
+                s.r.data,
+                s.last_token_pos,
+                "Failed to read `%s`: %#v",
+                joined,
+                read_err,
+            )
             return nil, false
         }
         get_next_token(s, true)
@@ -299,8 +305,8 @@ maybe_parse_initial_unit :: proc(
                     utils.string_to_index_procs,
                 )
                 if result == .LookedUp {
-                    diagnostic(
-                        &s.r,
+                    s.r.diagnostic(
+                        s.r.data,
                         variant_name.pos,
                         "There is already a variant called `%s` in this sum type at %v",
                         variant_name.ident,
@@ -792,8 +798,8 @@ parse_for_loop :: proc(s: ^ParserState) -> (ForInLoop, bool) {
             break variables_loop
         case CommaToken:
             if variable_index >= 3 {
-                diagnostic(
-                    &s.r,
+                s.r.diagnostic(
+                    s.r.data,
                     s.last_token_pos,
                     "There cannot be more than 3 variables in a for loop head (the iteration the for loop is on, the key of the thing being iterated over, and the value of the thing being iterated over)",
                 )
@@ -1469,8 +1475,8 @@ parse_file :: proc(s: ^ParserState) {
             if def, exists :=
                    s.parsed_files.d[get_file_index(s.files_cache.files, s.last_token_pos.file)][name];
                exists {
-                diagnostic(
-                    &s.r,
+                s.r.diagnostic(
+                    s.r.data,
                     position,
                     "The global `%s` is already declared at %v",
                     name,
@@ -1496,8 +1502,8 @@ parse_file :: proc(s: ^ParserState) {
 
                     if segments[0].ident in generic_map {
                         pos := generic_map[segments[0].ident]
-                        diagnostic(
-                            &s.r,
+                        s.r.diagnostic(
+                            s.r.data,
                             s.last_token_pos,
                             "There is already a generic argument called `%s` defined on %v in this global type",
                             segments[0].ident,
@@ -1533,8 +1539,8 @@ parse_file :: proc(s: ^ParserState) {
                 get_next_token(s, false)
 
                 if len(generic) == 0 {
-                    diagnostic(
-                        &s.r,
+                    s.r.diagnostic(
+                        s.r.data,
                         position,
                         "The parser is interpreting this as a non-generic value\nThe empty `[]` can be omitted",
                         type = .Warning,
@@ -1558,7 +1564,7 @@ parse_file :: proc(s: ^ParserState) {
                 get_next_token(s, false)
                 type, ok := parse_unit(s)
                 if !ok {
-                    assert(s.r.number_of[.Error] > 0)
+                    assert(s.r->has_errors())
                     return
                 }
                 if len(generic) == 0 {
@@ -1586,7 +1592,6 @@ parse_file :: proc(s: ^ParserState) {
 }
 
 ParserOutput :: struct {
-    reporter:                      DiagnosticReporter,
     parsed_files:                  utils.Multi(map[string]ParsedGlobal),
     global_values_without_generic: []GlobalValueWithoutGeneric,
     global_values_with_generics:   []GlobalValueWithGeneric,
@@ -1599,18 +1604,19 @@ parse_project :: proc(
     first_file: ^utils.CompilerFile,
     io: utils.Pipe(io.Writer),
     exit_early: EarlyExitInfo,
+    diagnostic_reporter: DiagnosticReporter,
 ) -> ParserOutput {
     state := ParserState {
-            r = DiagnosticReporter{io = io},
-            files_cache = files_cache,
+            r              = diagnostic_reporter,
+            files_cache    = files_cache,
             parser_context = utils.arena_make(a, []ParsingContext, 0, resizable = true),
-            parsed_files = utils.arena_make_multi(
+            parsed_files   = utils.arena_make_multi(
                 a,
                 utils.Multi(map[string]ParsedGlobal),
                 1,
                 resizable = true,
             ),
-            a = a,
+            a              = a,
         }
     defer {
         utils.fix_resizable_multi(state.parsed_files)
@@ -1657,11 +1663,10 @@ parse_project :: proc(
             panic("Unreachable")
         }
     }
-    if state.r.number_of[.Error] > 0 {
-        return ParserOutput{reporter = state.r}
+    if state.r.has_errors(state.r.data) {
+        return ParserOutput{}
     }
     return ParserOutput {
-        state.r,
         state.parsed_files,
         state.global_values_without_generics[:],
         state.global_values_with_generics[:],

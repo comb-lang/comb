@@ -8,6 +8,50 @@ import "core:math/rand"
 import "core:strings"
 import "core:testing"
 
+OverriddenCloseHandlerStreamData :: struct {
+    original_data:        rawptr,
+    original_stream_proc: io.Stream_Proc,
+    new_data:             rawptr,
+    new_close_proc:       proc(data: rawptr),
+}
+
+overridden_close_handler_stream_proc :: proc(
+    data: rawptr,
+    mode: io.Stream_Mode,
+    p: []byte,
+    offset: i64,
+    whence: io.Seek_From,
+) -> (
+    i64,
+    io.Error,
+) {
+    d := cast(^OverriddenCloseHandlerStreamData)data
+    if mode != .Close {
+        return d.original_stream_proc(d.original_data, mode, p, offset, whence)
+    }
+    assert(p == nil && offset == 0 && whence == io.Seek_From(0))
+    d.new_close_proc(d.new_data)
+    return 0, nil
+}
+
+override_close_handler :: proc(
+    s: io.Stream,
+    new_close_proc_data: rawptr,
+    new_close_proc: proc(data: rawptr),
+) -> io.Stream {
+    return io.Stream {
+        overridden_close_handler_stream_proc,
+        new_clone(
+            OverriddenCloseHandlerStreamData {
+                s.data,
+                s.procedure,
+                new_close_proc_data,
+                new_close_proc,
+            },
+        ),
+    }
+}
+
 when ODIN_DEBUG {
     SourceCodeLocationOnDebug :: runtime.Source_Code_Location
 } else {

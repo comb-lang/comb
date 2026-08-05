@@ -137,8 +137,8 @@ argument_count_mismatch :: proc(
     defer delete_string(provided)
     expected := num_to_str(num_expected)
     defer delete_string(expected)
-    diagnostic(
-        s,
+    s.r.diagnostic(
+        s.r.data,
         pos,
         "Argument count mismatch\nFunction call provides %s\nThe `%s` function expects %s",
         provided,
@@ -163,7 +163,12 @@ to_str :: proc(s: ^CheckerState, pos: Pos, val: CheckedValue, type: Type) -> Che
     case .Char:
         from_type = .CharType
     case:
-        diagnostic(s, pos, "Cannot convert the type `%s` to `String`", type_to_string(s, type))
+        s.r.diagnostic(
+            s.r.data,
+            pos,
+            "Cannot convert the type `%s` to `String`",
+            type_to_string(s, type),
+        )
         return nil
     }
     return ToString{from_type, new_clone(val)}
@@ -207,11 +212,11 @@ add_variable :: proc(
         can_have_dollar_postfix = true,
     )
     if get_builtin(variable.ident).value != nil {
-        diagnostic(s, variable.pos, builtins_err, variable.ident)
+        s.r.diagnostic(s.r.data, variable.pos, builtins_err, variable.ident)
         return VariableRef{}, false
     }
     if variable.ident in s.variables_map {
-        diagnostic(s, variable.pos, "Redeclaration of variable `%s`", variable.ident)
+        s.r.diagnostic(s.r.data, variable.pos, "Redeclaration of variable `%s`", variable.ident)
         return VariableRef{}, false
     }
     alt_ident := ""
@@ -221,8 +226,8 @@ add_variable :: proc(
         alt_ident = utils.aprintf(s.a, "%s$", variable.ident)
     }
     if alt_ident in s.variables_map {
-        diagnostic(
-            s,
+        s.r.diagnostic(
+            s.r.data,
             variable.pos,
             "Declaring variable called `%s` when variable called `%s` is already declared",
             variable.ident,

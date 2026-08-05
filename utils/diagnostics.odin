@@ -6,13 +6,9 @@ import "core:io"
 DiagnosticReporter :: struct {
     data:              rawptr,
     has_errors:        proc(data: rawptr) -> bool,
+
     // Once the consumer has finished writing the contents of the diagnostic, it should call `io.close` on the returned `io.Writer`
-    diagnostic_header: proc(
-        data: rawptr,
-        // Set to `unknown_pos` to not have a position for the diagnostic
-        pos: Pos,
-        type: DiagnosticType,
-    ) -> io.Writer,
+    diagnostic_header: proc(data: rawptr, pos: Pos, type: DiagnosticType) -> io.Writer,
 }
 
 StandardDiagnosticReporter :: struct {
@@ -31,6 +27,8 @@ write_position :: proc(w: io.Writer, pos: Pos) {
     io.write_byte(w, '`')
     if pos.index != max(uint) {
         p := get_position(pos)
+        p.line += 1
+        p.col += 1
         fmt.wprintf(w, " (%d:%d)", p.line, p.col, flush = false)
     }
 }

@@ -9,11 +9,11 @@ parse_and_check :: proc(
     files_cache: ^utils.FilesCache,
     first_file: ^utils.CompilerFile,
     func_name: string,
-    comp: utils.Pipe(io.Writer),
+    out: utils.Pipe(io.Writer),
     exit_early: EarlyExitInfo,
     diagnostic_reporter: utils.DiagnosticReporter,
 ) -> CheckerOutput {
-    parsed := parse_project(a, files_cache, comp, exit_early, diagnostic_reporter)
+    parsed := parse_project(a, files_cache, out, exit_early, diagnostic_reporter)
     if diagnostic_reporter.has_errors(diagnostic_reporter.data) {
         return CheckerOutput{}
     }
@@ -30,6 +30,6 @@ parse_and_check :: proc(
         utils.debug_nesting -= 1
     }
 
-    fmt.wprintfln(comp.stdout, "Checking...")
-    return check(a, parsed, files_cache.files, func_name, first_file, comp, diagnostic_reporter)
+    fmt.wprintfln(out.stdout, "Checking...")
+    return check(a, parsed, files_cache.files, func_name, first_file, out, diagnostic_reporter)
 }

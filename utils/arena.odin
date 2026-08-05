@@ -5,7 +5,6 @@ package utils
 // - `dealloc` is called in the reverse order that `alloc` is called in
 // See `arena_test` in `test.odin` for an example
 
-import "../utils"
 import "../virtual"
 import "base:runtime"
 import "core:mem"
@@ -29,7 +28,7 @@ ArenaAllocation :: struct {
     block:                    ^virtual.Memory_Block,
     prev_allocation_in_arena: ^ArenaAllocation,
     prev_allocation_in_block: ^ArenaAllocation,
-    loc:                      utils.SourceCodeLocationOnDebug,
+    loc:                      SourceCodeLocationOnDebug,
 }
 
 get_block_info :: proc(block: ^virtual.Memory_Block) -> ^ArenaBlockInfo {
@@ -131,7 +130,7 @@ arena_new :: proc(a: ^Arena, $T: typeid, resizable := false, loc := #caller_loca
 arena_make :: proc(
     a: ^Arena,
     $T: typeid/[]$E,
-    len: int,
+    #any_int len: int,
     resizable := false,
     loc := #caller_location,
 ) -> T {
@@ -147,7 +146,7 @@ arena_make :: proc(
 
 arena_make_multi :: proc(
     a: ^Arena,
-    $T: typeid/utils.Multi($E),
+    $T: typeid/Multi($E),
     len: int,
     resizable := false,
     loc := #caller_location,
@@ -228,22 +227,33 @@ dealloc :: proc(allocation: rawptr, loc := #caller_location) {
     info.block.arena.last_allocation = info.allocation.prev_allocation_in_arena
 }
 
-delete_arena :: proc(a: ^Arena, expect_empty := true, loc := #caller_location) {
+// Always clears the allocations in the blocks
+cleanup_arena :: proc(
+    a: ^Arena,
+    expect_empty := true,
+    delete_blocks := true,
+    loc := #caller_location,
+) {
     when debug_arena {
-        print_call(loc, "delete_arena")
+        print_call(loc, "cleanup_arena")
     }
     if expect_empty {
         assert(a.last_allocation == nil)
+    } else {
+        a.last_allocation = nil
     }
 
-    resizable_blocks: map[^virtual.Memory_Block]struct{}
+    resizable_blocks: map[^virtual.Memory_Block]enum {
+        NotVisited,
+        Visited,
+    }
     defer delete(resizable_blocks) // TODO: Maybe we should use the arena for this allocation?
-    resizable_block := a.last_resizable_block
-    for resizable_block != nil {
+    for resizable_block := a.last_resizable_block; resizable_block != nil; {
         when debug_arena {
             debug("Found resizable block at ^virtual.MemoryBlock %p", resizable_block)
         }
-        resizable_blocks[resizable_block] = struct{}{}
+        assert(resizable_block not_in resizable_blocks)
+        resizable_blocks[resizable_block] = .NotVisited
         resizable_block = get_block_info(resizable_block).last_resizable_block
     }
 
@@ -258,18 +268,29 @@ delete_arena :: proc(a: ^Arena, expect_empty := true, loc := #caller_location) {
 
         // Expect that `fix_resizable` has been called for all resizable elements which were allocated on the arena
         if block not_in resizable_blocks {
-            when ODIN_DEBUG {
-                panicf(
-                    "There was a resizable allocation allocated at %v for which `fix_resizable` was not called",
-                    block_info.last_allocation_in_block.loc,
-                )
-            } else {
-                panic("There was a resizable allocation for which `fix_resizable` was not called")
-            }
+            panicf(
+                "There was a resizable allocation allocated at %v for which `fix_resizable` was not called",
+                block_info.last_allocation_in_block.loc,
+            )
         }
 
+        assert(resizable_blocks[block] == .NotVisited)
+        resizable_blocks[block] = .Visited
+
         prev_block := block.prev
-        virtual.memory_block_dealloc(block)
+        if delete_blocks {
+            virtual.memory_block_dealloc(block)
+        } else {
+            block_info.last_allocation_in_block = nil
+            err := virtual.memory_block_resize(block, size_of(ArenaBlockInfo))
+            if err != nil {
+                panicf("err: %v", err)
+            }
+        }
         block = prev_block
+    }
+
+    for _, value in resizable_blocks {
+        assert(value == .Visited)
     }
 }

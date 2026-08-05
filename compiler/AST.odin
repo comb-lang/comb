@@ -402,7 +402,7 @@ debug_call :: proc(funcs: []FunctionDefinition, c: Call) {
 }
 
 debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
-    utils.debug("value at character index %d", unit.pos)
+    utils.debug("value at %v", unit.pos)
     utils.debug_nesting += 1
     switch v in unit.first_unit {
     case UnitsInSquareBrackets:

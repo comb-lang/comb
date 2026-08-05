@@ -379,7 +379,7 @@ expect_snake_case :: proc(
             if !can_have_dollar_postfix {
                 utils.diagnostic(
                     s.r,
-                    utils.Pos{ident.pos.index + uint(i) + 1, ident.pos.file},
+                    utils.Pos{ident.pos.index + i, ident.pos.file},
                     "Cannot have '$' post fix in %s",
                     expected,
                     type = .Warning,
@@ -2534,17 +2534,18 @@ check_var_ref :: proc(
             switch expected_return in expected.expected_return_types[0] {
             case AnyType, FunctionWithExpectedReturnTypes:
                 utils.diagnostic(s.r, pos, value_err1)
+                return nil
             case Type:
                 expected_return_type = expected_return
             }
         }
 
-        sum_type, Type, sum_type_ok := get_sum_type(s, pos, expected_return_type)
+        sum_type_value, sum_type, sum_type_ok := get_sum_type(s, pos, expected_return_type)
         if !sum_type_ok {
             return nil
         }
 
-        variant := utils.lookup(sum_type.m, segments[1].ident, utils.string_to_index_procs)
+        variant := utils.lookup(sum_type_value.m, segments[1].ident, utils.string_to_index_procs)
         if variant == utils.does_not_exist {
             utils.diagnostic(
                 s.r,
@@ -2555,14 +2556,14 @@ check_var_ref :: proc(
             )
             return nil
         }
-        return_type := sum_type.payloads.d[variant.index]
+        return_type := sum_type_value.payloads.d[variant.index]
         got := get_type(s.types, return_type)
         // TODO: Use `StructTypeInitFunc` instead of `SumTypeInitFunc` if `type` is the struct type rather than the sum type
         return finish_checking_value(
             s,
             pos,
             a.type,
-            SumTypeInitFunc{Type, variant.index},
+            SumTypeInitFunc{sum_type, variant.index},
             get_func_type_from_struct_type(s, got.key.(StructType), return_type),
             "",
         )
@@ -4322,7 +4323,7 @@ check_array :: proc(
     return length_of_array(array, value), array.item_type
 }
 
-// Reports errors to s.r on failure
+// Returns `CheckedFuncRef{max(uint)}` on failure
 get_global_function :: proc(
     s: ^CheckerState,
     usage_pos: utils.Pos,
@@ -4333,7 +4334,7 @@ get_global_function :: proc(
     parsed_global, exists := s.parsed_files.d[get_file_index(s.files, file_to_search)][name]
     if !exists {
         utils.diagnostic(s.r, usage_pos, "The global `%s` is not defined%s", name, extra_text)
-        return CheckedFuncRef{}
+        return CheckedFuncRef{max(uint)}
     }
     pos := usage_pos.index == max(uint) ? utils.Pos{parsed_global.pos, file_to_search} : usage_pos
     if parsed_global.has_generics {
@@ -4344,7 +4345,7 @@ get_global_function :: proc(
             name,
             extra_text,
         )
-        return CheckedFuncRef{}
+        return CheckedFuncRef{max(uint)}
     }
     global := s.global_values_without_generic[parsed_global.index]
     func_ref, is_func := global.v.value.(Func)
@@ -4356,7 +4357,7 @@ get_global_function :: proc(
             name,
             extra_text,
         )
-        return CheckedFuncRef{}
+        return CheckedFuncRef{max(uint)}
     }
     return func_ref.ref
 }
@@ -4497,11 +4498,13 @@ check :: proc(
             func_name,
             "\nTODO: Write hint",
         )
-        if diagnostic_reporter.has_errors(diagnostic_reporter.data) {
+        if func_ref.index == max(uint) {
+            assert(diagnostic_reporter.has_errors(diagnostic_reporter.data))
             return CheckerOutput{}
         }
     }
 
+    assert(!diagnostic_reporter.has_errors(diagnostic_reporter.data))
     return CheckerOutput {
         func_ref,
         state.global_values_without_generic.ast_node[:len(state.global_values_without_generic)],

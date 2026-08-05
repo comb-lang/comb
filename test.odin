@@ -41,11 +41,8 @@ run_example_via_c :: proc(
 ) -> RanExampleViaC {
     compiler_pipe := utils.pipe_mock(a)
     executable: string
-    cache := utils.empty_files_cache(a)
-    defer utils.cleanup_files_cache(cache)
     status := compile(
         a,
-        &cache,
         FunctionRef{absolute_path, "main"},
         compiler_pipe,
         BuildC{&executable},
@@ -103,11 +100,8 @@ interpret_example :: proc(
 ) -> InterpretedExample {
     compiler_pipe := utils.pipe_mock(a)
     program_pipe := utils.pipe_mock(a)
-    cache := utils.empty_files_cache(a)
-    defer utils.cleanup_files_cache(cache)
     status := compile(
         a,
-        &cache,
         func,
         compiler_pipe,
         Run{program_pipe, utils.make_reader(a, stdin), utils.arena_new(a, LongLivedInterpState)},
@@ -123,7 +117,7 @@ interpret_example :: proc(
 @(test)
 example_00_fizzbuzz :: proc(t: ^testing.T) {
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     ran := interpret_example(t, &a, FunctionRef{#directory + "examples/00_fizzbuzz.code", "main"})
     testing.expect(t, ran.exit_code == 0)
     testing.expect(t, ran.compiler.stderr == "")
@@ -138,7 +132,7 @@ example_00_fizzbuzz :: proc(t: ^testing.T) {
 @(test)
 example_01_factorial :: proc(t: ^testing.T) {
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
         &a,
@@ -154,7 +148,7 @@ example_01_factorial :: proc(t: ^testing.T) {
 @(test)
 example_02_primes :: proc(t: ^testing.T) {
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     ran := interpret_example(t, &a, FunctionRef{#directory + "examples/02_primes.code", "main"})
     testing.expect(t, ran.exit_code == 0)
     // testing.expect(t, out.compiler.stderr == "") // TODO: Implement array bounds checking so this line can be uncommented
@@ -270,7 +264,7 @@ example_03_fibonacci :: proc(t: ^testing.T) {
     testing.expect(t, err == nil || err.(os.General_Error) == .Not_Exist)
 
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     ran := interpret_example(t, &a, FunctionRef{#directory + "examples/03_fibonacci.code", "main"})
     testing.expect(t, ran.exit_code == 0)
     // testing.expect(ran.compiler.stderr == "") // TODO: Implement array bounds checking so this line can be uncommented
@@ -286,7 +280,7 @@ example_03_fibonacci :: proc(t: ^testing.T) {
 @(test)
 example_04_linked_list :: proc(t: ^testing.T) {
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
         &a,
@@ -319,7 +313,7 @@ expect_ui_render :: proc(
 @(test)
 example_05_ui :: proc(t: ^testing.T) {
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
         &a,
@@ -371,7 +365,7 @@ example_06_counter :: proc(t: ^testing.T) {
     testing.expect(t, err == nil || err.(os.General_Error) == .Not_Exist)
 
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     ran := interpret_example(t, &a, FunctionRef{#directory + "examples/06_counter.code", "build"})
     testing.expect(t, ran.exit_code == 0)
     testing.expect(t, ran.compiler.stderr == "")
@@ -385,7 +379,7 @@ example_07_conways_game_of_life :: proc(t: ^testing.T) {
     testing.expect(t, err == nil || err.(os.General_Error) == .Not_Exist)
 
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
         &a,
@@ -409,7 +403,7 @@ basic_fuzz_test :: proc(t: ^testing.T) {
     }
 
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
 
     for _ in 0 ..< 100 {
         code := utils.random_string(800)
@@ -424,23 +418,14 @@ basic_fuzz_test :: proc(t: ^testing.T) {
 
         pipe := utils.pipe_mock(&a)
         defer utils.get_output(pipe)
-        cache := utils.empty_files_cache(&a)
-        defer utils.cleanup_files_cache(cache)
-        compile(
-            &a,
-            &cache,
-            FunctionRef{tmp_file, "main"},
-            pipe,
-            BuildC{},
-            compiler.NeverExitEarly{},
-        )
+        compile(&a, FunctionRef{tmp_file, "main"}, pipe, BuildC{}, compiler.NeverExitEarly{})
     }
 }
 
 @(test)
 basic_type_system_test :: proc(t: ^testing.T) {
     a := utils.Arena{}
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     types := compiler.create_types(&a)
     defer compiler.fix_types(types)
     generic_args0 := make([]compiler.Type, 1)
@@ -470,7 +455,7 @@ basic_type_system_test :: proc(t: ^testing.T) {
 example_08_result :: proc(t: ^testing.T) {
     // TODO: Test inputs other than `dog`
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
         &a,
@@ -488,7 +473,7 @@ example_08_result :: proc(t: ^testing.T) {
 @(test)
 example_09_hashmap :: proc(t: ^testing.T) {
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
         &a,
@@ -504,7 +489,7 @@ example_09_hashmap :: proc(t: ^testing.T) {
 @(test)
 example_10_geometry :: proc(t: ^testing.T) {
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     ran := run_example_via_c(t, &a, #directory + "examples/10_geometry.code", "")
     if ran == nil {return}
     out := ran.(CompilationSuccessful)
@@ -548,7 +533,7 @@ example_10_geometry :: proc(t: ^testing.T) {
 @(test)
 invalid_example_00_uninitialised_global_value_with_generics :: proc(t: ^testing.T) {
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     file :: #directory + "examples/invalid/00_uninitialised_global_value_with_generics.code"
     ran := run_example_via_c(t, &a, file, "")
     if ran == nil {return}
@@ -577,7 +562,7 @@ invalid_example_00_uninitialised_global_value_with_generics :: proc(t: ^testing.
 invalid_example_01_wrong_identifier_casing :: proc(t: ^testing.T) {
     file :: #directory + "examples/invalid/01_wrong_identifier_casing.code"
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     ran := run_example_via_c(t, &a, file, "")
     if ran == nil {return}
     out := ran.(CompilationSuccessful)
@@ -587,10 +572,10 @@ invalid_example_01_wrong_identifier_casing :: proc(t: ^testing.T) {
     e := utils.TestingTextExpecter{0, out.compiler.stdout, t}
     fmt.println(out.compiler.stdout)
     utils.expect_string(&e, "Reading `" + file + "`...\n")
+    utils.expect_string(&e, "Parsing `" + file + "`...\n")
     utils.expect_string(&e, "Checking...\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Warning compiling `" + #directory)
-    utils.expect_string(&e, "examples/invalid/01_wrong_identifier_casing.code` (7:8)\n")
+    utils.expect_string(&e, "Warning compiling `" + file + "` (7:8)\n")
     utils.expect_string(&e, "Expected generic names to be `CamelCase`, got `ok`\n")
     utils.expect_string(
         &e,
@@ -598,8 +583,7 @@ invalid_example_01_wrong_identifier_casing :: proc(t: ^testing.T) {
     )
     utils.expect_string(&e, "Got 'o'\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Warning compiling `" + #directory)
-    utils.expect_string(&e, "examples/invalid/01_wrong_identifier_casing.code` (7:12)\n")
+    utils.expect_string(&e, "Warning compiling `" + file + "` (7:12)\n")
     utils.expect_string(&e, "Expected generic names to be `CamelCase`, got `err`\n")
     utils.expect_string(
         &e,
@@ -621,7 +605,7 @@ invalid_example_01_wrong_identifier_casing :: proc(t: ^testing.T) {
 invalid_example_02_wrong_main_function_type :: proc(t: ^testing.T) {
     file :: #directory + "examples/invalid/02_wrong_main_function_type.code"
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     ran := run_example_via_c(t, &a, file, "")
     if ran == nil {return}
     out := ran.(CompilationFailed)
@@ -630,6 +614,7 @@ invalid_example_02_wrong_main_function_type :: proc(t: ^testing.T) {
 
     e := utils.TestingTextExpecter{0, out.compiler.stdout, t}
     utils.expect_string(&e, "Reading `" + file + "`...\n")
+    utils.expect_string(&e, "Parsing `" + file + "`...\n")
     utils.expect_string(&e, "Checking...\n")
     utils.expect_done_message(&e)
     utils.expect_finished(&e)
@@ -711,7 +696,7 @@ node_to_string := proc(d: ^[]byte, node: TreeNode) {
 @(test)
 arena_test :: proc(t: ^testing.T) {
     a := utils.Arena{}
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = true, delete_blocks = true)
 
     my_tree_string :: "(((`a` `b` `c`) `d` (`e` `f`)) `g` `h`)"
 
@@ -723,12 +708,14 @@ arena_test :: proc(t: ^testing.T) {
     // `resizable = false`, it is still resizable because the last
     // allocation is always resizable
     my_tree_dynamic_array := utils.arena_make(&a, []byte, 0, resizable = false)
-    defer utils.dealloc(raw_data(my_tree_dynamic_array))
     node_to_string(&my_tree_dynamic_array, my_tree_node)
     my_tree_string2 := string(my_tree_dynamic_array)
     if my_tree_string != my_tree_string2 {
         testing.fail_now(t, fmt.aprintf("%s != %s", my_tree_string, my_tree_string2))
     }
+
+    utils.cleanup_arena(&a, expect_empty = false, delete_blocks = false)
+    utils.cleanup_arena(&a, expect_empty = true, delete_blocks = false)
 
     my_int := utils.arena_new(&a, int)
     defer utils.dealloc(my_int)
@@ -757,7 +744,7 @@ arena_test :: proc(t: ^testing.T) {
 @(test)
 example_12_lambda_functions :: proc(t: ^testing.T) {
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
         &a,
@@ -769,10 +756,12 @@ example_12_lambda_functions :: proc(t: ^testing.T) {
     testing.expect(t, ran.compiler.stderr == "")
 }
 
+utils_path :: #directory + "examples/std/utils.code"
+
 @(test)
 invalid_example_03_constants_and_reassignables_with_same_name :: proc(t: ^testing.T) {
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     path :: #directory + "examples/invalid/03_constants_and_reassignables_with_same_name.code"
     ran := interpret_example(t, &a, FunctionRef{path, "main"})
     testing.expect(t, ran.exit_code == 0)
@@ -781,6 +770,8 @@ invalid_example_03_constants_and_reassignables_with_same_name :: proc(t: ^testin
     testing.expect(t, ran.compiler.stderr == "")
     e := utils.TestingTextExpecter{0, ran.compiler.stdout, t}
     utils.expect_string(&e, "Reading `" + path + "`...\n")
+    utils.expect_string(&e, "Parsing `" + path + "`...\n")
+    utils.expect_string(&e, "Parsing `" + utils_path + "`...\n")
     utils.expect_string(&e, "Checking...\n")
     utils.expect_string(&e, "\n")
     utils.expect_string(&e, "Warning compiling `" + path + "` (7:2)\n")
@@ -808,7 +799,7 @@ invalid_example_03_constants_and_reassignables_with_same_name :: proc(t: ^testin
 @(test)
 invalid_example_04_invalid_globals :: proc(t: ^testing.T) {
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     path :: #directory + "examples/invalid/04_invalid_globals.code"
     ran := interpret_example(t, &a, FunctionRef{path, "main"})
     testing.expect(t, ran.exit_code == 1)
@@ -817,6 +808,8 @@ invalid_example_04_invalid_globals :: proc(t: ^testing.T) {
 
     e := utils.TestingTextExpecter{0, ran.compiler.stdout, t}
     utils.expect_string(&e, "Reading `" + path + "`...\n")
+    utils.expect_string(&e, "Parsing `" + path + "`...\n")
+    utils.expect_string(&e, "Parsing `" + utils_path + "`...\n")
     utils.expect_string(&e, "Checking...\n")
     utils.expect_done_message(&e)
     utils.expect_finished(&e)
@@ -853,7 +846,7 @@ invalid_example_04_invalid_globals :: proc(t: ^testing.T) {
 @(test)
 example_13_numbers :: proc(t: ^testing.T) {
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     ran := interpret_example(t, &a, FunctionRef{#directory + "examples/13_numbers.code", "main"})
     testing.expect(t, ran.exit_code == 0)
     testing.expect(t, ran.compiler.stderr == "")
@@ -864,7 +857,7 @@ example_13_numbers :: proc(t: ^testing.T) {
 @(test)
 invalid_example_05_invalid_global_sum_type :: proc(t: ^testing.T) {
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     file :: #directory + "examples/invalid/05_invalid_global_sum_type.code"
     ran := interpret_example(t, &a, FunctionRef{file, "main"}, "")
     testing.expect(t, ran.exit_code == 1)
@@ -876,7 +869,7 @@ invalid_example_05_invalid_global_sum_type :: proc(t: ^testing.T) {
 @(test)
 invalid_example_06_mismatching_types :: proc(t: ^testing.T) {
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     file :: #directory + "examples/invalid/06_mismatching_types.code"
     ran := interpret_example(t, &a, FunctionRef{file, "main"}, "")
     testing.expect(t, ran.exit_code == 1)
@@ -898,7 +891,7 @@ invalid_example_06_mismatching_types :: proc(t: ^testing.T) {
 @(test)
 invalid_example_07_uses_compiletime_value_at_runtime :: proc(t: ^testing.T) {
     a: utils.Arena
-    defer utils.delete_arena(&a, expect_empty = false)
+    defer utils.cleanup_arena(&a, expect_empty = false)
     file :: #directory + "examples/invalid/07_uses_compiletime_value_at_runtime.code"
     ran := interpret_example(t, &a, FunctionRef{file, "main"}, "")
     testing.expect(t, ran.exit_code == 1)

@@ -15,24 +15,12 @@ import "utils"
 
 c_warning :: "WARNING: The C emitter is basically unmaintained at this point, and there are many things which it does not implement\n"
 
-write_position :: proc(w: io.Writer, pos: utils.Pos) {
-    io.write_byte(w, '`')
-    io.write_string(w, pos.file.file_path)
-    io.write_byte(w, '`')
-    if pos.index != max(uint) {
-        p := utils.get_position(pos)
-        p.line += 1
-        p.col += 1
-        fmt.wprintf(w, " (%d:%d)", p.line, p.col, flush = false)
-    }
-}
-
 position_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
     if verb != 'v' {
         return false
     }
     pos := cast(^utils.Pos)arg.data
-    write_position(fi.writer, pos^)
+    utils.write_position(fi.writer, pos^)
     return true
 }
 
@@ -123,9 +111,8 @@ Command :: union #no_nil {
 
 compile :: proc(
     a: ^utils.Arena,
-    files_cache: ^utils.FilesCache,
     func: FunctionRef,
-    comp: utils.Pipe(io.Writer),
+    out: utils.Pipe(io.Writer),
     command: Command,
     exit_early: compiler.EarlyExitInfo,
 ) -> int {
@@ -137,13 +124,16 @@ compile :: proc(
         exit_early_info^ = compiler.ExitEarlyAwaitingSourceCodeChange{start, nil, time.Time{}}
     }
     defer {
-        fmt.wprintfln(comp.stdout, "Done in %f ms!", time.duration_milliseconds(time.since(start)))
+        fmt.wprintfln(out.stdout, "Done in %f ms!", time.duration_milliseconds(time.since(start)))
     }
+
+    files_cache := utils.empty_files_cache(a)
+    defer utils.cleanup_files_cache(files_cache)
 
     file_absolute_path, abs_err := filepath.abs(func.file_name, context.allocator)
     if abs_err != nil {
         fmt.wprintfln(
-            comp.stderr,
+            out.stderr,
             "Failed to make filepath `%s` absolute: %v",
             func.file_name,
             abs_err,
@@ -151,14 +141,14 @@ compile :: proc(
         return 1
     }
 
-    fmt.wprintfln(comp.stdout, "Reading `%s`...", file_absolute_path)
-    first_file, read_err := utils.read_file(files_cache, file_absolute_path)
+    fmt.wprintfln(out.stdout, "Reading `%s`...", file_absolute_path)
+    first_file, read_err := utils.read_file(&files_cache, file_absolute_path)
     if read_err != nil {
-        fmt.wprintfln(comp.stderr, "Failed to read `%s`: %#v", file_absolute_path, read_err)
+        fmt.wprintfln(out.stderr, "Failed to read `%s`: %#v", file_absolute_path, read_err)
         return 1
     }
 
-    reporter_data := new_clone(utils.StandardDiagnosticReporter{io = comp})
+    reporter_data := new_clone(utils.StandardDiagnosticReporter{io = out})
     reporter := utils.DiagnosticReporter {
         reporter_data,
         utils.standard_has_errors,
@@ -166,10 +156,10 @@ compile :: proc(
     }
     checker_output := compiler.parse_and_check(
         a,
-        files_cache,
+        &files_cache,
         first_file,
         func.func_name,
-        comp,
+        out,
         exit_early,
         reporter,
     )
@@ -252,7 +242,7 @@ compile :: proc(
 
     if reporter_data.number_of[.Error] > 0 {
         fmt.wprintfln(
-            comp.stderr,
+            out.stderr,
             "Erroneously checked with %s and %s in %f ms",
             errors,
             warnings,
@@ -262,7 +252,7 @@ compile :: proc(
     }
 
     fmt.wprintfln(
-        comp.stdout,
+        out.stdout,
         "Successfully checked with %s and %s in %f ms",
         errors,
         warnings,
@@ -270,8 +260,8 @@ compile :: proc(
     )
 
     if build_c, is_build_c := command.(BuildC); is_build_c {
-        fmt.wprintfln(comp.stdout, "Emitting C code...")
-        fmt.wprintf(comp.stderr, c_warning)
+        fmt.wprintfln(out.stdout, "Emitting C code...")
+        fmt.wprintf(out.stderr, c_warning)
         c := emit_c(checker_output.types, checker_output.checked_funcs, checker_output.func_ref)
         executable_path, ok2 := write_and_compile_c(c, func.file_name)
         if !ok2 {
@@ -286,12 +276,12 @@ compile :: proc(
 
     absolute_file_name, err := filepath.abs(func.file_name, context.allocator)
     if err != nil {
-        fmt.wprintfln(comp.stderr, "Failed make path absolute: %#v", err)
+        fmt.wprintfln(out.stderr, "Failed make path absolute: %#v", err)
         return 1
     }
     defer delete(absolute_file_name)
 
-    fmt.wprintfln(comp.stdout, "Interpreting `%s`...", func.func_name)
+    fmt.wprintfln(out.stdout, "Interpreting `%s`...", func.func_name)
 
     absolute_file_dir := filepath.dir(absolute_file_name)
     state := ShortLivedInterpState {
@@ -527,7 +517,6 @@ parse_args_after_command :: proc(args_after_command: []string) -> (FunctionRef, 
     case 0:
         return FunctionRef{default_file_name, default_func_name}, watch
     case 1:
-        assert(len(func_ref_args[0]) > 0)
         for char in func_ref_args[0] {
             if !utils.is_alphanumeric_char_any(char) {
                 return FunctionRef{func_ref_args[0], default_func_name}, watch
@@ -535,7 +524,6 @@ parse_args_after_command :: proc(args_after_command: []string) -> (FunctionRef, 
         }
         return FunctionRef{default_file_name, func_ref_args[0]}, watch
     case 2:
-        assert(len(func_ref_args[1]) > 0)
         return FunctionRef{func_ref_args[0], func_ref_args[1]}, watch
     case:
         fmt.eprintln(
@@ -610,14 +598,17 @@ main :: proc() {
     }
 
     ref, watch := parse_args_after_command(os.args[2:])
+    if ref.func_name == "" {
+        fmt.eprintfln("Error: Got an empty string as the function name")
+        print_help(1)
+    }
     early_exit_info: compiler.EarlyExitInfo =
         watch ? new(compiler.ExitEarly) : compiler.NeverExitEarly{}
+    a: utils.Arena
+    defer utils.cleanup_arena(&a, expect_empty = true, delete_blocks = true)
     for {
-        a: utils.Arena
-        defer utils.delete_arena(&a, expect_empty = false)
-        cache := utils.empty_files_cache(&a)
-        defer utils.cleanup_files_cache(cache)
-        ret := compile(&a, &cache, ref, std_pipe, command, early_exit_info)
+        defer utils.cleanup_arena(&a, expect_empty = false, delete_blocks = false)
+        ret := compile(&a, ref, std_pipe, command, early_exit_info)
         switch exit_early in early_exit_info {
         case compiler.NeverExitEarly:
             os.exit(ret)

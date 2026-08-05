@@ -341,15 +341,18 @@ expect_string :: proc(
 }
 
 expect_string2 :: proc(r: ^bufio.Reader, expected: string, loc := #caller_location) {
-    assert(expected != "")
     got := make([]byte, len(expected))
     defer delete(got)
-    n, err := bufio.reader_read(r, got)
-    if n == 0 {
-        panicf("Failed to read: %v", err)
+    n := 0
+    for n < len(expected) {
+        num_read, err := bufio.reader_read(r, got)
+        if num_read == 0 {
+            panicf("Failed to read: %v", err)
+        }
+        assert(err == nil || err == .EOF)
+        expect_string_helper(expected[n:n + num_read], string(got[:num_read]), loc, nil)
+        n += num_read
     }
-    assert(err == nil || err == .EOF)
-    expect_string_helper(expected, string(got[:n]), loc, nil)
 }
 
 parse_uint :: proc(r: ^bufio.Reader) -> uint {

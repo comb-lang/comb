@@ -53,7 +53,9 @@ DidChangeTextDocumentNotification :: struct {
 
 DidSaveTextDocumentNotification :: struct {}
 
-Shutdown :: struct {}
+Shutdown :: struct {
+    using _: RequestData,
+}
 
 Exit :: struct {}
 
@@ -88,6 +90,7 @@ Response :: union {
 
 ShutdownResponse :: struct {
     using _: ResponseData,
+    result:  union {}, // Should always be `null` when marshalled into JSON
 }
 
 PublishDiagnosticNotification :: struct {
@@ -133,8 +136,21 @@ LspInitialize :: struct {
     using _: RequestData,
     params:  InitializeParams,
 }
+
+GeneralClientCapabilities :: struct {
+    // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#generalClientCapabilities
+    position_encodings: []PositionEncodingKind `json:"positionEncodings"`,
+}
+
+ClientCapabilities :: struct {
+    // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#clientCapabilities
+    general: GeneralClientCapabilities,
+}
+
 InitializeParams :: struct {
-    client_info: Info `json:"clientInfo"`,
+    // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#initializeParams
+    client_info:  Info `json:"clientInfo"`,
+    capabilities: ClientCapabilities,
 }
 LspInitialized :: struct {}
 
@@ -153,14 +169,29 @@ Info :: struct {
 @(private = "package")
 server_info :: Info{"programming_language", "0.0.1"}
 
+// https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#positionEncodingKind
+@(private = "package")
+PositionEncodingKind :: distinct string
+
+@(private = "package")
+utf8: PositionEncodingKind : "utf-8"
+
+@(private = "package")
+utf16: PositionEncodingKind : "utf-16"
+
+@(private = "package")
+utf32: PositionEncodingKind : "utf-32"
+
 @(private = "package")
 ServerCapabilities :: struct {
+    // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#serverCapabilities
+    position_encoding:  PositionEncodingKind `json:"positionEncoding"`,
     text_document_sync: TextDocumentSync `json:"textDocumentSync"`,
 }
 
 @(private = "package")
 send_response :: proc(data: Response) {
-    builder := utils.make_builder(&lsp_state.a)
+    builder := utils.make_builder(&lsp_state.temp_arena)
     defer utils.delete_builder(builder)
     opt := json.Marshal_Options{}
     err := json.marshal_to_writer(builder, data, &opt)
@@ -181,7 +212,7 @@ receive_request :: proc() -> Request {
     utils.expect_string2(&lsp_state.reader, "Content-Length: ")
     content_length := utils.parse_uint(&lsp_state.reader)
     utils.expect_string2(&lsp_state.reader, "\r\n\r\n")
-    content := make([]byte, content_length)
+    content := utils.arena_make(&lsp_state.temp_arena, []byte, content_length)
     n := 0
     for n < len(content) {
         num_read, err := bufio.reader_read(&lsp_state.reader, content[n:])
@@ -218,7 +249,10 @@ receive_request :: proc() -> Request {
     case "initialized":
         return LspInitialized{}
     case "shutdown":
-        return Shutdown{}
+        out := Shutdown{}
+        err3 := json.unmarshal(content, &out)
+        assert(err3 == nil)
+        return out
     case "exit":
         return Exit{}
     case:

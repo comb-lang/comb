@@ -39,7 +39,7 @@ ParserState :: struct {
     parser_context:                 []ParsingContext,
 
     // Grow as the project is parsed
-    using r:                        utils.DiagnosticReporter,
+    r:                              utils.DiagnosticReporter,
     files_cache:                    ^utils.FilesCache,
     // len(parsed_files) == get_file_index(files_cache.files, tokenizer_state.last_token_pos.file) + 1
     parsed_files:                   utils.Multi(map[string]ParsedGlobal),
@@ -1595,7 +1595,7 @@ ParserOutput :: struct {
 parse_project :: proc(
     a: ^utils.Arena,
     files_cache: ^utils.FilesCache,
-    io: utils.Pipe(io.Writer),
+    out: utils.Pipe(io.Writer),
     exit_early: EarlyExitInfo,
     diagnostic_reporter: utils.DiagnosticReporter,
 ) -> ParserOutput {
@@ -1620,7 +1620,7 @@ parse_project :: proc(
 
     for {
         file_path := state.last_token_pos.file.file_path
-        fmt.wprintfln(io.stdout, "Parsing `%s`...", file_path)
+        fmt.wprintfln(out.stdout, "Parsing `%s`...", file_path)
         utils.append_multi_dynamic(
             &state.parsed_files,
             get_file_index(state.files_cache.files, state.last_token_pos.file),

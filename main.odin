@@ -1,6 +1,7 @@
 package main
 
 import "base:runtime"
+import "compiler"
 import "core:bufio"
 import "core:fmt"
 import "core:io"
@@ -57,7 +58,7 @@ init :: proc "contextless" () {
     context = runtime.default_context()
     user_formatters := new(map[typeid]fmt.User_Formatter)
     user_formatters[utils.Pos] = position_formatter
-    user_formatters[TokenContents] = token_formatter
+    user_formatters[compiler.TokenContents] = compiler.token_formatter
     user_formatters[runtime.Source_Code_Location] = source_code_location_formatter
     user_formatters[time.Time] = time_formatter
     fmt.set_user_formatters(user_formatters)
@@ -118,82 +119,25 @@ Command :: union #no_nil {
     Run,
 }
 
-source_code_changed :: proc(early_exit_value: ^ExitEarlyAwaitingSourceCodeChange) -> bool {
-    // TODO: Make this code quicker so caching is not necersarry
-    if time.since(early_exit_value.last_checked) < 10 * time.Millisecond {
-        return false
-    }
-    defer early_exit_value.last_checked = time.now()
-    for file in early_exit_value.files {
-        info, err := os.stat(file.file_path, context.allocator)
-        if err == os.General_Error.Not_Exist {
-            return true
-        }
-        if err != nil {
-            panic(fmt.aprintf("Failed to stat file: %v", err))
-        }
-        defer os.file_info_delete(info, context.allocator)
-        if info.modification_time._nsec > early_exit_value.compilation_start._nsec {
-            return true
-        }
-    }
-    return false
-}
-
-should_exit_early :: proc(early_exit_info: EarlyExitInfo) -> bool {
-    switch early_exit in early_exit_info {
-    case NeverExitEarly:
-        return false
-    case ^ExitEarly:
-        switch &early_exit_value in early_exit {
-        case ExitEarlyAfterSourceCodeChanged:
-            return true
-        case ExitEarlyAwaitingSourceCodeChange:
-            if !source_code_changed(&early_exit_value) {
-                return false
-            }
-            early_exit^ = ExitEarlyAfterSourceCodeChanged{}
-            return true
-        case:
-            panic("Unreachable")
-        }
-    case:
-        panic("Unreachable")
-    }
-}
-
-NeverExitEarly :: struct {}
-
-ExitEarlyAwaitingSourceCodeChange :: struct {
-    compilation_start: time.Time,
-    files:             []utils.CompilerFile,
-    last_checked:      time.Time,
-}
-
-ExitEarlyAfterSourceCodeChanged :: struct {}
-
-ExitEarly :: union #no_nil {
-    ExitEarlyAwaitingSourceCodeChange,
-    ExitEarlyAfterSourceCodeChanged,
-}
-
-EarlyExitInfo :: union #no_nil {
-    NeverExitEarly,
-    ^ExitEarly, // A pointer so that the variant can be changed
-}
-
 parse_and_check :: proc(
     a: ^utils.Arena,
     files_cache: ^utils.FilesCache,
     first_file: ^utils.CompilerFile,
     func_name: string,
-    compiler: utils.Pipe(io.Writer),
-    exit_early: EarlyExitInfo,
+    comp: utils.Pipe(io.Writer),
+    exit_early: compiler.EarlyExitInfo,
     diagnostic_reporter: utils.DiagnosticReporter,
-) -> CheckerOutput {
-    parsed := parse_project(a, files_cache, first_file, compiler, exit_early, diagnostic_reporter)
+) -> compiler.CheckerOutput {
+    parsed := compiler.parse_project(
+        a,
+        files_cache,
+        first_file,
+        comp,
+        exit_early,
+        diagnostic_reporter,
+    )
     if diagnostic_reporter.has_errors(diagnostic_reporter.data) {
-        return CheckerOutput{}
+        return compiler.CheckerOutput{}
     }
 
     when utils.debug_parser_output {
@@ -208,14 +152,14 @@ parse_and_check :: proc(
         debug_nesting -= 1
     }
 
-    fmt.wprintfln(compiler.stdout, "Checking...")
-    return check(
+    fmt.wprintfln(comp.stdout, "Checking...")
+    return compiler.check(
         a,
         parsed,
         files_cache.files,
         func_name,
         first_file,
-        compiler,
+        comp,
         diagnostic_reporter,
     )
 }
@@ -224,29 +168,25 @@ compile :: proc(
     a: ^utils.Arena,
     files_cache: ^utils.FilesCache,
     func: FunctionRef,
-    compiler: utils.Pipe(io.Writer),
+    comp: utils.Pipe(io.Writer),
     command: Command,
-    exit_early: EarlyExitInfo,
+    exit_early: compiler.EarlyExitInfo,
 ) -> int {
     // TODO: There are some return paths where `exit_early` is not updated and
     // therefore the `-watch` flag does not auto reload
 
     start := time.now()
-    if exit_early_info, exiting_early := exit_early.(^ExitEarly); exiting_early {
-        exit_early_info^ = ExitEarlyAwaitingSourceCodeChange{start, nil, time.Time{}}
+    if exit_early_info, exiting_early := exit_early.(^compiler.ExitEarly); exiting_early {
+        exit_early_info^ = compiler.ExitEarlyAwaitingSourceCodeChange{start, nil, time.Time{}}
     }
     defer {
-        fmt.wprintfln(
-            compiler.stdout,
-            "Done in %f ms!",
-            time.duration_milliseconds(time.since(start)),
-        )
+        fmt.wprintfln(comp.stdout, "Done in %f ms!", time.duration_milliseconds(time.since(start)))
     }
 
     file_absolute_path, abs_err := filepath.abs(func.file_name, context.allocator)
     if abs_err != nil {
         fmt.wprintfln(
-            compiler.stderr,
+            comp.stderr,
             "Failed to make filepath `%s` absolute: %v",
             func.file_name,
             abs_err,
@@ -254,14 +194,14 @@ compile :: proc(
         return 1
     }
 
-    fmt.wprintfln(compiler.stdout, "Reading `%s`...", file_absolute_path)
+    fmt.wprintfln(comp.stdout, "Reading `%s`...", file_absolute_path)
     first_file, read_err := utils.read_file(files_cache, file_absolute_path)
     if read_err != nil {
-        fmt.wprintfln(compiler.stderr, "Failed to read `%s`: %#v", file_absolute_path, read_err)
+        fmt.wprintfln(comp.stderr, "Failed to read `%s`: %#v", file_absolute_path, read_err)
         return 1
     }
 
-    reporter_data := new_clone(utils.StandardDiagnosticReporter{io = compiler})
+    reporter_data := new_clone(utils.StandardDiagnosticReporter{io = comp})
     reporter := utils.DiagnosticReporter {
         reporter_data,
         utils.standard_has_errors,
@@ -272,12 +212,12 @@ compile :: proc(
         files_cache,
         first_file,
         func.func_name,
-        compiler,
+        comp,
         exit_early,
         reporter,
     )
 
-    function_type := Type.Unknown
+    function_type := compiler.Type.Unknown
     if checker_output.func_ref.index < len(checker_output.checked_funcs) {
         function_type = checker_output.checked_funcs[checker_output.func_ref.index].type
         if function_type != .Unknown {
@@ -289,13 +229,13 @@ compile :: proc(
                         reporter,
                         utils.Pos{max(uint), first_file},
                         "Got the type `%s`\nExpected the type `%s`",
-                        type_to_string2(
+                        compiler.type_to_string2(
                             checker_output.types,
                             checker_output.globals_without_generic,
                             checker_output.globals_with_generic,
                             function_type,
                         ),
-                        type_to_string2(
+                        compiler.type_to_string2(
                             checker_output.types,
                             checker_output.globals_without_generic,
                             checker_output.globals_with_generic,
@@ -309,19 +249,19 @@ compile :: proc(
                         reporter,
                         utils.Pos{max(uint), first_file},
                         "Got the type `%s`\nExpected the type `%s` or `%s`",
-                        type_to_string2(
+                        compiler.type_to_string2(
                             checker_output.types,
                             checker_output.globals_without_generic,
                             checker_output.globals_with_generic,
                             function_type,
                         ),
-                        type_to_string2(
+                        compiler.type_to_string2(
                             checker_output.types,
                             checker_output.globals_without_generic,
                             checker_output.globals_with_generic,
                             .NoArgsToInt,
                         ),
-                        type_to_string2(
+                        compiler.type_to_string2(
                             checker_output.types,
                             checker_output.globals_without_generic,
                             checker_output.globals_with_generic,
@@ -355,7 +295,7 @@ compile :: proc(
 
     if reporter_data.number_of[.Error] > 0 {
         fmt.wprintfln(
-            compiler.stderr,
+            comp.stderr,
             "Erroneously checked with %s and %s in %f ms",
             errors,
             warnings,
@@ -365,7 +305,7 @@ compile :: proc(
     }
 
     fmt.wprintfln(
-        compiler.stdout,
+        comp.stdout,
         "Successfully checked with %s and %s in %f ms",
         errors,
         warnings,
@@ -373,8 +313,8 @@ compile :: proc(
     )
 
     if build_c, is_build_c := command.(BuildC); is_build_c {
-        fmt.wprintfln(compiler.stdout, "Emitting C code...")
-        fmt.wprintf(compiler.stderr, c_warning)
+        fmt.wprintfln(comp.stdout, "Emitting C code...")
+        fmt.wprintf(comp.stderr, c_warning)
         c := emit_c(checker_output.types, checker_output.checked_funcs, checker_output.func_ref)
         executable_path, ok2 := write_and_compile_c(c, func.file_name)
         if !ok2 {
@@ -389,12 +329,12 @@ compile :: proc(
 
     absolute_file_name, err := filepath.abs(func.file_name, context.allocator)
     if err != nil {
-        fmt.wprintfln(compiler.stderr, "Failed make path absolute: %#v", err)
+        fmt.wprintfln(comp.stderr, "Failed make path absolute: %#v", err)
         return 1
     }
     defer delete(absolute_file_name)
 
-    fmt.wprintfln(compiler.stdout, "Interpreting `%s`...", func.func_name)
+    fmt.wprintfln(comp.stdout, "Interpreting `%s`...", func.func_name)
 
     absolute_file_dir := filepath.dir(absolute_file_name)
     state := ShortLivedInterpState {
@@ -411,12 +351,12 @@ compile :: proc(
     args: []RuntimeValue
     if function_type == .CompilerToInt {
         compiler_cache_struct_fields := make([]RuntimeValue, 3)
-        compiler_cache_struct_fields[0] = BuiltinFunction.cache_contains
-        compiler_cache_struct_fields[1] = BuiltinFunction.cache_set
-        compiler_cache_struct_fields[2] = BuiltinFunction.cache_get
+        compiler_cache_struct_fields[0] = compiler.BuiltinFunction.cache_contains
+        compiler_cache_struct_fields[1] = compiler.BuiltinFunction.cache_set
+        compiler_cache_struct_fields[2] = compiler.BuiltinFunction.cache_get
 
         compiler_struct_fields := make([]RuntimeValue, 2)
-        compiler_struct_fields[0] = BuiltinFunction.emit_js_code
+        compiler_struct_fields[0] = compiler.BuiltinFunction.emit_js_code
         compiler_struct_fields[1] = RuntimeStruct {
             true,
             compiler_cache_struct_fields,
@@ -431,7 +371,7 @@ compile :: proc(
         RuntimeFunc{checker_output.func_ref, nil},
         args,
     )
-    if should_exit_early(exit_early) {
+    if compiler.should_exit_early(exit_early) {
         return 1
     } else {
         return expect_int(result.(f64))
@@ -713,7 +653,8 @@ main :: proc() {
     }
 
     ref, watch := parse_args_after_command(os.args[2:])
-    early_exit_info: EarlyExitInfo = watch ? new(ExitEarly) : NeverExitEarly{}
+    early_exit_info: compiler.EarlyExitInfo =
+        watch ? new(compiler.ExitEarly) : compiler.NeverExitEarly{}
     for {
         a: utils.Arena
         defer utils.delete_arena(&a, expect_empty = false)
@@ -721,11 +662,11 @@ main :: proc() {
         defer utils.cleanup_files_cache(cache)
         ret := compile(&a, &cache, ref, std_pipe, command, early_exit_info)
         switch exit_early in early_exit_info {
-        case NeverExitEarly:
+        case compiler.NeverExitEarly:
             os.exit(ret)
-        case ^ExitEarly:
+        case ^compiler.ExitEarly:
             switch &exit_early_value in exit_early {
-            case ExitEarlyAwaitingSourceCodeChange:
+            case compiler.ExitEarlyAwaitingSourceCodeChange:
                 if len(exit_early_value.files) == 0 {
                     assert(ret != 0)
                     fmt.eprintln(
@@ -734,10 +675,10 @@ main :: proc() {
                     os.exit(ret)
                 }
                 fmt.println("Awaiting source code change...")
-                for !source_code_changed(&exit_early_value) {
+                for !compiler.source_code_changed(&exit_early_value) {
                     time.sleep(10 * time.Millisecond)
                 }
-            case ExitEarlyAfterSourceCodeChanged:
+            case compiler.ExitEarlyAfterSourceCodeChanged:
             }
         }
         fmt.println(utils.ansi_clear + "Recompiling after source code change...")

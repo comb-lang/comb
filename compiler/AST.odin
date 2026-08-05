@@ -1,6 +1,6 @@
-package main
+package compiler
 
-import "utils"
+import "../utils"
 
 StructUnit :: struct {
     m:         utils.KeyToIndex(string),

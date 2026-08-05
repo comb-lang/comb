@@ -1,6 +1,6 @@
-package main
+package compiler
 
-import "utils"
+import "../utils"
 
 Type :: enum u32 {
     DynamicArrayOfStrings, // []String

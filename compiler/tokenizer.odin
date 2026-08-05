@@ -1,9 +1,9 @@
-package main
+package compiler
 
+import "../utils"
 import "core:fmt"
 import "core:io"
 import "core:strings"
-import "utils"
 
 // Things that might need adding in the future:
 // - Handle numbers with decimals and + and - as one token
@@ -318,7 +318,7 @@ wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
             panic("Unreachable")
         }
         io.write_string(w, " at ")
-        write_position(w, c.pos)
+        utils.write_position(w, c.pos)
         io.write_byte(w, '\n')
     }
 

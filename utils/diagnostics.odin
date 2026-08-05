@@ -25,6 +25,16 @@ Pos :: struct {
     file:  ^CompilerFile,
 }
 
+write_position :: proc(w: io.Writer, pos: Pos) {
+    io.write_byte(w, '`')
+    io.write_string(w, pos.file.file_path)
+    io.write_byte(w, '`')
+    if pos.index != max(uint) {
+        p := get_position(pos)
+        fmt.wprintf(w, " (%d:%d)", p.line, p.col, flush = false)
+    }
+}
+
 standard_diagnostic_header :: proc(data: rawptr, pos: Pos, type: DiagnosticType) -> io.Writer {
     r := cast(^StandardDiagnosticReporter)data
     w := type == .Error ? r.io.stderr : r.io.stdout

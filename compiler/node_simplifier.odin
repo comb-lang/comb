@@ -1,7 +1,7 @@
-package main
+package compiler
 
+import "../utils"
 import "core:fmt"
-import "utils"
 
 // This file may become an implementation of the node simplifier in a sea of nodes style optimizer
 // See https://github.com/seaofnodes/simple
@@ -53,19 +53,19 @@ create_joined_values :: proc(
             num0 := comptime0.(NumberValue)
             num1 := comptime1.(NumberValue)
             if num0.fraction_part == "" && num1.fraction_part == "" {
-                n0 := BigInt{num0.is_negated, num0.whole_part}
-                n1 := BigInt{num1.is_negated, num1.whole_part}
-                ok :: proc(b: BigInt) -> CheckedValue {
+                n0 := utils.BigInt{num0.is_negated, num0.whole_part}
+                n1 := utils.BigInt{num1.is_negated, num1.whole_part}
+                ok :: proc(b: utils.BigInt) -> CheckedValue {
                     return CompileTimeValue(NumberValue{b.is_negated, b.absolute_value, ""})
                 }
                 #partial switch method {
                 case .Multiplication:
-                    return ok(mul_int(n0, n1))
+                    return ok(utils.mul_int(n0, n1))
                 case .Division: // TODO
                 case .Addition:
-                    return ok(add_int(n0, n1))
+                    return ok(utils.add_int(n0, n1))
                 case .Subtraction:
-                    return ok(sub_int(n0, n1))
+                    return ok(utils.sub_int(n0, n1))
                 case:
                     panic("Unreachable")
                 }
@@ -124,7 +124,7 @@ iterate_array :: proc(
     loop_enter := make([]CheckedStatement, 1)
     loop_enter[0] = CheckedAssignment {
         index_variable,
-        CompileTimeValue(NumberValue{false, uint_zero, ""}),
+        CompileTimeValue(NumberValue{false, utils.uint_zero, ""}),
     }
 
     if_block := make([]CheckedStatement, 1)
@@ -155,7 +155,7 @@ iterate_array :: proc(
         create_joined_values(
             .Addition,
             index_variable,
-            CompileTimeValue(NumberValue{false, big_uint_from_u64(1), ""}),
+            CompileTimeValue(NumberValue{false, utils.big_uint_from_u64(1), ""}),
         ),
     }
     return CheckedLoop {

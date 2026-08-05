@@ -1,11 +1,11 @@
 #+feature dynamic-literals
-package main
+package compiler
 
+import "../utils"
 import "core:fmt"
 import "core:io"
 import "core:mem"
 import "core:path/filepath"
-import "utils"
 
 plain_ident_base :: "n identifier with one segment and no `$` sign at the end"
 plain_ident_capitalised :: "A" + plain_ident_base

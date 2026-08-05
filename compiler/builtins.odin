@@ -1,11 +1,11 @@
-package main
+package compiler
 
 // Handles namespace operations. Namespace operations are all handled in the
 // same file to maintain a consistent set of builtins which cannot be overridden.
 
+import "../utils"
 import "core:fmt"
 import "core:strings"
-import "utils"
 
 builtins_err :: "`%s` is a builtin\nCannot override builtins"
 

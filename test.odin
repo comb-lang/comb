@@ -5,6 +5,7 @@ package main
 // TODO: Check that the interpreter, the JS emitter, and the C emitter all have
 //       the same behavior in all the tests
 
+import "compiler"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
@@ -48,7 +49,7 @@ run_example_via_c :: proc(
         FunctionRef{absolute_path, "main"},
         compiler_pipe,
         BuildC{&executable},
-        NeverExitEarly{},
+        compiler.NeverExitEarly{},
     )
     compiler := utils.get_output(compiler_pipe)
     if status != 0 {
@@ -110,7 +111,7 @@ interpret_example :: proc(
         func,
         compiler_pipe,
         Run{program_pipe, utils.make_reader(a, stdin), utils.arena_new(a, LongLivedInterpState)},
-        NeverExitEarly{},
+        compiler.NeverExitEarly{},
     )
     return InterpretedExample {
         utils.get_output(compiler_pipe),
@@ -425,7 +426,14 @@ basic_fuzz_test :: proc(t: ^testing.T) {
         defer utils.get_output(pipe)
         cache := utils.empty_files_cache(&a)
         defer utils.cleanup_files_cache(cache)
-        compile(&a, &cache, FunctionRef{tmp_file, "main"}, pipe, BuildC{}, NeverExitEarly{})
+        compile(
+            &a,
+            &cache,
+            FunctionRef{tmp_file, "main"},
+            pipe,
+            BuildC{},
+            compiler.NeverExitEarly{},
+        )
     }
 }
 
@@ -433,18 +441,27 @@ basic_fuzz_test :: proc(t: ^testing.T) {
 basic_type_system_test :: proc(t: ^testing.T) {
     a := utils.Arena{}
     defer utils.delete_arena(&a, expect_empty = false)
-    types := create_types(&a)
-    defer fix_types(types)
-    generic_args0 := make([]Type, 1)
+    types := compiler.create_types(&a)
+    defer compiler.fix_types(types)
+    generic_args0 := make([]compiler.Type, 1)
     generic_args0[0] = .String
-    generic_args1 := make([]Type, 1)
+    generic_args1 := make([]compiler.Type, 1)
     generic_args1[0] = .Bool
-    generic0 := create_type(&types, GenericTypeValue{GlobalValueWithGenericRef{7}, generic_args0})
-    generic1 := create_type(&types, GenericTypeValue{GlobalValueWithGenericRef{7}, generic_args0})
+    generic0 := compiler.create_type(
+        &types,
+        compiler.GenericTypeValue{compiler.GlobalValueWithGenericRef{7}, generic_args0},
+    )
+    generic1 := compiler.create_type(
+        &types,
+        compiler.GenericTypeValue{compiler.GlobalValueWithGenericRef{7}, generic_args0},
+    )
     types.values.d[generic1.type].type = .Int
-    generic2 := create_type(&types, GenericTypeValue{GlobalValueWithGenericRef{7}, generic_args1})
+    generic2 := compiler.create_type(
+        &types,
+        compiler.GenericTypeValue{compiler.GlobalValueWithGenericRef{7}, generic_args1},
+    )
     testing.expect(t, generic0.type == generic1.type)
-    generic0_initialised := get_type(types, generic0.type).value.type
+    generic0_initialised := compiler.get_type(types, generic0.type).value.type
     testing.expect(t, generic0_initialised == .Int)
     testing.expect(t, generic0.type != generic2.type)
 }

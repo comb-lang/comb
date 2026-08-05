@@ -1,11 +1,11 @@
-package main
+package compiler
 
+import "../utils"
 import "core:fmt"
 import "core:io"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
-import "utils"
 
 VariableRef :: struct {
     nesting_level: uint,
@@ -176,7 +176,7 @@ StringsAreEqual :: struct {
 }
 NumberValue :: struct {
     is_negated:    bool,
-    whole_part:    BigUint,
+    whole_part:    utils.BigUint,
     fraction_part: string,
 }
 ImportedFile :: struct {
@@ -543,7 +543,7 @@ check_array_type :: proc(
         number := compile_time_value.(NumberValue)
         assert(len(body) == 0)
         assert(number.fraction_part == "")
-        length, ok = big_uint_to_u32(number.whole_part)
+        length, ok = utils.big_uint_to_u32(number.whole_part)
         if number.is_negated || !ok || length == 0 {
             utils.diagnostic(
                 s.r,
@@ -2037,7 +2037,7 @@ check_block :: proc(
                 )
                 step: CheckedValue = ---
                 if iter.step == nil {
-                    step = CompileTimeValue(NumberValue{false, big_uint_from_u64(1), ""})
+                    step = CompileTimeValue(NumberValue{false, utils.big_uint_from_u64(1), ""})
                 } else {
                     step = expect_runtime_value(
                         s,
@@ -3757,14 +3757,14 @@ check_initial_value :: proc(
         return check_var_ref(s, value.segments, pos, a)
 
     case Number:
-        whole_part: BigUint = ---
+        whole_part: utils.BigUint = ---
         fraction_part: string = ---
         switch num in value.absolute_value {
         case WholeNonNegativeNumber:
-            whole_part = big_uint_from_string(num.digits)
+            whole_part = utils.big_uint_from_string(num.digits)
             fraction_part = ""
         case DecimalNonNegativeNumber:
-            whole_part = big_uint_from_string(num.integer_part)
+            whole_part = utils.big_uint_from_string(num.integer_part)
             fraction_part = num.fractional_part
         case:
             panic("Unreachable")
@@ -3777,7 +3777,7 @@ check_initial_value :: proc(
         return finish_checking_value(s, pos, a.type, out, .String, "")
 
     case Char:
-        out := CompileTimeValue(NumberValue{false, big_uint_from_u64(u64(value)), ""})
+        out := CompileTimeValue(NumberValue{false, utils.big_uint_from_u64(u64(value)), ""})
         return finish_checking_value(s, pos, a.type, out, .Char, "")
     }
 }
@@ -4293,7 +4293,7 @@ check_global_value_without_generic :: proc(
 
 length_of_array :: proc(type: ArrayType, value: CheckedValue) -> CheckedValue {
     if type.length != 0 {
-        return CompileTimeValue(NumberValue{false, big_uint_from_u64(u64(type.length)), ""})
+        return CompileTimeValue(NumberValue{false, utils.big_uint_from_u64(u64(type.length)), ""})
     }
     return LengthOfArray{new_clone(value)}
 }

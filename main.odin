@@ -14,29 +14,34 @@ import "utils"
 
 c_warning :: "WARNING: The C emitter is basically unmaintained at this point, and there are many things which it does not implement\n"
 
-write_position :: proc(w: io.Writer, pos: Pos) {
-    if pos == unknown_pos {
-        fmt.wprint(w, "unknown_pos")
+write_position :: proc(w: io.Writer, pos: utils.Pos) {
+    if pos == utils.unknown_pos {
+        io.write_string(w, "unknown_pos")
         return
     }
-    line := 1
-    column := 1
-    for char in pos.file.code[:pos.index] {
-        if char == '\n' {
-            line += 1
-            column = 1
-        } else {
-            column += 1
+    io.write_byte(w, '`')
+    io.write_string(w, pos.file.file_path)
+    io.write_byte(w, '`')
+    if pos.index != max(uint) {
+        line := 1
+        column := 1
+        for char in pos.file.code[:pos.index] {
+            if char == '\n' {
+                line += 1
+                column = 1
+            } else {
+                column += 1
+            }
         }
+        fmt.wprintf(w, " (%d:%d)", line, column, flush = false)
     }
-    fmt.wprintf(w, "`%s` (%d:%d)", pos.file.file_path, line, column, flush = false)
 }
 
 position_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
     if verb != 'v' {
         return false
     }
-    pos := cast(^Pos)arg.data
+    pos := cast(^utils.Pos)arg.data
     write_position(fi.writer, pos^)
     return true
 }
@@ -64,7 +69,7 @@ time_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
 init :: proc "contextless" () {
     context = runtime.default_context()
     user_formatters := new(map[typeid]fmt.User_Formatter)
-    user_formatters[Pos] = position_formatter
+    user_formatters[utils.Pos] = position_formatter
     user_formatters[TokenContents] = token_formatter
     user_formatters[runtime.Source_Code_Location] = source_code_location_formatter
     user_formatters[time.Time] = time_formatter
@@ -197,7 +202,7 @@ parse_and_check :: proc(
     func_name: string,
     compiler: utils.Pipe(io.Writer),
     exit_early: EarlyExitInfo,
-    diagnostic_reporter: DiagnosticReporter,
+    diagnostic_reporter: utils.DiagnosticReporter,
 ) -> CheckerOutput {
     parsed := parse_project(a, files_cache, first_file, compiler, exit_early, diagnostic_reporter)
     if diagnostic_reporter.has_errors(diagnostic_reporter.data) {
@@ -261,8 +266,12 @@ compile :: proc(
         return 1
     }
 
-    reporter_data := new_clone(StandardDiagnosticReporter{io = compiler})
-    reporter := DiagnosticReporter{reporter_data, standard_has_errors, standard_diagnostic_header}
+    reporter_data := new_clone(utils.StandardDiagnosticReporter{io = compiler})
+    reporter := utils.DiagnosticReporter {
+        reporter_data,
+        utils.standard_has_errors,
+        utils.standard_diagnostic_header,
+    }
     checker_output := parse_and_check(
         a,
         files_cache,
@@ -281,9 +290,9 @@ compile :: proc(
             switch c in command {
             case BuildC:
                 if function_type != .NoArgsToInt {
-                    diagnostic(
+                    utils.diagnostic(
                         reporter,
-                        unknown_pos,
+                        utils.unknown_pos,
                         "Got the type `%s`\nExpected the type `%s`",
                         type_to_string2(
                             checker_output.types,
@@ -301,9 +310,9 @@ compile :: proc(
                 }
             case Run:
                 if function_type != .NoArgsToInt && function_type != .CompilerToInt {
-                    diagnostic(
+                    utils.diagnostic(
                         reporter,
-                        unknown_pos,
+                        utils.unknown_pos,
                         "Got the type `%s`\nExpected the type `%s` or `%s`",
                         type_to_string2(
                             checker_output.types,

@@ -21,7 +21,7 @@ get_file_index :: proc(
 }
 
 ParsingContext :: struct {
-    pos:  Pos,
+    pos:  utils.Pos,
     kind: enum {
         StructFieldType,
         StructType,
@@ -39,7 +39,7 @@ ParserState :: struct {
     parser_context:                 []ParsingContext,
 
     // Grow as the project is parsed
-    using r:                        DiagnosticReporter,
+    using r:                        utils.DiagnosticReporter,
     files_cache:                    ^utils.FilesCache,
     // len(parsed_files) == get_file_index(files_cache.files, tokenizer_state.last_token_pos.file) + 1
     parsed_files:                   utils.Multi(map[string]ParsedGlobal),
@@ -54,7 +54,7 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
     defer utils.pop_dynamic(&s.parser_context)
     out := StructUnit {
         utils.make_key_to_index(s.a, utils.KeyToIndex(string)),
-        utils.arena_make_multi(s.a, utils.Multi(Pos), 0, resizable = true),
+        utils.arena_make_multi(s.a, utils.Multi(utils.Pos), 0, resizable = true),
         utils.arena_make_multi(s.a, utils.Multi(Unit), 0, resizable = true),
     }
     defer {
@@ -109,7 +109,7 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
         }
         i, result := utils.lookup_or_insert(&out.m, field.text, utils.string_to_index_procs)
         if result == .LookedUp {
-            diagnostic(
+            utils.diagnostic(
                 s.r,
                 field.pos,
                 "There is already a field called `%s` defined in this struct at %v",
@@ -217,12 +217,12 @@ maybe_parse_initial_unit :: proc(
             context.allocator,
         )
         if join_err != nil {
-            diagnostic(s.r, unknown_pos, "Failed to join filepath: %v", join_err)
+            utils.diagnostic(s.r, utils.unknown_pos, "Failed to join filepath: %v", join_err)
             return nil, false
         }
         file_ref, read_err := utils.read_file(s.files_cache, joined)
         if read_err != nil {
-            diagnostic(s.r, s.last_token_pos, "Failed to read `%s`: %#v", joined, read_err)
+            utils.diagnostic(s.r, s.last_token_pos, "Failed to read `%s`: %#v", joined, read_err)
             return nil, false
         }
         get_next_token(s, true)
@@ -255,7 +255,7 @@ maybe_parse_initial_unit :: proc(
     case OpenAngleBracketToken:
         sum_type := SumUnit {
             utils.make_key_to_index(s.a, utils.KeyToIndex(string)),
-            utils.arena_make_multi(s.a, utils.Multi(Pos), 0, resizable = true),
+            utils.arena_make_multi(s.a, utils.Multi(utils.Pos), 0, resizable = true),
             utils.arena_make_multi(s.a, utils.Multi(StructUnit), 0, resizable = true),
         }
         defer {
@@ -299,7 +299,7 @@ maybe_parse_initial_unit :: proc(
                     utils.string_to_index_procs,
                 )
                 if result == .LookedUp {
-                    diagnostic(
+                    utils.diagnostic(
                         s.r,
                         variant_name.pos,
                         "There is already a variant called `%s` in this sum type at %v",
@@ -792,7 +792,7 @@ parse_for_loop :: proc(s: ^ParserState) -> (ForInLoop, bool) {
             break variables_loop
         case CommaToken:
             if variable_index >= 3 {
-                diagnostic(
+                utils.diagnostic(
                     s.r,
                     s.last_token_pos,
                     "There cannot be more than 3 variables in a for loop head (the iteration the for loop is on, the key of the thing being iterated over, and the value of the thing being iterated over)",
@@ -1085,9 +1085,9 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
             case AssignToken:
             }
             if len(token) != 1 {
-                diagnostic(
+                utils.diagnostic(
                     &s.r,
-                    Pos{s.last_token_pos, s.file_ref},
+                    utils.Pos{s.last_token_pos, s.file_ref},
                     "TODO: Support assigns where the destination has more than one segment",
                 )
                 return nil, false
@@ -1469,17 +1469,17 @@ parse_file :: proc(s: ^ParserState) {
             if def, exists :=
                    s.parsed_files.d[get_file_index(s.files_cache.files, s.last_token_pos.file)][name];
                exists {
-                diagnostic(
+                utils.diagnostic(
                     s.r,
                     position,
                     "The global `%s` is already declared at %v",
                     name,
-                    Pos{def.pos, s.last_token_pos.file},
+                    utils.Pos{def.pos, s.last_token_pos.file},
                 )
                 return
             }
             get_next_token(s, false)
-            generic_map := make(map[string]Pos) // The key is the position of the generic arg
+            generic_map := make(map[string]utils.Pos) // The key is the position of the generic arg
             generic := make([dynamic]TextAndPos)
             _, is_open_square_bracket := s.last_token.(OpenSquareBracketToken)
             if is_open_square_bracket {
@@ -1496,7 +1496,7 @@ parse_file :: proc(s: ^ParserState) {
 
                     if segments[0].ident in generic_map {
                         pos := generic_map[segments[0].ident]
-                        diagnostic(
+                        utils.diagnostic(
                             s.r,
                             s.last_token_pos,
                             "There is already a generic argument called `%s` defined on %v in this global type",
@@ -1533,7 +1533,7 @@ parse_file :: proc(s: ^ParserState) {
                 get_next_token(s, false)
 
                 if len(generic) == 0 {
-                    diagnostic(
+                    utils.diagnostic(
                         s.r,
                         position,
                         "The parser is interpreting this as a non-generic value\nThe empty `[]` can be omitted",
@@ -1598,7 +1598,7 @@ parse_project :: proc(
     first_file: ^utils.CompilerFile,
     io: utils.Pipe(io.Writer),
     exit_early: EarlyExitInfo,
-    diagnostic_reporter: DiagnosticReporter,
+    diagnostic_reporter: utils.DiagnosticReporter,
 ) -> ParserOutput {
     state := ParserState {
             r              = diagnostic_reporter,
@@ -1634,7 +1634,7 @@ parse_project :: proc(
                     0,
                     resizable = true,
                 ),
-                last_token_pos                                   = Pos {
+                last_token_pos                                   = utils.Pos {
                     0,
                     state.last_token_pos.file,
                 },

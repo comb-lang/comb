@@ -1,8 +1,7 @@
-package main
+package utils
 
 import "core:fmt"
 import "core:io"
-import "utils"
 
 DiagnosticReporter :: struct {
     data:              rawptr,
@@ -17,13 +16,13 @@ DiagnosticReporter :: struct {
 }
 
 StandardDiagnosticReporter :: struct {
-    io:        utils.Pipe(io.Writer),
+    io:        Pipe(io.Writer),
     number_of: [DiagnosticType]uint,
 }
 
 Pos :: struct {
     index: uint,
-    file:  ^utils.CompilerFile,
+    file:  ^CompilerFile,
 }
 
 unknown_pos :: Pos{max(uint), nil}
@@ -49,10 +48,10 @@ standard_diagnostic_header :: proc(data: rawptr, pos: Pos, type: DiagnosticType)
         fmt.wprintf(w, " %v", pos, flush = false)
     }
     io.write_byte(w, '\n')
-    return utils.override_close_handler(w, nil, proc(d: ^utils.OverriddenCloseHandlerStreamData) {
+    return override_close_handler(w, nil, proc(d: ^OverriddenCloseHandlerStreamData) {
         io.write_string(d.original_stream, "\n\n")
         io.flush(d.original_stream)
-        d.original_stream = utils.panic_stream
+        d.original_stream = panic_stream
     })
 }
 
@@ -74,7 +73,7 @@ diagnostic :: proc(
     type: DiagnosticType = .Error,
     loc := #caller_location,
 ) {
-    when utils.debug_diagnostics {
+    when debug_diagnostics {
         print_call(loc, "diagnostic")
     }
     w := r.diagnostic_header(r.data, position, type)

@@ -123,7 +123,7 @@ get_builtin :: proc(name: string) -> GotBuiltin {
 
 argument_count_mismatch :: proc(
     s: ^CheckerState,
-    pos: Pos,
+    pos: utils.Pos,
     num_provided: uint,
     num_expected: uint,
     func_name: ..string,
@@ -137,7 +137,7 @@ argument_count_mismatch :: proc(
     defer delete_string(provided)
     expected := num_to_str(num_expected)
     defer delete_string(expected)
-    diagnostic(
+    utils.diagnostic(
         s.r,
         pos,
         "Argument count mismatch\nFunction call provides %s\nThe `%s` function expects %s",
@@ -147,7 +147,7 @@ argument_count_mismatch :: proc(
     )
 }
 
-to_str :: proc(s: ^CheckerState, pos: Pos, val: CheckedValue, type: Type) -> CheckedValue {
+to_str :: proc(s: ^CheckerState, pos: utils.Pos, val: CheckedValue, type: Type) -> CheckedValue {
     from_type: ToStringFromType = ---
     #partial switch type {
     case .Bool:
@@ -163,7 +163,12 @@ to_str :: proc(s: ^CheckerState, pos: Pos, val: CheckedValue, type: Type) -> Che
     case .Char:
         from_type = .CharType
     case:
-        diagnostic(s.r, pos, "Cannot convert the type `%s` to `String`", type_to_string(s, type))
+        utils.diagnostic(
+            s.r,
+            pos,
+            "Cannot convert the type `%s` to `String`",
+            type_to_string(s, type),
+        )
         return nil
     }
     return ToString{from_type, new_clone(val)}
@@ -207,11 +212,11 @@ add_variable :: proc(
         can_have_dollar_postfix = true,
     )
     if get_builtin(variable.ident).value != nil {
-        diagnostic(s.r, variable.pos, builtins_err, variable.ident)
+        utils.diagnostic(s.r, variable.pos, builtins_err, variable.ident)
         return VariableRef{}, false
     }
     if variable.ident in s.variables_map {
-        diagnostic(s.r, variable.pos, "Redeclaration of variable `%s`", variable.ident)
+        utils.diagnostic(s.r, variable.pos, "Redeclaration of variable `%s`", variable.ident)
         return VariableRef{}, false
     }
     alt_ident := ""
@@ -221,7 +226,7 @@ add_variable :: proc(
         alt_ident = utils.aprintf(s.a, "%s$", variable.ident)
     }
     if alt_ident in s.variables_map {
-        diagnostic(
+        utils.diagnostic(
             s.r,
             variable.pos,
             "Declaring variable called `%s` when variable called `%s` is already declared",

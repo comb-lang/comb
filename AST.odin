@@ -4,25 +4,25 @@ import "utils"
 
 StructUnit :: struct {
     m:         utils.KeyToIndex(string),
-    positions: utils.Multi(Pos),
+    positions: utils.Multi(utils.Pos),
     types:     utils.Multi(Unit),
 }
 
 StructType :: struct {
     m:         utils.KeyToIndex(string),
-    positions: utils.Multi(Pos),
+    positions: utils.Multi(utils.Pos),
     types:     utils.Multi(Type),
 }
 
 SumUnit :: struct {
     m:         utils.KeyToIndex(string),
-    positions: utils.Multi(Pos),
+    positions: utils.Multi(utils.Pos),
     payloads:  utils.Multi(StructUnit),
 }
 
 SumType :: struct {
     m:         utils.KeyToIndex(string),
-    positions: utils.Multi(Pos),
+    positions: utils.Multi(utils.Pos),
     payloads:  utils.Multi(Type), // Always a struct type
 }
 
@@ -128,17 +128,17 @@ UnitWithoutPos :: union {
 
 UnitWithPos :: struct {
     unit: UnitWithoutPos,
-    pos:  Pos,
+    pos:  utils.Pos,
 }
 
 Unit :: struct {
-    pos:         Pos,
+    pos:         utils.Pos,
     first_unit:  UnitWithoutPos,
     extra_units: []ExtraUnit,
 }
 
 ExtraUnit :: struct {
-    join_method_pos: Pos,
+    join_method_pos: utils.Pos,
     join_method:     LeftToRightUnitJoinMethod,
     unit:            UnitWithPos,
 }
@@ -250,12 +250,12 @@ IdentAndIndex :: struct {
 
 TextAndPos :: struct {
     text: string,
-    pos:  Pos,
+    pos:  utils.Pos,
 }
 
 Ident :: struct {
     ident:             string,
-    pos:               Pos,
+    pos:               utils.Pos,
     has_dollar_at_end: bool,
 }
 
@@ -304,7 +304,7 @@ LoopControlFlow :: struct {
 UnreachableStatement :: struct {}
 
 Statement :: struct {
-    position: Pos,
+    position: utils.Pos,
     value:    union {
         Unit,
         ConditionControlledLoop,

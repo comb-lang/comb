@@ -265,7 +265,7 @@ TokenizerState :: struct {
     last_token_skipped:                               bool,
 
     // Includes the `^CompilerFile` for which file is being parsed
-    last_token_pos:                                   Pos,
+    last_token_pos:                                   utils.Pos,
 }
 
 SkipperResult :: struct {
@@ -364,7 +364,7 @@ tokenize_segmented_identifier :: proc(s: ^TokenizerState, first_ident_start: uin
                 &segments,
                 Ident {
                     s.last_token_pos.file.code[segment_start:s.index],
-                    Pos{segment_start, s.last_token_pos.file},
+                    utils.Pos{segment_start, s.last_token_pos.file},
                     has_dollar,
                 },
             )

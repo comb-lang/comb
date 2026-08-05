@@ -4297,12 +4297,11 @@ get_global_function :: proc(
 ) -> (
     CheckedFuncRef,
     Pos,
-    bool,
 ) {
     parsed_global, exists := s.parsed_files.d[get_file_index(s.files, file_to_search)][name]
     if !exists {
         diagnostic(s.r, usage_pos, "The global `%s` is not defined%s", name, extra_text)
-        return CheckedFuncRef{}, unknown_pos, false
+        return CheckedFuncRef{}, unknown_pos
     }
     pos := usage_pos == unknown_pos ? Pos{parsed_global.pos, file_to_search} : usage_pos
     if parsed_global.has_generics {
@@ -4313,7 +4312,7 @@ get_global_function :: proc(
             name,
             extra_text,
         )
-        return CheckedFuncRef{}, unknown_pos, false
+        return CheckedFuncRef{}, unknown_pos
     }
     global := s.global_values_without_generic[parsed_global.index]
     func_ref, is_func := global.v.value.(Func)
@@ -4325,9 +4324,9 @@ get_global_function :: proc(
             name,
             extra_text,
         )
-        return CheckedFuncRef{}, unknown_pos, false
+        return CheckedFuncRef{}, unknown_pos
     }
-    return func_ref.ref, Pos{parsed_global.pos, file_to_search}, true
+    return func_ref.ref, Pos{parsed_global.pos, file_to_search}
 }
 
 EntryFuncType :: enum {
@@ -4456,16 +4455,20 @@ check :: proc(
         return CheckerOutput{}
     }
 
-    func_ref, _, func_ok := get_global_function(
-        &state,
-        unknown_pos,
-        &state.files[0],
-        func_name,
-        "\nTODO: Write hint",
-    )
-    if !func_ok {
-        return CheckerOutput{}
+    func_ref := CheckedFuncRef{max(uint)}
+    if func_name != "" {
+        func_ref, _ = get_global_function(
+            &state,
+            unknown_pos,
+            &state.files[0],
+            func_name,
+            "\nTODO: Write hint",
+        )
+        if diagnostic_reporter.has_errors(diagnostic_reporter.data) {
+            return CheckerOutput{}
+        }
     }
+
     return CheckerOutput {
         func_ref,
         state.global_values_without_generic.ast_node[:len(state.global_values_without_generic)],

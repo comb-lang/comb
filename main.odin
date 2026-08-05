@@ -626,6 +626,7 @@ parse_args_after_command :: proc(args_after_command: []string) -> (FunctionRef, 
     case 0:
         return FunctionRef{default_file_name, default_func_name}, watch
     case 1:
+        assert(len(func_ref_args[0]) > 0)
         for char in func_ref_args[0] {
             if !utils.is_alphanumeric_char_any(char) {
                 return FunctionRef{func_ref_args[0], default_func_name}, watch
@@ -633,6 +634,7 @@ parse_args_after_command :: proc(args_after_command: []string) -> (FunctionRef, 
         }
         return FunctionRef{default_file_name, func_ref_args[0]}, watch
     case 2:
+        assert(len(func_ref_args[1]) > 0)
         return FunctionRef{func_ref_args[0], func_ref_args[1]}, watch
     case:
         fmt.eprintln(

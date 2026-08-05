@@ -79,7 +79,7 @@ CheckerScopeState :: struct {
 CheckerState :: struct {
     // The following fields do not change while checking
     parsed_files:                  utils.Multi(map[string]ParsedGlobal), // len(parsed_files) == len(files)
-    files:                         []CompilerFile,
+    files:                         []utils.CompilerFile,
     global_values_without_generic: #soa[]CheckerGlobalValueWithoutGeneric,
     global_values_with_generics:   []GlobalValueWithGeneric,
     func_defs:                     []FunctionDefinition,
@@ -2317,7 +2317,7 @@ value_err1 :: "Compiler cannot generate a `.` function without knowing the retur
 
 check_namespaced_var_ref :: proc(
     s: ^CheckerState,
-    namespace: ^CompilerFile,
+    namespace: ^utils.CompilerFile,
     segments: #soa[]Ident,
     index: int,
 ) -> (
@@ -4281,7 +4281,7 @@ check_array :: proc(
 get_global_function :: proc(
     s: ^CheckerState,
     usage_pos: Pos,
-    file_to_search: ^CompilerFile,
+    file_to_search: ^utils.CompilerFile,
     name: string,
     extra_text: string,
 ) -> (
@@ -4336,8 +4336,8 @@ CheckerOutput :: struct {
 
 check :: proc(
     a: ^utils.Arena,
-    parsed: ParsedProject,
-    files: []CompilerFile,
+    parsed: ParserOutput,
+    files: []utils.CompilerFile,
     func_name: string,
     io: utils.Pipe(io.Writer),
 ) -> CheckerOutput {

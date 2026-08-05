@@ -9,6 +9,8 @@ import "core:os"
 import "core:time"
 
 LspState :: struct {
+    files_cache:  utils.FilesCache,
+    entry_point:  ^utils.CompilerFile,
     reader:       bufio.Reader,
     writer:       io.Writer,
     debug_writer: io.Writer,
@@ -19,7 +21,7 @@ LspState :: struct {
 lsp_state: LspState
 
 run_lsp :: proc() {
-    writer := io.Writer(os.to_stream(os.stdout))
+    lsp_state.writer = io.Writer(os.to_stream(os.stdout))
 
     temp_dir, err := os.temp_dir(context.allocator)
     if err != nil {
@@ -39,11 +41,11 @@ run_lsp :: proc() {
     debug_writer: bufio.Writer
     bufio.writer_init_with_buf(&debug_writer, os.to_stream(debug_file), debug_writer_buffer[:])
 
-    reader: bufio.Reader
     reader_buf: [1024]byte
-    bufio.reader_init_with_buf(&reader, io.Reader(os.to_stream(os.stdin)), reader_buf[:])
+    bufio.reader_init_with_buf(&lsp_state.reader, io.Reader(os.to_stream(os.stdin)), reader_buf[:])
 
-    lsp_state = LspState{reader, writer, bufio.writer_to_writer(&debug_writer), utils.Arena{}}
+    lsp_state.files_cache = utils.empty_files_cache(&lsp_state.a)
+    lsp_state.debug_writer = bufio.writer_to_writer(&debug_writer)
 
     context.assertion_failure_proc = proc(
         prefix: string,
@@ -59,7 +61,7 @@ run_lsp :: proc() {
     initialize_request := receive_request().(LspInitialize)
     send_response(
         InitializeResponse {
-            ResponseData{"2.0", initialize_request.id},
+            ResponseData{jsonrpc, initialize_request.id},
             InitializeResult{ServerCapabilities{.Full}, server_info},
         },
     )
@@ -73,9 +75,26 @@ run_lsp :: proc() {
         case LspInitialize, LspInitialized:
             panic("Unexpected initialize message while running LSP")
         case DidOpenTextDocumentNotification:
-            fmt.wprintfln(lsp_state.debug_writer, "TODO")
+            lsp_state.entry_point = utils.set_file(
+                &lsp_state.files_cache,
+                m.params.text_document.uri,
+                m.params.text_document.text,
+            )
         case DidChangeTextDocumentNotification:
-            fmt.wprintfln(lsp_state.debug_writer, "TODO")
+            assert(len(m.params.content_changes) == 1)
+            lsp_state.entry_point = utils.set_file(
+                &lsp_state.files_cache,
+                m.params.text_document.uri,
+                m.params.content_changes[0].text,
+            )
         }
+        // TODO: Compile
+        send_response(
+            PublishDiagnosticNotification {
+                Notification{jsonrpc, "textDocument/publishDiagnostics"},
+                PublishDiagnosticParams{},
+            },
+        )
+
     }
 }

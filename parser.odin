@@ -11,7 +11,11 @@ plain_ident_base :: "n identifier with one segment and no `$` sign at the end"
 plain_ident_capitalised :: "A" + plain_ident_base
 plain_ident_normal :: "a" + plain_ident_base
 
-get_file_index :: proc(files: []CompilerFile, ref: ^CompilerFile, loc := #caller_location) -> int {
+get_file_index :: proc(
+    files: []utils.CompilerFile,
+    ref: ^utils.CompilerFile,
+    loc := #caller_location,
+) -> int {
     // utils.print_call(loc, "get_file_index")
     return mem.ptr_sub(ref, &files[0])
 }
@@ -36,7 +40,7 @@ ParserState :: struct {
 
     // Grow as the project is parsed
     using r:                        DiagnosticReporter,
-    files_cache:                    ^FilesCache,
+    files_cache:                    ^utils.FilesCache,
     // len(parsed_files) == get_file_index(files_cache.files, tokenizer_state.last_token_pos.file) + 1
     parsed_files:                   utils.Multi(map[string]ParsedGlobal),
     global_values_without_generics: [dynamic]GlobalValueWithoutGeneric,
@@ -216,7 +220,7 @@ maybe_parse_initial_unit :: proc(
             diagnostic(&s.r, unknown_pos, "Failed to join filepath: %v", join_err)
             return nil, false
         }
-        file_ref, read_err := read_file(s.files_cache, joined)
+        file_ref, read_err := utils.read_file(s.files_cache, joined)
         if read_err != nil {
             diagnostic(&s.r, s.last_token_pos, "Failed to read `%s`: %#v", joined, read_err)
             return nil, false
@@ -1413,13 +1417,13 @@ GlobalValueWithGeneric :: struct {
     name:     string,
     generics: []TextAndPos, // The parser checks that the name of each generic argument is unique
     value:    Unit,
-    file:     ^CompilerFile,
+    file:     ^utils.CompilerFile,
 }
 
 GlobalValueWithoutGeneric :: struct {
     name: string,
     unit: Unit,
-    file: ^CompilerFile,
+    file: ^utils.CompilerFile,
 }
 
 GlobalValueWithGenericRef :: struct {
@@ -1431,7 +1435,7 @@ GlobalValueWithoutGenericRef :: struct {
 }
 
 Import :: struct {
-    file: ^CompilerFile,
+    file: ^utils.CompilerFile,
 }
 
 ParsedGlobal :: struct {
@@ -1440,7 +1444,7 @@ ParsedGlobal :: struct {
     has_generics: bool,
 }
 
-parse_file :: proc(s: ^ParserState) -> bool {
+parse_file :: proc(s: ^ParserState) {
     get_next_token(s, true)
     loop: for {
         utils.append_dynamic_elems(
@@ -1452,14 +1456,14 @@ parse_file :: proc(s: ^ParserState) -> bool {
         #partial switch token in s.last_token {
         case:
             wrong_token_err(s)
-            return false
+            return
         case EndOfFileToken:
-            return true
+            return
         case IdentToken:
             position := s.last_token_pos
             if len(token) != 1 || token[0].has_dollar_at_end {
                 wrong_token_err(s)
-                return false
+                return
             }
             name := token[0].ident
             if def, exists :=
@@ -1472,7 +1476,7 @@ parse_file :: proc(s: ^ParserState) -> bool {
                     name,
                     Pos{def.pos, s.last_token_pos.file},
                 )
-                return false
+                return
             }
             get_next_token(s, false)
             generic_map := make(map[string]Pos) // The key is the position of the generic arg
@@ -1499,7 +1503,7 @@ parse_file :: proc(s: ^ParserState) -> bool {
                             segments[0].ident,
                             pos,
                         )
-                        return false
+                        return
                     }
                     pos := segments[0].pos
                     append_elem(&generic, TextAndPos{segments[0].ident, pos})
@@ -1523,7 +1527,7 @@ parse_file :: proc(s: ^ParserState) -> bool {
                         "`]`",
                     )
                     wrong_token_err(s)
-                    return false
+                    return
                 }
 
                 get_next_token(s, false)
@@ -1549,12 +1553,13 @@ parse_file :: proc(s: ^ParserState) -> bool {
                     "`=` to define a global value",
                 )
                 wrong_token_err(s)
-                return false
+                return
             case AssignToken:
                 get_next_token(s, false)
                 type, ok := parse_unit(s)
                 if !ok {
-                    return false
+                    assert(s.r.number_of[.Error] > 0)
+                    return
                 }
                 if len(generic) == 0 {
                     s.parsed_files.d[get_file_index(s.files_cache.files, s.last_token_pos.file)][name] =
@@ -1580,7 +1585,8 @@ parse_file :: proc(s: ^ParserState) -> bool {
     }
 }
 
-ParsedProject :: struct {
+ParserOutput :: struct {
+    reporter:                      DiagnosticReporter,
     parsed_files:                  utils.Multi(map[string]ParsedGlobal),
     global_values_without_generic: []GlobalValueWithoutGeneric,
     global_values_with_generics:   []GlobalValueWithGeneric,
@@ -1589,27 +1595,11 @@ ParsedProject :: struct {
 
 parse_project :: proc(
     a: ^utils.Arena,
-    first_file_relative_path: string,
-    files_cache: ^FilesCache,
+    files_cache: ^utils.FilesCache,
+    first_file: ^utils.CompilerFile,
     io: utils.Pipe(io.Writer),
     exit_early: EarlyExitInfo,
-) -> (
-    ParsedProject,
-    bool,
-) {
-    // TODO: There are some return paths where `exit_early` is not updated and
-    // therefore the `-watch` flag does not auto reload
-    first_file_absolute_path, err := filepath.abs(first_file_relative_path, context.allocator)
-    if err != nil {
-        fmt.wprintfln(
-            io.stderr,
-            "Failed to make filepath `%s` absolute: %v",
-            first_file_relative_path,
-            err,
-        )
-        return ParsedProject{}, false
-    }
-
+) -> ParserOutput {
     state := ParserState {
             r = DiagnosticReporter{io = io},
             files_cache = files_cache,
@@ -1627,15 +1617,8 @@ parse_project :: proc(
         utils.fix_resizable_dynamic(state.parser_context)
     }
 
-    fmt.wprintfln(io.stdout, "Reading `%s`...", first_file_absolute_path)
-    file_ref, read_err := read_file(state.files_cache, first_file_absolute_path)
-    if read_err != nil {
-        fmt.wprintfln(io.stderr, "Failed to read `%s`: %#v", first_file_absolute_path, read_err)
-        return ParsedProject{}, false
-    }
-    state.last_token_pos.file = file_ref
+    state.last_token_pos.file = first_file
 
-    ok := true
     for {
         utils.append_multi_dynamic(
             &state.parsed_files,
@@ -1659,10 +1642,7 @@ parse_project :: proc(
         defer utils.fix_resizable_dynamic(
             state.tokenizer_state.last_token_descriptions_of_other_possible_tokens,
         )
-        file_ok := parse_file(&state)
-        if !file_ok {
-            ok = false
-        }
+        parse_file(&state)
         next_index := get_file_index(state.files_cache.files, state.last_token_pos.file) + 1
         if next_index >= len(state.files_cache.files) {
             break
@@ -1677,14 +1657,14 @@ parse_project :: proc(
             panic("Unreachable")
         }
     }
-    if !ok {
-        return ParsedProject{}, false
+    if state.r.number_of[.Error] > 0 {
+        return ParserOutput{reporter = state.r}
     }
-    return ParsedProject {
-            state.parsed_files,
-            state.global_values_without_generics[:],
-            state.global_values_with_generics[:],
-            state.function_defs[:],
-        },
-        true
+    return ParserOutput {
+        state.r,
+        state.parsed_files,
+        state.global_values_without_generics[:],
+        state.global_values_with_generics[:],
+        state.function_defs[:],
+    }
 }

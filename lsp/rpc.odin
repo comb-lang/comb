@@ -20,6 +20,8 @@ ResponseData :: struct {
     },
 }
 
+jsonrpc :: "2.0"
+
 Notification :: struct {
     jsonrpc: string,
     method:  string,
@@ -76,6 +78,36 @@ RequestData :: struct {
 
 Response :: union {
     InitializeResponse,
+    PublishDiagnosticNotification,
+}
+
+PublishDiagnosticNotification :: struct {
+    using _: Notification,
+    params:  PublishDiagnosticParams,
+}
+
+PublishDiagnosticParams :: struct {
+    uri:         string,
+    diagnostics: []Diagnostic,
+}
+
+Severity :: enum {
+    Error       = 1,
+    Warning     = 2,
+    Information = 3,
+    Hint        = 4,
+}
+
+Range :: struct {
+    start: Position,
+    end:   Position,
+}
+
+Diagnostic :: struct {
+    range:    Range,
+    severity: Severity,
+    source:   string,
+    message:  string,
 }
 
 InitializeResponse :: struct {

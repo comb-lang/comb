@@ -117,6 +117,7 @@ BuildC :: struct {
 
 Run :: struct {
     program_io:              utils.Pipe(io.Writer),
+    stdin:                   io.Reader,
     long_lived_interp_state: ^LongLivedInterpState,
 }
 
@@ -173,7 +174,7 @@ NeverExitEarly :: struct {}
 
 ExitEarlyAwaitingSourceCodeChange :: struct {
     compilation_start: time.Time,
-    files:             []CompilerFile,
+    files:             []utils.CompilerFile,
     last_checked:      time.Time,
 }
 
@@ -189,30 +190,17 @@ EarlyExitInfo :: union #no_nil {
     ^ExitEarly, // A pointer so that the variant can be changed
 }
 
-compile :: proc(
+parse_and_check :: proc(
     a: ^utils.Arena,
-    files_cache: ^FilesCache,
-    func: FunctionRef,
+    files_cache: ^utils.FilesCache,
+    first_file: ^utils.CompilerFile,
+    func_name: string,
     compiler: utils.Pipe(io.Writer),
-    command: Command,
-    stdin: io.Reader,
     exit_early: EarlyExitInfo,
-) -> int {
-    start := time.now()
-    if exit_early_info, exiting_early := exit_early.(^ExitEarly); exiting_early {
-        exit_early_info^ = ExitEarlyAwaitingSourceCodeChange{start, nil, time.Time{}}
-    }
-    defer {
-        fmt.wprintfln(
-            compiler.stdout,
-            "Done in %f ms!",
-            time.duration_milliseconds(time.since(start)),
-        )
-    }
-
-    parsed, ok := parse_project(a, func.file_name, files_cache, compiler, exit_early)
-    if !ok {
-        return 1
+) -> CheckerOutput {
+    parsed := parse_project(a, files_cache, first_file, compiler, exit_early)
+    if parsed.reporter.number_of[.Error] > 0 {
+        return CheckerOutput{reporter = parsed.reporter}
     }
 
     when utils.debug_parser_output {
@@ -228,7 +216,59 @@ compile :: proc(
     }
 
     fmt.wprintfln(compiler.stdout, "Checking...")
-    checker_output := check(a, parsed, files_cache.files, func.func_name, compiler)
+    return check(a, parsed, files_cache.files, func_name, compiler)
+}
+
+compile :: proc(
+    a: ^utils.Arena,
+    files_cache: ^utils.FilesCache,
+    func: FunctionRef,
+    compiler: utils.Pipe(io.Writer),
+    command: Command,
+    exit_early: EarlyExitInfo,
+) -> int {
+    // TODO: There are some return paths where `exit_early` is not updated and
+    // therefore the `-watch` flag does not auto reload
+
+    start := time.now()
+    if exit_early_info, exiting_early := exit_early.(^ExitEarly); exiting_early {
+        exit_early_info^ = ExitEarlyAwaitingSourceCodeChange{start, nil, time.Time{}}
+    }
+    defer {
+        fmt.wprintfln(
+            compiler.stdout,
+            "Done in %f ms!",
+            time.duration_milliseconds(time.since(start)),
+        )
+    }
+
+    file_absolute_path, abs_err := filepath.abs(func.file_name, context.allocator)
+    if abs_err != nil {
+        fmt.wprintfln(
+            compiler.stderr,
+            "Failed to make filepath `%s` absolute: %v",
+            func.file_name,
+            abs_err,
+        )
+        return 1
+    }
+
+    fmt.wprintfln(compiler.stdout, "Reading `%s`...", file_absolute_path)
+    first_file, read_err := utils.read_file(files_cache, file_absolute_path)
+    if read_err != nil {
+        fmt.wprintfln(compiler.stderr, "Failed to read `%s`: %#v", file_absolute_path, read_err)
+        return 1
+    }
+
+    checker_output := parse_and_check(
+        a,
+        files_cache,
+        first_file,
+        func.func_name,
+        compiler,
+        exit_early,
+    )
+
     function_type := Type.Unknown
     if checker_output.func_ref.index < len(checker_output.checked_funcs) {
         function_type = checker_output.checked_funcs[checker_output.func_ref.index].type
@@ -355,7 +395,7 @@ compile :: proc(
         globals_without_generic = checker_output.globals_without_generic,
         checked_funcs           = checker_output.checked_funcs,
         builtin_handler         = BuiltinHandler {
-            &DefaultBuiltinHandlerData{absolute_file_dir, run.program_io, stdin},
+            &DefaultBuiltinHandlerData{absolute_file_dir, run.program_io, run.stdin},
             default_builtin_handler_procedure,
         },
         exit_early              = exit_early,
@@ -649,7 +689,7 @@ main :: proc() {
     case "build_c":
         command = BuildC{}
     case "run":
-        command = Run{std_pipe, new(LongLivedInterpState)}
+        command = Run{std_pipe, io.Reader(os.to_stream(os.stdin)), new(LongLivedInterpState)}
     case "help":
         expect_args_finished("help")
         print_help(0)
@@ -667,17 +707,9 @@ main :: proc() {
     for {
         a: utils.Arena
         defer utils.delete_arena(&a, expect_empty = false)
-        cache := empty_files_cache(&a)
-        defer cleanup_files_cache(cache)
-        ret := compile(
-            &a,
-            &cache,
-            ref,
-            std_pipe,
-            command,
-            io.Reader(os.to_stream(os.stdin)),
-            early_exit_info,
-        )
+        cache := utils.empty_files_cache(&a)
+        defer utils.cleanup_files_cache(cache)
+        ret := compile(&a, &cache, ref, std_pipe, command, early_exit_info)
         switch exit_early in early_exit_info {
         case NeverExitEarly:
             os.exit(ret)

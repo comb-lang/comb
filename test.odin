@@ -619,7 +619,7 @@ invalid_example_02_wrong_main_function_type :: proc(t: ^testing.T) {
 
     e = utils.TestingTextExpecter{0, out.compiler.stderr, t}
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling\n")
+    utils.expect_string(&e, "Error compiling `" + file + "`\n")
     utils.expect_string(&e, "Got the type `(String, Int) -> Int`\n")
     utils.expect_string(&e, "Expected the type `() -> Int`\n")
     utils.expect_string(&e, "\n")

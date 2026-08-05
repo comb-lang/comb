@@ -460,7 +460,7 @@ check_struct_type :: proc(
         return .Invalid
     }
 
-    created := create_type(&s.types, StructType{type.m, type.positions, field_types})
+    created := create_type(&s.types, StructType{type.m, field_types})
     return created.type
 }
 
@@ -991,11 +991,11 @@ simplify_type :: proc(s: ^CheckerState, type: Type, loc := #caller_location) -> 
 }
 
 // For `get_sum_type`, `get_struct_type`, and `get_func_type`, set pos to
-// `max(uint)` to not report an error if it is not a sum/struct type
+// `nil` to not report an error if it is not a sum/struct type
 
 get_sum_type :: proc(
     s: ^CheckerState,
-    pos: utils.Pos,
+    pos: Maybe(utils.Pos),
     type: Type,
     loc := #caller_location,
 ) -> (
@@ -1016,10 +1016,10 @@ get_sum_type :: proc(
         }
         return sum_type, simplified, true
     }
-    if pos != utils.unknown_pos {
+    if p, ok := pos.(utils.Pos); ok {
         utils.diagnostic(
             s.r,
-            pos,
+            p,
             "Expected a sum type, but got the type `%s`",
             type_to_string(s, type),
         )
@@ -1027,15 +1027,22 @@ get_sum_type :: proc(
     return SumType{}, .Unknown, false
 }
 
-get_struct_type :: proc(s: ^CheckerState, pos: utils.Pos, type: Type) -> (StructType, bool) {
+get_struct_type :: proc(
+    s: ^CheckerState,
+    pos: Maybe(utils.Pos),
+    type: Type,
+) -> (
+    StructType,
+    bool,
+) {
     simplified := simplify_type(s, type)
     struct_type, is_struct_type := get_type(s.types, simplified).key.(StructType)
     if is_struct_type {
         return struct_type, true
     }
-    if pos != utils.unknown_pos {
+    if p, ok := pos.(utils.Pos); ok {
         got := type_to_string(s, type)
-        utils.diagnostic(s.r, pos, "Expected a struct type, but got the type `%s`", got)
+        utils.diagnostic(s.r, p, "Expected a struct type, but got the type `%s`", got)
     }
     return StructType{}, false
 }
@@ -1089,46 +1096,44 @@ get_func_type :: proc(
     } else if _, is_func := get_type(s.types, simplified).key.(FuncType); is_func {
         return simplified
     }
-    if pos != utils.unknown_pos {
-        if simplified == .Unknown && value != nil {
-            // TODO: Also have this better error message for other functions:
-            // - `get_struct_type`
-            // - `get_sum_type`
-            // - `expect_value_of_type`
-            // - `expect_exact_type`
-            global_value_with_generic_ref, ok := value.(CompileTimeValue).(GlobalValueWithGenericRef)
-            if ok {
-                global_value_with_generic :=
-                    s.global_values_with_generics[global_value_with_generic_ref.index]
-                initialisation := strings.builder_make()
-                defer strings.builder_destroy(&initialisation)
-                strings.write_string(&initialisation, global_value_with_generic.name)
-                strings.write_byte(&initialisation, '[')
-                first_arg := true
-                for generic in global_value_with_generic.generics {
-                    if first_arg == false {
-                        strings.write_byte(&initialisation, ',')
-                    }
-                    strings.write_string(&initialisation, generic.text)
-                    first_arg = false
+    if simplified == .Unknown && value != nil {
+        // TODO: Also have this better error message for other functions:
+        // - `get_struct_type`
+        // - `get_sum_type`
+        // - `expect_value_of_type`
+        // - `expect_exact_type`
+        global_value_with_generic_ref, ok := value.(CompileTimeValue).(GlobalValueWithGenericRef)
+        if ok {
+            global_value_with_generic :=
+                s.global_values_with_generics[global_value_with_generic_ref.index]
+            initialisation := strings.builder_make()
+            defer strings.builder_destroy(&initialisation)
+            strings.write_string(&initialisation, global_value_with_generic.name)
+            strings.write_byte(&initialisation, '[')
+            first_arg := true
+            for generic in global_value_with_generic.generics {
+                if first_arg == false {
+                    strings.write_byte(&initialisation, ',')
                 }
-                strings.write_byte(&initialisation, ']')
-                utils.diagnostic(
-                    s.r,
-                    pos,
-                    "Expected a func type, but got an uninitialised global value with generics\nHint: Try initialising the global value with something like `%s`",
-                    strings.to_string(initialisation),
-                )
-                return .Invalid
+                strings.write_string(&initialisation, generic.text)
+                first_arg = false
             }
+            strings.write_byte(&initialisation, ']')
+            utils.diagnostic(
+                s.r,
+                pos,
+                "Expected a func type, but got an uninitialised global value with generics\nHint: Try initialising the global value with something like `%s`",
+                strings.to_string(initialisation),
+            )
+            return .Invalid
         }
-        utils.diagnostic(
-            s.r,
-            pos,
-            "Expected a func type, but got the type `%s`",
-            type_to_string(s, type),
-        )
     }
+    utils.diagnostic(
+        s.r,
+        pos,
+        "Expected a func type, but got the type `%s`",
+        type_to_string(s, type),
+    )
     return .Invalid
 }
 
@@ -3422,9 +3427,7 @@ check_initial_value :: proc(
             s,
             pos,
             a.type,
-            CompileTimeValue(
-                create_type(&s.types, SumType{value.m, value.positions, variant_payloads}).type,
-            ),
+            CompileTimeValue(create_type(&s.types, SumType{value.m, variant_payloads}).type),
             .Type,
             "",
         )
@@ -4319,23 +4322,20 @@ check_array :: proc(
     return length_of_array(array, value), array.item_type
 }
 
+// Reports errors to s.r on failure
 get_global_function :: proc(
     s: ^CheckerState,
     usage_pos: utils.Pos,
     file_to_search: ^utils.CompilerFile,
     name: string,
     extra_text: string,
-) -> (
-    CheckedFuncRef,
-    utils.Pos,
-) {
+) -> CheckedFuncRef {
     parsed_global, exists := s.parsed_files.d[get_file_index(s.files, file_to_search)][name]
     if !exists {
         utils.diagnostic(s.r, usage_pos, "The global `%s` is not defined%s", name, extra_text)
-        return CheckedFuncRef{}, utils.unknown_pos
+        return CheckedFuncRef{}
     }
-    pos :=
-        usage_pos == utils.unknown_pos ? utils.Pos{parsed_global.pos, file_to_search} : usage_pos
+    pos := usage_pos.index == max(uint) ? utils.Pos{parsed_global.pos, file_to_search} : usage_pos
     if parsed_global.has_generics {
         utils.diagnostic(
             s.r,
@@ -4344,7 +4344,7 @@ get_global_function :: proc(
             name,
             extra_text,
         )
-        return CheckedFuncRef{}, utils.unknown_pos
+        return CheckedFuncRef{}
     }
     global := s.global_values_without_generic[parsed_global.index]
     func_ref, is_func := global.v.value.(Func)
@@ -4356,9 +4356,9 @@ get_global_function :: proc(
             name,
             extra_text,
         )
-        return CheckedFuncRef{}, utils.unknown_pos
+        return CheckedFuncRef{}
     }
-    return func_ref.ref, utils.Pos{parsed_global.pos, file_to_search}
+    return func_ref.ref
 }
 
 EntryFuncType :: enum {
@@ -4379,6 +4379,7 @@ check :: proc(
     parsed: ParserOutput,
     files: []utils.CompilerFile,
     func_name: string,
+    func_file: ^utils.CompilerFile,
     io: utils.Pipe(io.Writer),
     diagnostic_reporter: utils.DiagnosticReporter,
 ) -> CheckerOutput {
@@ -4489,16 +4490,18 @@ check :: proc(
 
     func_ref := CheckedFuncRef{max(uint)}
     if func_name != "" {
-        func_ref, _ = get_global_function(
+        func_ref = get_global_function(
             &state,
-            utils.unknown_pos,
-            &state.files[0],
+            utils.Pos{max(uint), func_file},
+            func_file,
             func_name,
             "\nTODO: Write hint",
         )
         if diagnostic_reporter.has_errors(diagnostic_reporter.data) {
             return CheckerOutput{}
         }
+    } else {
+        assert(func_file == nil)
     }
 
     return CheckerOutput {

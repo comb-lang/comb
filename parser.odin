@@ -217,7 +217,7 @@ maybe_parse_initial_unit :: proc(
             context.allocator,
         )
         if join_err != nil {
-            utils.diagnostic(s.r, utils.unknown_pos, "Failed to join filepath: %v", join_err)
+            utils.diagnostic(s.r, s.last_token_pos, "Failed to join filepath: %v", join_err)
             return nil, false
         }
         file_ref, read_err := utils.read_file(s.files_cache, joined)

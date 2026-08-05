@@ -15,10 +15,6 @@ import "utils"
 c_warning :: "WARNING: The C emitter is basically unmaintained at this point, and there are many things which it does not implement\n"
 
 write_position :: proc(w: io.Writer, pos: utils.Pos) {
-    if pos == utils.unknown_pos {
-        io.write_string(w, "unknown_pos")
-        return
-    }
     io.write_byte(w, '`')
     io.write_string(w, pos.file.file_path)
     io.write_byte(w, '`')
@@ -222,7 +218,15 @@ parse_and_check :: proc(
     }
 
     fmt.wprintfln(compiler.stdout, "Checking...")
-    return check(a, parsed, files_cache.files, func_name, compiler, diagnostic_reporter)
+    return check(
+        a,
+        parsed,
+        files_cache.files,
+        func_name,
+        first_file,
+        compiler,
+        diagnostic_reporter,
+    )
 }
 
 compile :: proc(
@@ -286,13 +290,13 @@ compile :: proc(
     if checker_output.func_ref.index < len(checker_output.checked_funcs) {
         function_type = checker_output.checked_funcs[checker_output.func_ref.index].type
         if function_type != .Unknown {
-            // TODO: Include position in error message
+            // TODO: Include index in error message position
             switch c in command {
             case BuildC:
                 if function_type != .NoArgsToInt {
                     utils.diagnostic(
                         reporter,
-                        utils.unknown_pos,
+                        utils.Pos{max(uint), first_file},
                         "Got the type `%s`\nExpected the type `%s`",
                         type_to_string2(
                             checker_output.types,
@@ -312,7 +316,7 @@ compile :: proc(
                 if function_type != .NoArgsToInt && function_type != .CompilerToInt {
                     utils.diagnostic(
                         reporter,
-                        utils.unknown_pos,
+                        utils.Pos{max(uint), first_file},
                         "Got the type `%s`\nExpected the type `%s` or `%s`",
                         type_to_string2(
                             checker_output.types,

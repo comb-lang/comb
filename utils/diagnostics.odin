@@ -21,11 +21,9 @@ StandardDiagnosticReporter :: struct {
 }
 
 Pos :: struct {
-    index: uint,
+    index: uint, // set index to `max(uint)` if the index is not known
     file:  ^CompilerFile,
 }
-
-unknown_pos :: Pos{max(uint), nil}
 
 standard_diagnostic_header :: proc(data: rawptr, pos: Pos, type: DiagnosticType) -> io.Writer {
     r := cast(^StandardDiagnosticReporter)data
@@ -43,10 +41,7 @@ standard_diagnostic_header :: proc(data: rawptr, pos: Pos, type: DiagnosticType)
     case:
         panic("Unreachable")
     }
-    io.write_string(w, " compiling")
-    if pos != unknown_pos {
-        fmt.wprintf(w, " %v", pos, flush = false)
-    }
+    fmt.wprintf(w, " compiling %v", pos, flush = false)
     io.write_byte(w, '\n')
     return override_close_handler(w, nil, proc(d: ^OverriddenCloseHandlerStreamData) {
         io.write_string(d.original_stream, "\n\n")

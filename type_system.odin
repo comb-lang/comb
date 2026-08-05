@@ -238,10 +238,10 @@ create_types :: proc(a: ^utils.Arena) -> Types {
         create_type(&out, FuncType{array_with_float_type, array_with_uint_type}).type,
     )
 
-    positions := utils.arena_make_multi(a, utils.Multi(utils.Pos), 3)
-    positions.d[0] = utils.unknown_pos
-    positions.d[1] = utils.unknown_pos
-    positions.d[2] = utils.unknown_pos
+    // positions := utils.arena_make_multi(a, utils.Multi(utils.Pos), 3)
+    // positions.d[0] = utils.unknown_pos
+    // positions.d[1] = utils.unknown_pos
+    // positions.d[2] = utils.unknown_pos
 
     compiler_cache_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
     i, _ := utils.lookup_or_insert(&compiler_cache_map, "contains", utils.string_to_index_procs)
@@ -259,7 +259,7 @@ create_types :: proc(a: ^utils.Arena) -> Types {
 
     assert(
         .CompilerCache ==
-        create_type(&out, StructType{compiler_cache_map, positions, utils.array_to_multi(compiler_cache_types)}).type,
+        create_type(&out, StructType{compiler_cache_map, utils.array_to_multi(compiler_cache_types)}).type,
     )
 
     compiler_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
@@ -275,7 +275,7 @@ create_types :: proc(a: ^utils.Arena) -> Types {
 
     assert(
         .Compiler ==
-        create_type(&out, StructType{compiler_map, positions, utils.array_to_multi(compiler_types)}).type,
+        create_type(&out, StructType{compiler_map, utils.array_to_multi(compiler_types)}).type,
     )
 
     assert(
@@ -295,7 +295,7 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     http_request_types[1] = .String
     assert(
         .HttpRequest ==
-        create_type(&out, StructType{http_request_map, positions, utils.array_to_multi(http_request_types)}).type,
+        create_type(&out, StructType{http_request_map, utils.array_to_multi(http_request_types)}).type,
     )
 
     http_response_body_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
@@ -305,7 +305,7 @@ create_types :: proc(a: ^utils.Arena) -> Types {
 
     assert(
         .HttpResponseBody ==
-        create_type(&out, StructType{http_response_body_map, positions, utils.array_to_multi(array_with_string_type)}).type,
+        create_type(&out, StructType{http_response_body_map, utils.array_to_multi(array_with_string_type)}).type,
     )
 
     http_response_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
@@ -324,7 +324,7 @@ create_types :: proc(a: ^utils.Arena) -> Types {
 
     assert(
         .HttpResponse ==
-        create_type(&out, SumType{http_response_map, positions, utils.array_to_multi(http_response_types)}).type,
+        create_type(&out, SumType{http_response_map, utils.array_to_multi(http_response_types)}).type,
     )
 
     assert(
@@ -356,7 +356,7 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     http_server_types[2] = .Int
     assert(
         .HttpServer ==
-        create_type(&out, StructType{http_server_map, positions, utils.array_to_multi(http_server_types)}).type,
+        create_type(&out, StructType{http_server_map, utils.array_to_multi(http_server_types)}).type,
     )
 
     assert(.NoArgsToHttpServer == create_type(&out, FuncType{nil, array_with_http_server}).type)

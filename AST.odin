@@ -9,9 +9,9 @@ StructUnit :: struct {
 }
 
 StructType :: struct {
-    m:         utils.KeyToIndex(string),
-    positions: utils.Multi(utils.Pos),
-    types:     utils.Multi(Type),
+    m:     utils.KeyToIndex(string),
+    // positions: utils.Multi(utils.Pos),
+    types: utils.Multi(Type),
 }
 
 SumUnit :: struct {
@@ -21,9 +21,9 @@ SumUnit :: struct {
 }
 
 SumType :: struct {
-    m:         utils.KeyToIndex(string),
-    positions: utils.Multi(utils.Pos),
-    payloads:  utils.Multi(Type), // Always a struct type
+    m:        utils.KeyToIndex(string),
+    // positions: utils.Multi(utils.Pos),
+    payloads: utils.Multi(Type), // Always a struct type
 }
 
 IdentNode :: struct {

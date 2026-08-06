@@ -480,6 +480,9 @@ print_help :: proc(exit_code: int) -> ! {
         "` transpile a file into C and then build the C code into an executable",
     )
     fmt.println("- `run " + args + "` compile a file and interpret a function within that file")
+    fmt.println(
+        "- `lsp` start the LSP server, using stdin and stdout for communication with the client",
+    )
     fmt.println("- `help` show this help message")
     fmt.println("- For commands that take the arguments `" + args + "`:")
     fmt.println(

@@ -1,4 +1,6 @@
-package main
+package compiler
+
+import "../utils"
 
 Type :: enum u32 {
     DynamicArrayOfStrings, // []String
@@ -135,66 +137,66 @@ TypeKey :: union {
 }
 
 fix_types :: proc(t: Types) {
-    fix_key_to_index(t.m)
-    fix_resizable_multi(t.values)
+    utils.fix_key_to_index(t.m)
+    utils.fix_resizable_multi(t.values)
 }
 
-create_types :: proc(a: ^Arena) -> Types {
+create_types :: proc(a: ^utils.Arena) -> Types {
     out := Types {
-        make_key_to_index(a, KeyToIndex(TypeKey)),
-        arena_make_multi(a, Multi(TypeValue), 0, resizable = true),
+        utils.make_key_to_index(a, utils.KeyToIndex(TypeKey)),
+        utils.arena_make_multi(a, utils.Multi(TypeValue), 0, resizable = true),
     }
 
-    array_with_string_type := arena_make(a, []Type, 1)
+    array_with_string_type := utils.arena_make(a, []Type, 1)
     array_with_string_type[0] = .String
 
-    array_with_float_type := arena_make(a, []Type, 1)
+    array_with_float_type := utils.arena_make(a, []Type, 1)
     array_with_float_type[0] = .Float
 
-    array_with_2string_types := arena_make(a, []Type, 2)
+    array_with_2string_types := utils.arena_make(a, []Type, 2)
     array_with_2string_types[0] = .String
     array_with_2string_types[1] = .String
 
-    array_with_int_type := arena_make(a, []Type, 1)
+    array_with_int_type := utils.arena_make(a, []Type, 1)
     array_with_int_type[0] = .Int
 
-    array_with_uint_type := arena_make(a, []Type, 1)
+    array_with_uint_type := utils.arena_make(a, []Type, 1)
     array_with_uint_type[0] = .UInt
 
-    array_with_string_any_ordered_hash_map_and_string := arena_make(a, []Type, 2)
+    array_with_string_any_ordered_hash_map_and_string := utils.arena_make(a, []Type, 2)
     array_with_string_any_ordered_hash_map_and_string[0] = .StringAnyOrderedHashmap
     array_with_string_any_ordered_hash_map_and_string[1] = .String
 
-    array_with_dynamic_array_of_strings := arena_make(a, []Type, 1)
+    array_with_dynamic_array_of_strings := utils.arena_make(a, []Type, 1)
     array_with_dynamic_array_of_strings[0] = .DynamicArrayOfStrings
 
-    array_with_string_uint_types := arena_make(a, []Type, 2)
+    array_with_string_uint_types := utils.arena_make(a, []Type, 2)
     array_with_string_uint_types[0] = .String
     array_with_string_uint_types[1] = .UInt
 
-    array_with_compiler_type := arena_make(a, []Type, 1)
+    array_with_compiler_type := utils.arena_make(a, []Type, 1)
     array_with_compiler_type[0] = .Compiler
 
-    array_with_string_any_type := arena_make(a, []Type, 2)
+    array_with_string_any_type := utils.arena_make(a, []Type, 2)
     array_with_string_any_type[0] = .String
     array_with_string_any_type[1] = .Any
 
-    array_with_bool_type := arena_make(a, []Type, 1)
+    array_with_bool_type := utils.arena_make(a, []Type, 1)
     array_with_bool_type[0] = .Bool
 
-    array_with_any_type := arena_make(a, []Type, 1)
+    array_with_any_type := utils.arena_make(a, []Type, 1)
     array_with_any_type[0] = .Any
 
-    array_with_http_request := arena_make(a, []Type, 1)
+    array_with_http_request := utils.arena_make(a, []Type, 1)
     array_with_http_request[0] = .HttpRequest
 
-    array_with_http_response := arena_make(a, []Type, 1)
+    array_with_http_response := utils.arena_make(a, []Type, 1)
     array_with_http_response[0] = .HttpResponse
 
-    array_with_http_request_handler := arena_make(a, []Type, 1)
+    array_with_http_request_handler := utils.arena_make(a, []Type, 1)
     array_with_http_request_handler[0] = .HttpRequestHandler
 
-    array_with_http_server := arena_make(a, []Type, 1)
+    array_with_http_server := utils.arena_make(a, []Type, 1)
     array_with_http_server[0] = .HttpServer
 
     assert(.DynamicArrayOfStrings == create_type(&out, ArrayType{0, .String}).type)
@@ -236,44 +238,44 @@ create_types :: proc(a: ^Arena) -> Types {
         create_type(&out, FuncType{array_with_float_type, array_with_uint_type}).type,
     )
 
-    positions := arena_make_multi(a, Multi(Pos), 3)
-    positions.d[0] = unknown_pos
-    positions.d[1] = unknown_pos
-    positions.d[2] = unknown_pos
+    // positions := utils.arena_make_multi(a, utils.Multi(utils.Pos), 3)
+    // positions.d[0] = utils.unknown_pos
+    // positions.d[1] = utils.unknown_pos
+    // positions.d[2] = utils.unknown_pos
 
-    compiler_cache_map := make_key_to_index(a, KeyToIndex(string))
-    i, _ := lookup_or_insert(&compiler_cache_map, "contains", string_to_index_procs)
+    compiler_cache_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
+    i, _ := utils.lookup_or_insert(&compiler_cache_map, "contains", utils.string_to_index_procs)
     assert(i.index == 0)
-    i, _ = lookup_or_insert(&compiler_cache_map, "set", string_to_index_procs)
+    i, _ = utils.lookup_or_insert(&compiler_cache_map, "set", utils.string_to_index_procs)
     assert(i.index == 1)
-    i, _ = lookup_or_insert(&compiler_cache_map, "get", string_to_index_procs)
+    i, _ = utils.lookup_or_insert(&compiler_cache_map, "get", utils.string_to_index_procs)
     assert(i.index == 2)
-    fix_key_to_index(compiler_cache_map)
+    utils.fix_key_to_index(compiler_cache_map)
 
-    compiler_cache_types := arena_make(a, []Type, 3)
+    compiler_cache_types := utils.arena_make(a, []Type, 3)
     compiler_cache_types[0] = .StringToBool
     compiler_cache_types[1] = .StringAnyToNil
     compiler_cache_types[2] = .StringToAny
 
     assert(
         .CompilerCache ==
-        create_type(&out, StructType{compiler_cache_map, positions, array_to_multi(compiler_cache_types)}).type,
+        create_type(&out, StructType{compiler_cache_map, utils.array_to_multi(compiler_cache_types)}).type,
     )
 
-    compiler_map := make_key_to_index(a, KeyToIndex(string))
-    i, _ = lookup_or_insert(&compiler_map, "emit_js_code", string_to_index_procs)
+    compiler_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
+    i, _ = utils.lookup_or_insert(&compiler_map, "emit_js_code", utils.string_to_index_procs)
     assert(i.index == 0)
-    i, _ = lookup_or_insert(&compiler_map, "cache", string_to_index_procs)
+    i, _ = utils.lookup_or_insert(&compiler_map, "cache", utils.string_to_index_procs)
     assert(i.index == 1)
-    fix_key_to_index(compiler_map)
+    utils.fix_key_to_index(compiler_map)
 
-    compiler_types := arena_make(a, []Type, 2)
+    compiler_types := utils.arena_make(a, []Type, 2)
     compiler_types[0] = .StringAnyOrderedHashmapAndStringToString
     compiler_types[1] = .CompilerCache
 
     assert(
         .Compiler ==
-        create_type(&out, StructType{compiler_map, positions, array_to_multi(compiler_types)}).type,
+        create_type(&out, StructType{compiler_map, utils.array_to_multi(compiler_types)}).type,
     )
 
     assert(
@@ -281,48 +283,48 @@ create_types :: proc(a: ^Arena) -> Types {
         create_type(&out, FuncType{array_with_compiler_type, array_with_int_type}).type,
     )
 
-    http_request_map := make_key_to_index(a, KeyToIndex(string))
-    i, _ = lookup_or_insert(&http_request_map, "url", string_to_index_procs)
+    http_request_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
+    i, _ = utils.lookup_or_insert(&http_request_map, "url", utils.string_to_index_procs)
     assert(i.index == 0)
-    i, _ = lookup_or_insert(&http_request_map, "method", string_to_index_procs)
+    i, _ = utils.lookup_or_insert(&http_request_map, "method", utils.string_to_index_procs)
     assert(i.index == 1)
-    fix_key_to_index(http_request_map)
+    utils.fix_key_to_index(http_request_map)
 
-    http_request_types := arena_make(a, []Type, 2)
+    http_request_types := utils.arena_make(a, []Type, 2)
     http_request_types[0] = .String
     http_request_types[1] = .String
     assert(
         .HttpRequest ==
-        create_type(&out, StructType{http_request_map, positions, array_to_multi(http_request_types)}).type,
+        create_type(&out, StructType{http_request_map, utils.array_to_multi(http_request_types)}).type,
     )
 
-    http_response_body_map := make_key_to_index(a, KeyToIndex(string))
-    i, _ = lookup_or_insert(&http_response_body_map, "body", string_to_index_procs)
+    http_response_body_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
+    i, _ = utils.lookup_or_insert(&http_response_body_map, "body", utils.string_to_index_procs)
     assert(i.index == 0)
-    fix_key_to_index(http_response_body_map)
+    utils.fix_key_to_index(http_response_body_map)
 
     assert(
         .HttpResponseBody ==
-        create_type(&out, StructType{http_response_body_map, positions, array_to_multi(array_with_string_type)}).type,
+        create_type(&out, StructType{http_response_body_map, utils.array_to_multi(array_with_string_type)}).type,
     )
 
-    http_response_map := make_key_to_index(a, KeyToIndex(string))
-    i, _ = lookup_or_insert(&http_response_map, "Plain", string_to_index_procs)
+    http_response_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
+    i, _ = utils.lookup_or_insert(&http_response_map, "Plain", utils.string_to_index_procs)
     assert(i.index == 0)
-    i, _ = lookup_or_insert(&http_response_map, "Css", string_to_index_procs)
+    i, _ = utils.lookup_or_insert(&http_response_map, "Css", utils.string_to_index_procs)
     assert(i.index == 1)
-    i, _ = lookup_or_insert(&http_response_map, "Html", string_to_index_procs)
+    i, _ = utils.lookup_or_insert(&http_response_map, "Html", utils.string_to_index_procs)
     assert(i.index == 2)
-    fix_key_to_index(http_response_map)
+    utils.fix_key_to_index(http_response_map)
 
-    http_response_types := arena_make(a, []Type, 3)
+    http_response_types := utils.arena_make(a, []Type, 3)
     http_response_types[0] = .HttpResponseBody
     http_response_types[1] = .HttpResponseBody
     http_response_types[2] = .HttpResponseBody
 
     assert(
         .HttpResponse ==
-        create_type(&out, SumType{http_response_map, positions, array_to_multi(http_response_types)}).type,
+        create_type(&out, SumType{http_response_map, utils.array_to_multi(http_response_types)}).type,
     )
 
     assert(
@@ -335,22 +337,26 @@ create_types :: proc(a: ^Arena) -> Types {
         create_type(&out, FuncType{array_with_http_request_handler, nil}).type,
     )
 
-    http_server_map := make_key_to_index(a, KeyToIndex(string))
-    i, _ = lookup_or_insert(&http_server_map, "set_handler", string_to_index_procs)
+    http_server_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
+    i, _ = utils.lookup_or_insert(&http_server_map, "set_handler", utils.string_to_index_procs)
     assert(i.index == 0)
-    i, _ = lookup_or_insert(&http_server_map, "listen_and_serve", string_to_index_procs)
+    i, _ = utils.lookup_or_insert(
+        &http_server_map,
+        "listen_and_serve",
+        utils.string_to_index_procs,
+    )
     assert(i.index == 1)
-    i, _ = lookup_or_insert(&http_server_map, "port", string_to_index_procs)
+    i, _ = utils.lookup_or_insert(&http_server_map, "port", utils.string_to_index_procs)
     assert(i.index == 2)
-    fix_key_to_index(http_server_map)
+    utils.fix_key_to_index(http_server_map)
 
-    http_server_types := arena_make(a, []Type, 3)
+    http_server_types := utils.arena_make(a, []Type, 3)
     http_server_types[0] = .HttpRequestHandlerToNil
     http_server_types[1] = .NoArgsToNil
     http_server_types[2] = .Int
     assert(
         .HttpServer ==
-        create_type(&out, StructType{http_server_map, positions, array_to_multi(http_server_types)}).type,
+        create_type(&out, StructType{http_server_map, utils.array_to_multi(http_server_types)}).type,
     )
 
     assert(.NoArgsToHttpServer == create_type(&out, FuncType{nil, array_with_http_server}).type)
@@ -368,8 +374,8 @@ TypeValue :: struct {
 }
 
 Types :: struct {
-    m:      KeyToIndex(TypeKey),
-    values: Multi(TypeValue),
+    m:      utils.KeyToIndex(TypeKey),
+    values: utils.Multi(TypeValue),
 }
 
 GotType :: struct {
@@ -387,28 +393,28 @@ get_type :: proc(types: Types, t: Type) -> GotType {
 CreatedType :: struct {
     type:       Type,
     type_value: TypeValue,
-    result:     Result,
+    result:     utils.Result,
 }
 
 create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> CreatedType {
-    when debug_checker {
-        print_call(loc, "create_type")
-        debug("value: %v", value)
+    when utils.debug_checker {
+        utils.print_call(loc, "create_type")
+        utils.debug("value: %v", value)
     }
-    type, result := lookup_or_insert(
+    type, result := utils.lookup_or_insert(
         &types.m,
         value,
-        KeyToIndexProcs(TypeKey){hash_type_value, type_key_is_equal},
+        utils.KeyToIndexProcs(TypeKey){hash_type_value, type_key_is_equal},
         loc,
     )
     if result == .Inserted {
-        resize_multi(&types.values, len(types.m.keys))
+        utils.resize_multi(&types.values, len(types.m.keys))
         types.values.d[type.index] = TypeValue{.Unknown}
     }
 
     out := CreatedType{Type(type.index), types.values.d[type.index], result}
-    when debug_checker {
-        debug("out: %v", out)
+    when utils.debug_checker {
+        utils.debug("out: %v", out)
     }
     return out
 }

@@ -1,5 +1,6 @@
-package main
+package compiler
 
+import "../utils"
 import "core:fmt"
 import "core:io"
 import "core:strings"
@@ -257,12 +258,6 @@ is_close_square_bracket :: proc(t: TokenContents) -> bool {
     return is_close_square_bracket
 }
 
-CompilerFile :: struct {
-    code:      string,
-    file_path: string,
-    dir_path:  string,
-}
-
 TokenizerState :: struct {
     index:                                            uint,
     last_token:                                       TokenContents,
@@ -270,36 +265,7 @@ TokenizerState :: struct {
     last_token_skipped:                               bool,
 
     // Includes the `^CompilerFile` for which file is being parsed
-    last_token_pos:                                   Pos,
-}
-
-is_nothing_char :: proc(c: byte) -> bool {
-    return c == ' ' || c == '\t'
-}
-
-is_letter :: proc(c: $T) -> bool {
-    return c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
-}
-
-is_alphanumeric_char_any :: proc(c: $T) -> bool {
-    return is_letter(c) || ('0' <= c && c <= '9')
-}
-
-is_alphanumeric_char :: proc(c: byte) -> bool {
-    return is_alphanumeric_char_any(c)
-}
-
-is_digit_char :: proc(c: byte) -> bool {
-    return '0' <= c && c <= '9'
-}
-
-is_symbol_char :: proc(c: byte) -> bool {
-    switch c {
-    case '=', '+', '-', '*', '/', '.', '<', '>', '%', '~', '&', '!':
-        return true
-    case:
-        return false
-    }
+    last_token_pos:                                   utils.Pos,
 }
 
 SkipperResult :: struct {
@@ -333,11 +299,11 @@ skip :: proc(s: ^TokenizerState, should_continue: proc(_: byte) -> bool) -> Skip
 }
 
 wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
-    when debug_diagnostics {
-        print_call(loc, "wrong_token_err")
+    when utils.debug_diagnostics {
+        utils.print_call(loc, "wrong_token_err")
     }
-    w := diagnostic_header(&state.r, state.last_token_pos, .Error)
-    defer diagnostic_footer(w)
+    w := state.r.diagnostic_header(state.r.data, state.last_token_pos, .Error)
+    defer io.close(w)
 
     for c in state.parser_context {
         io.write_string(w, "While parsing ")
@@ -352,7 +318,7 @@ wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
             panic("Unreachable")
         }
         io.write_string(w, " at ")
-        write_position(w, c.pos)
+        utils.write_position(w, c.pos)
         io.write_byte(w, '\n')
     }
 
@@ -386,7 +352,7 @@ tokenize_segmented_identifier :: proc(s: ^TokenizerState, first_ident_start: uin
     for s.index < len(s.last_token_pos.file.code) && s.last_token_pos.file.code[s.index] == '.' {
         s.index += 1
         segment_start := s.index
-        skipper_result := skip(s, is_alphanumeric_char)
+        skipper_result := skip(s, utils.is_alphanumeric_char)
         if skipper_result.skipped_atleast_one_char {
             has_dollar = false
             if s.index < len(s.last_token_pos.file.code) &&
@@ -398,7 +364,7 @@ tokenize_segmented_identifier :: proc(s: ^TokenizerState, first_ident_start: uin
                 &segments,
                 Ident {
                     s.last_token_pos.file.code[segment_start:s.index],
-                    Pos{segment_start, s.last_token_pos.file},
+                    utils.Pos{segment_start, s.last_token_pos.file},
                     has_dollar,
                 },
             )
@@ -417,14 +383,14 @@ get_next_token :: proc(
     skip_newlines_and_comments_and_semicolons: bool,
     loc := #caller_location,
 ) {
-    when debug_tokenizer {
-        print_call(loc, "get next token")
+    when utils.debug_tokenizer {
+        utils.print_call(loc, "get next token")
         defer {
-            debug("last token set to %v", state.last_token)
+            utils.debug("last token set to %v", state.last_token)
         }
     }
-    clear_dynamic(&state.last_token_descriptions_of_other_possible_tokens)
-    if skip(state, is_nothing_char).reached_end_of_file {
+    utils.clear_dynamic(&state.last_token_descriptions_of_other_possible_tokens)
+    if skip(state, utils.is_nothing_char).reached_end_of_file {
         state.last_token_pos.index = len(state.last_token_pos.file.code)
         state.last_token = EndOfFileToken{}
         return
@@ -523,14 +489,14 @@ get_next_token :: proc(
         }
 
     case '0' ..= '9':
-        skip_ignore_first(state, is_digit_char)
+        skip_ignore_first(state, utils.is_digit_char)
         state.last_token = DigitsToken(
             state.last_token_pos.file.code[state.last_token_pos.index:state.index],
         )
 
     case '#':
         state.index += 1
-        skipper_result := skip(state, is_alphanumeric_char)
+        skipper_result := skip(state, utils.is_alphanumeric_char)
         if skipper_result.skipped_atleast_one_char {
             state.last_token = MarkerToken(
                 state.last_token_pos.file.code[state.last_token_pos.index + 1:state.index],
@@ -549,7 +515,7 @@ get_next_token :: proc(
         }
 
     case '_', 'a' ..= 'z', 'A' ..= 'Z':
-        skip_ignore_first(state, is_alphanumeric_char)
+        skip_ignore_first(state, utils.is_alphanumeric_char)
         ident := state.last_token_pos.file.code[state.last_token_pos.index:state.index]
         switch ident {
         case "in":
@@ -679,27 +645,27 @@ get_next_token :: proc(
                 )
             }
         } else {
-            skip_ignore_first(state, is_symbol_char)
+            skip_ignore_first(state, utils.is_symbol_char)
             state.last_token = SymbolsToken(
                 state.last_token_pos.file.code[state.last_token_pos.index:state.index],
             )
         }
     case '.':
         if state.index + 1 < len(state.last_token_pos.file.code) &&
-           is_letter(state.last_token_pos.file.code[state.index + 1]) {
+           utils.is_letter(state.last_token_pos.file.code[state.index + 1]) {
             tokenize_segmented_identifier(state, state.index)
         } else {
-            skip_ignore_first(state, is_symbol_char)
+            skip_ignore_first(state, utils.is_symbol_char)
             state.last_token = SymbolsToken(
                 state.last_token_pos.file.code[state.last_token_pos.index:state.index],
             )
         }
     case:
-        if !is_symbol_char(char) {
+        if !utils.is_symbol_char(char) {
             state.last_token = Error(fmt.aprintf("Unrecognized character `%c`", char))
             return
         }
-        skip_ignore_first(state, is_symbol_char)
+        skip_ignore_first(state, utils.is_symbol_char)
         symbols := state.last_token_pos.file.code[state.last_token_pos.index:state.index]
         switch symbols {
         case "->":

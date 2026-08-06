@@ -1,5 +1,6 @@
-package main
+package compiler
 
+import "../utils"
 import "core:fmt"
 
 // This file may become an implementation of the node simplifier in a sea of nodes style optimizer
@@ -52,19 +53,19 @@ create_joined_values :: proc(
             num0 := comptime0.(NumberValue)
             num1 := comptime1.(NumberValue)
             if num0.fraction_part == "" && num1.fraction_part == "" {
-                n0 := BigInt{num0.is_negated, num0.whole_part}
-                n1 := BigInt{num1.is_negated, num1.whole_part}
-                ok :: proc(b: BigInt) -> CheckedValue {
+                n0 := utils.BigInt{num0.is_negated, num0.whole_part}
+                n1 := utils.BigInt{num1.is_negated, num1.whole_part}
+                ok :: proc(b: utils.BigInt) -> CheckedValue {
                     return CompileTimeValue(NumberValue{b.is_negated, b.absolute_value, ""})
                 }
                 #partial switch method {
                 case .Multiplication:
-                    return ok(mul_int(n0, n1))
+                    return ok(utils.mul_int(n0, n1))
                 case .Division: // TODO
                 case .Addition:
-                    return ok(add_int(n0, n1))
+                    return ok(utils.add_int(n0, n1))
                 case .Subtraction:
-                    return ok(sub_int(n0, n1))
+                    return ok(utils.sub_int(n0, n1))
                 case:
                     panic("Unreachable")
                 }
@@ -115,7 +116,7 @@ iterate_array :: proc(
     loop_index: uint,
     index_variable: VariableRef,
     value_variable: VariableRef,
-    body: ^DoubleDynamic(CheckedStatement),
+    body: ^utils.DoubleDynamic(CheckedStatement),
     body_variables: []Type,
     array_value: CheckedValue,
     array_type: ArrayType,
@@ -123,12 +124,12 @@ iterate_array :: proc(
     loop_enter := make([]CheckedStatement, 1)
     loop_enter[0] = CheckedAssignment {
         index_variable,
-        CompileTimeValue(NumberValue{false, uint_zero, ""}),
+        CompileTimeValue(NumberValue{false, utils.uint_zero, ""}),
     }
 
     if_block := make([]CheckedStatement, 1)
     if_block[0] = CheckedLoopControlFlow{loop_index, .Break}
-    dynamic_insert(
+    utils.dynamic_insert(
         body,
         CheckedIf {
             create_joined_values(
@@ -154,7 +155,7 @@ iterate_array :: proc(
         create_joined_values(
             .Addition,
             index_variable,
-            CompileTimeValue(NumberValue{false, big_uint_from_u64(1), ""}),
+            CompileTimeValue(NumberValue{false, utils.big_uint_from_u64(1), ""}),
         ),
     }
     return CheckedLoop {
@@ -162,7 +163,7 @@ iterate_array :: proc(
         body_variables,
         loop_enter,
         continue_code,
-        dynamic_to_fixed(body^),
+        utils.dynamic_to_fixed(body^),
     }
 }
 
@@ -173,7 +174,7 @@ iterate_start_end_step :: proc(
     start: CheckedValue,
     end: CheckedValue,
     step: CheckedValue,
-    body: ^DoubleDynamic(CheckedStatement),
+    body: ^utils.DoubleDynamic(CheckedStatement),
     body_variables: []Type,
 ) -> CheckedLoop {
     // TODO: Handle when `step` is negative
@@ -181,7 +182,7 @@ iterate_start_end_step :: proc(
     loop_enter[0] = CheckedAssignment{index_variable, start}
     if_block := make([]CheckedStatement, 1)
     if_block[0] = CheckedLoopControlFlow{loop_index, .Break}
-    dynamic_insert(
+    utils.dynamic_insert(
         body,
         CheckedIf {
             create_joined_values(
@@ -203,7 +204,7 @@ iterate_start_end_step :: proc(
         body_variables,
         loop_enter,
         loop_continue,
-        dynamic_to_fixed(body^),
+        utils.dynamic_to_fixed(body^),
     }
 }
 
@@ -213,11 +214,11 @@ iterate_ordered_hash_map :: proc(
     index_variable: VariableRef,
     key_variable: VariableRef,
     value_variable: VariableRef,
-    body: ^DoubleDynamic(CheckedStatement),
+    body: ^utils.DoubleDynamic(CheckedStatement),
     body_variables: []Type,
 ) -> CheckedLoop {
     keys := KeysOfOrderedHashMapWithStringKey{new_clone(hash_map)} // TODO: Handle for Int keys
-    dynamic_insert(
+    utils.dynamic_insert(
         body,
         CheckedAssignment {
             value_variable,

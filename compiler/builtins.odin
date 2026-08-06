@@ -1,8 +1,9 @@
-package main
+package compiler
 
 // Handles namespace operations. Namespace operations are all handled in the
 // same file to maintain a consistent set of builtins which cannot be overridden.
 
+import "../utils"
 import "core:fmt"
 import "core:strings"
 
@@ -122,7 +123,7 @@ get_builtin :: proc(name: string) -> GotBuiltin {
 
 argument_count_mismatch :: proc(
     s: ^CheckerState,
-    pos: Pos,
+    pos: utils.Pos,
     num_provided: uint,
     num_expected: uint,
     func_name: ..string,
@@ -136,8 +137,8 @@ argument_count_mismatch :: proc(
     defer delete_string(provided)
     expected := num_to_str(num_expected)
     defer delete_string(expected)
-    diagnostic(
-        s,
+    utils.diagnostic(
+        s.r,
         pos,
         "Argument count mismatch\nFunction call provides %s\nThe `%s` function expects %s",
         provided,
@@ -146,7 +147,7 @@ argument_count_mismatch :: proc(
     )
 }
 
-to_str :: proc(s: ^CheckerState, pos: Pos, val: CheckedValue, type: Type) -> CheckedValue {
+to_str :: proc(s: ^CheckerState, pos: utils.Pos, val: CheckedValue, type: Type) -> CheckedValue {
     from_type: ToStringFromType = ---
     #partial switch type {
     case .Bool:
@@ -162,7 +163,12 @@ to_str :: proc(s: ^CheckerState, pos: Pos, val: CheckedValue, type: Type) -> Che
     case .Char:
         from_type = .CharType
     case:
-        diagnostic(s, pos, "Cannot convert the type `%s` to `String`", type_to_string(s, type))
+        utils.diagnostic(
+            s.r,
+            pos,
+            "Cannot convert the type `%s` to `String`",
+            type_to_string(s, type),
+        )
         return nil
     }
     return ToString{from_type, new_clone(val)}
@@ -174,8 +180,8 @@ add_unnamed_variable :: proc(
     variable_is_re: bool,
     loc := #caller_location,
 ) -> VariableRef {
-    when debug_checker {
-        print_call(loc, "add_unnamed_variable")
+    when utils.debug_checker {
+        utils.print_call(loc, "add_unnamed_variable")
     }
     var_ref := VariableRef{len(s.scopes) - 1, len(s.scopes[len(s.scopes) - 1].variables)}
     append_soa_elem(
@@ -195,8 +201,8 @@ add_variable :: proc(
     VariableRef,
     bool,
 ) {
-    when debug_checker {
-        print_call(loc, "add_variable")
+    when utils.debug_checker {
+        utils.print_call(loc, "add_variable")
     }
     // TODO: Add a warning for unused variables
     expect_snake_case(
@@ -206,22 +212,22 @@ add_variable :: proc(
         can_have_dollar_postfix = true,
     )
     if get_builtin(variable.ident).value != nil {
-        diagnostic(s, variable.pos, builtins_err, variable.ident)
+        utils.diagnostic(s.r, variable.pos, builtins_err, variable.ident)
         return VariableRef{}, false
     }
     if variable.ident in s.variables_map {
-        diagnostic(s, variable.pos, "Redeclaration of variable `%s`", variable.ident)
+        utils.diagnostic(s.r, variable.pos, "Redeclaration of variable `%s`", variable.ident)
         return VariableRef{}, false
     }
     alt_ident := ""
     if variable.has_dollar_at_end {
         alt_ident = variable.ident[:len(variable.ident) - 1]
     } else {
-        alt_ident = aprintf(s.a, "%s$", variable.ident)
+        alt_ident = utils.aprintf(s.a, "%s$", variable.ident)
     }
     if alt_ident in s.variables_map {
-        diagnostic(
-            s,
+        utils.diagnostic(
+            s.r,
             variable.pos,
             "Declaring variable called `%s` when variable called `%s` is already declared",
             variable.ident,

@@ -1,4 +1,4 @@
-package main
+package utils
 
 import "base:runtime"
 
@@ -100,6 +100,7 @@ append_dynamic_elems :: proc(d: ^[]$T, elems: ..T, loc := #caller_location) {
 append_multi_dynamic :: proc(d: ^Multi($T), old_length: int, elem: T, loc := #caller_location) {
     when debug_dynamic_array {
         print_call(loc, "append_multi_dynamic")
+        print_arg("old_length", old_length)
     }
     when ODIN_DEBUG {
         assert(old_length == len(d.d))

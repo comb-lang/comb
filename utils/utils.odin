@@ -1,11 +1,67 @@
-package main
+package utils
 
 import "base:runtime"
+import "core:bufio"
 import "core:fmt"
 import "core:io"
 import "core:math/rand"
+import "core:os"
 import "core:strings"
 import "core:testing"
+
+Position :: struct {
+    line: uint,
+    col:  uint `json:"character"`,
+}
+
+get_position :: proc(p: Pos) -> Position {
+    out := Position{0, 0}
+    for char in p.file.code[:p.index] {
+        if char == '\n' {
+            out.line += 1
+            out.col = 0
+        } else {
+            out.col += 1
+        }
+    }
+    return out
+}
+
+OverriddenCloseHandlerStreamData :: struct {
+    original_stream: io.Stream,
+    new_data:        rawptr,
+    new_close_proc:  proc(data: ^OverriddenCloseHandlerStreamData),
+}
+
+overridden_close_handler_stream_proc :: proc(
+    data: rawptr,
+    mode: io.Stream_Mode,
+    p: []byte,
+    offset: i64,
+    whence: io.Seek_From,
+) -> (
+    i64,
+    io.Error,
+) {
+    d := cast(^OverriddenCloseHandlerStreamData)data
+    if mode != .Close {
+        return d.original_stream.procedure(d.original_stream.data, mode, p, offset, whence)
+    }
+    assert(p == nil && offset == 0 && whence == io.Seek_From(0))
+    d->new_close_proc()
+    return 0, nil
+}
+
+override_close_handler :: proc(
+    s: io.Stream,
+    new_close_proc_data: rawptr,
+    new_close_proc: proc(data: ^OverriddenCloseHandlerStreamData),
+) -> io.Stream {
+    return io.Stream {
+        overridden_close_handler_stream_proc,
+        new_clone(OverriddenCloseHandlerStreamData{s, new_close_proc_data, new_close_proc}),
+    }
+}
 
 when ODIN_DEBUG {
     SourceCodeLocationOnDebug :: runtime.Source_Code_Location
@@ -64,7 +120,7 @@ panic_stream_proc :: proc(
     panic("Unreachable")
 }
 
-panic_reader :: io.Reader{panic_stream_proc, nil}
+panic_stream :: io.Stream{panic_stream_proc, nil}
 
 string_builder_stream_proc :: proc(
     data: rawptr,
@@ -91,16 +147,31 @@ string_builder_stream_proc :: proc(
 
 StringBuilder :: io.Writer
 
-make_builder :: proc(a: ^Arena) -> StringBuilder {
+make_builder :: proc(a: ^Arena, loc := #caller_location) -> StringBuilder {
+    when debug_builder {
+        print_call(loc, "make_builder")
+    }
     data := arena_new(a, []byte)
     data^ = arena_make(a, []byte, 0, resizable = true)
     return StringBuilder{string_builder_stream_proc, data}
 }
 
-finish_building :: proc(s: StringBuilder) -> string {
+finish_building :: proc(s: StringBuilder, loc := #caller_location) -> string {
+    when debug_builder {
+        print_call(loc, "finish_building")
+    }
     data := (^[]byte)(s.data)
     fix_resizable_dynamic(data^)
     return string(data^)
+}
+
+delete_builder :: proc(s: StringBuilder, loc := #caller_location) {
+    when debug_builder {
+        print_call(loc, "delete_builder")
+    }
+    data := (^[]byte)(s.data)
+    dealloc(raw_data(data^))
+    dealloc(data)
 }
 
 aprintf :: proc(a: ^Arena, format: string, args: ..any) -> string {
@@ -223,21 +294,31 @@ build_error_info :: proc(
     first_location: runtime.Source_Code_Location,
     other_locations: []runtime.Source_Code_Location,
 ) -> strings.Builder {
-    add_code_location :: proc(b: ^strings.Builder, loc: runtime.Source_Code_Location) {
-        strings.write_string(b, "expect_string called from file ")
-        strings.write_string(b, loc.file_path)
-        strings.write_string(b, " at line ")
-        strings.write_int(b, int(loc.line))
-        strings.write_string(b, " column ")
-        strings.write_int(b, int(loc.column))
-        strings.write_byte(b, '\n')
-    }
-    builder := strings.builder_make()
-    add_code_location(&builder, first_location)
+    format :: "expect_string called from %v"
+    b := strings.builder_make()
+    fmt.sbprintfln(&b, format, first_location)
     for other_location in other_locations {
-        add_code_location(&builder, other_location)
+        fmt.sbprintfln(&b, format, other_location)
     }
-    return builder
+    return b
+}
+
+// The string returned is the error
+expect_string_helper :: proc(
+    expected: string,
+    got: string,
+    first_location: runtime.Source_Code_Location,
+    other_locations: []runtime.Source_Code_Location,
+) -> string {
+    if got == expected {
+        return ""
+    }
+    builder := build_error_info(first_location, other_locations)
+    strings.write_string(&builder, "Mismatching expect_string: Got ")
+    strings.write_quoted_string(&builder, got)
+    strings.write_string(&builder, " expected ")
+    strings.write_quoted_string(&builder, expected)
+    return strings.to_string(builder)
 }
 
 expect_string :: proc(
@@ -248,19 +329,79 @@ expect_string :: proc(
 ) {
     start := comparer.index
     comparer.index += len(expected)
-    if comparer.index > len(comparer.got_text) {
-        builder := build_error_info(first_location, other_locations)
-        strings.write_string(&builder, "Expected text is longer than got text")
-        testing.fail_now(comparer.t, strings.to_string(builder))
+    err := expect_string_helper(
+        expected,
+        comparer.got_text[start:min(comparer.index, uint(len(comparer.got_text)))],
+        first_location,
+        other_locations,
+    )
+    if err != "" {
+        testing.fail_now(comparer.t, err)
     }
-    got := comparer.got_text[start:comparer.index]
-    if got != expected {
-        builder := build_error_info(first_location, other_locations)
-        strings.write_string(&builder, "Mismatching expect_string: Got ")
-        strings.write_quoted_string(&builder, got)
-        strings.write_string(&builder, " expected ")
-        strings.write_quoted_string(&builder, expected)
-        testing.fail_now(comparer.t, strings.to_string(builder))
+}
+
+expect_string2 :: proc(r: ^bufio.Reader, expected: string, loc := #caller_location) {
+    got := make([]byte, len(expected))
+    defer delete(got)
+    n := 0
+    for n < len(expected) {
+        num_read, err := bufio.reader_read(r, got)
+        if num_read == 0 {
+            panicf("Failed to read: %v", err)
+        }
+        assert(err == nil || err == .EOF)
+        expect_string_helper(expected[n:n + num_read], string(got[:num_read]), loc, nil)
+        n += num_read
+    }
+}
+
+parse_uint :: proc(r: ^bufio.Reader) -> uint {
+    b, err := bufio.reader_read_byte(r)
+    assert(err == nil)
+    assert('0' <= b && b <= '9')
+
+    n := uint(b - '0')
+    for {
+        b, err = bufio.reader_read_byte(r)
+        if err == .EOF {
+            return n
+        }
+        assert(err == nil)
+        if !('0' <= b && b <= '9') {
+            bufio.reader_unread_byte(r)
+            return n
+        }
+
+        n = n * 10 + uint(b - '0')
+    }
+}
+
+is_nothing_char :: proc(c: byte) -> bool {
+    return c == ' ' || c == '\t'
+}
+
+is_letter :: proc(c: $T) -> bool {
+    return c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
+}
+
+is_alphanumeric_char_any :: proc(c: $T) -> bool {
+    return is_letter(c) || ('0' <= c && c <= '9')
+}
+
+is_alphanumeric_char :: proc(c: byte) -> bool {
+    return is_alphanumeric_char_any(c)
+}
+
+is_digit_char :: proc(c: byte) -> bool {
+    return '0' <= c && c <= '9'
+}
+
+is_symbol_char :: proc(c: byte) -> bool {
+    switch c {
+    case '=', '+', '-', '*', '/', '.', '<', '>', '%', '~', '&', '!':
+        return true
+    case:
+        return false
     }
 }
 
@@ -446,118 +587,29 @@ write :: proc(output_builder: ^OutputBuilder) {
 }
 */
 
-DiagnosticType :: enum {
-    Error,
-    Warning,
+Pipe :: struct(T: typeid) {
+    stdout: T,
+    stderr: T,
 }
-
-DiagnosticReporter :: struct {
-    files:     Multi(CompilerFile),
-    io:        Pipe(io.Writer),
-    number_of: [DiagnosticType]uint,
-}
-
-diagnostic_header :: proc(r: ^DiagnosticReporter, pos: Pos, type: DiagnosticType) -> io.Writer {
-    w := type == .Error ? r.io.stderr : r.io.stdout
-    if r.number_of[.Error] + r.number_of[.Warning] == 0 {
-        io.write_byte(w, '\n')
-    }
-    r.number_of[type] += 1
-    // TODO: use bold text for header
-    switch type {
-    case .Error:
-        io.write_string(w, "Error")
-    case .Warning:
-        io.write_string(w, "Warning")
-    case:
-        panic("Unreachable")
-    }
-    io.write_string(w, " compiling")
-    if pos != unknown_pos {
-        fmt.wprintf(w, " %v", pos, flush = false)
-    }
-    io.write_byte(w, '\n')
-    return w
-}
-
-diagnostic_footer :: proc(w: io.Writer) {
-    io.write_string(w, "\n\n")
-    io.flush(w)
-}
-
-// Set the position to `unknown_pos` to not have a position for the error message
-diagnostic :: proc(
-    r: ^DiagnosticReporter,
-    position: Pos,
-    message_fmt: string,
-    message_args: ..any,
-    type: DiagnosticType = .Error,
-    loc := #caller_location,
-) {
-    when debug_diagnostics {
-        print_call(loc, "diagnostic")
-    }
-    w := diagnostic_header(r, position, type)
-    fmt.wprintf(w, message_fmt, ..message_args)
-    diagnostic_footer(w)
-}
-
-/*
-err :: proc(
-    s: ^CheckerState,
-    position: Pos,
-    message_fmt: string,
-    message_args: ..any,
-    loc := #caller_location,
-) {
-    diagnostic_before :=
-        s.diagnostics_info.number_of_errors + s.diagnostics_info.number_of_warnings > 0
-    s.diagnostics_info.number_of_errors += 1
-    diagnostic(
-        s.stderr,
-        s.files.file[:len(s.files)],
-        position,
-        message_fmt,
-        ..message_args,
-        type = .Error,
-        newline_before = !diagnostic_before,
-        newline_after = true,
-        loc = loc,
-    )
-}
-
-warn :: proc(
-    s: ^CheckerState,
-    position: Pos,
-    message_fmt: string,
-    message_args: ..any,
-    loc := #caller_location,
-) {
-    diagnostic_before :=
-        s.diagnostics_info.number_of_errors + s.diagnostics_info.number_of_warnings > 0
-    s.diagnostics_info.number_of_warnings += 1
-    diagnostic(
-        s.stderr,
-        s.files.file[:len(s.files)],
-        position,
-        message_fmt,
-        ..message_args,
-        type = "Warning",
-        newline_before = !diagnostic_before,
-        newline_after = true,
-        loc = loc,
-    )
-}
-*/
 
 debug_nesting := 0
+debug_writer := io.Writer{}
 
 // Print flushing is necessary even when we know that a flushing print call is
 // going to happen because flush does not work properly
 // See https://github.com/odin-lang/Odin/issues/6656
-flush_needed :: true
+// In this case flush is not necersarry because we are printing to a writer
+// rather than using the `fmt.print` family
+flush_needed :: false
 
 debug :: proc(format: string, args: ..any, loc := #caller_location) {
+    if debug_writer.data == nil {
+        buffer := make([]byte, 1024)
+        bufio_writer := new(bufio.Writer)
+        bufio.writer_init_with_buf(bufio_writer, os.to_stream(os.stdout), buffer)
+        debug_writer = bufio.writer_to_writer(bufio_writer)
+    }
+
     max_line_length :: 100
     line_padding := (4 * debug_nesting) + 4
 
@@ -566,43 +618,43 @@ debug :: proc(format: string, args: ..any, loc := #caller_location) {
     assert(formatted != "")
 
     for _ in 0 ..< debug_nesting {
-        fmt.print("│   ", flush = flush_needed)
+        fmt.wprint(debug_writer, "│   ", flush = flush_needed)
     }
-    fmt.print("├── ", flush = flush_needed)
+    fmt.wprint(debug_writer, "├── ", flush = flush_needed)
 
     if line_padding >= max_line_length {
-        fmt.println(formatted)
+        fmt.wprintln(debug_writer, formatted)
     } else {
         col := line_padding
         if len(formatted) > 1 {
             for char in formatted[0:len(formatted) - 1] {
-                fmt.print(char, flush = flush_needed)
+                fmt.wprint(debug_writer, char, flush = flush_needed)
                 if char == '\n' {
                     col = 0
                 } else {
                     col += 1
                     if col >= max_line_length {
-                        fmt.print("\n...", flush = flush_needed)
+                        fmt.wprint(debug_writer, "\n...", flush = flush_needed)
                         col = 3
                     } else {
                         continue
                     }
                 }
                 for _ in col ..< line_padding {
-                    fmt.print(' ', flush = flush_needed)
+                    fmt.wprint(debug_writer, ' ', flush = flush_needed)
                 }
                 col = line_padding
             }
         }
-        fmt.printfln("%c", formatted[len(formatted) - 1])
+        fmt.wprintfln(debug_writer, "%c", formatted[len(formatted) - 1])
     }
 
     when false {
-        fmt.print("Press enter to continue")
+        fmt.wprint(debug_writer, "Press enter to continue")
         buf := make([]byte, 1)
         os.read(os.stdin, buf)
         delete(buf)
-        fmt.print(up_line + erase_line)
+        fmt.wprint(debug_writer, up_line + erase_line)
     }
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import "base:runtime"
+import "compiler"
 import "core:bufio"
 import "core:fmt"
 import "core:io"
@@ -9,44 +10,17 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:time"
-
-debug_tokenizer :: false // You can use this to debug the parser
-debug_parser :: false
-debug_parser_output :: false
-debug_checker :: false
-debug_emitter :: false
-debug_key_to_index :: false
-debug_interpreter :: false
-debug_diagnostics :: false
-debug_arena :: false
-debug_dynamic_array :: false
+import "lsp"
+import "utils"
 
 c_warning :: "WARNING: The C emitter is basically unmaintained at this point, and there are many things which it does not implement\n"
-
-write_position :: proc(w: io.Writer, pos: Pos) {
-    if pos == unknown_pos {
-        fmt.wprint(w, "unknown_pos")
-        return
-    }
-    line := 1
-    column := 1
-    for char in pos.file.code[:pos.index] {
-        if char == '\n' {
-            line += 1
-            column = 1
-        } else {
-            column += 1
-        }
-    }
-    fmt.wprintf(w, "`%s` (%d:%d)", pos.file.file_path, line, column, flush = false)
-}
 
 position_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
     if verb != 'v' {
         return false
     }
-    pos := cast(^Pos)arg.data
-    write_position(fi.writer, pos^)
+    pos := cast(^utils.Pos)arg.data
+    utils.write_position(fi.writer, pos^)
     return true
 }
 
@@ -59,13 +33,24 @@ source_code_location_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> b
     return true
 }
 
+time_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+    if verb != 'v' {
+        return false
+    }
+    t := cast(^time.Time)arg.data
+    h, m, s := time.clock(t^)
+    fmt.wprintf(fi.writer, "%d:%d:%d", h, m, s, flush = false)
+    return true
+}
+
 @(init)
 init :: proc "contextless" () {
     context = runtime.default_context()
     user_formatters := new(map[typeid]fmt.User_Formatter)
-    user_formatters[Pos] = position_formatter
-    user_formatters[TokenContents] = token_formatter
+    user_formatters[utils.Pos] = position_formatter
+    user_formatters[compiler.TokenContents] = compiler.token_formatter
     user_formatters[runtime.Source_Code_Location] = source_code_location_formatter
+    user_formatters[time.Time] = time_formatter
     fmt.set_user_formatters(user_formatters)
 }
 
@@ -114,7 +99,8 @@ BuildC :: struct {
 }
 
 Run :: struct {
-    program_io:              Pipe(io.Writer),
+    program_io:              utils.Pipe(io.Writer),
+    stdin:                   io.Reader,
     long_lived_interp_state: ^LongLivedInterpState,
 }
 
@@ -123,128 +109,80 @@ Command :: union #no_nil {
     Run,
 }
 
-source_code_changed :: proc(early_exit_value: ^ExitEarlyAwaitingSourceCodeChange) -> bool {
-    // TODO: Make this code quicker so caching is not necersarry
-    if time.since(early_exit_value.last_checked) < 10 * time.Millisecond {
-        return false
-    }
-    defer early_exit_value.last_checked = time.now()
-    for file in early_exit_value.files {
-        info, err := os.stat(file.file_path, context.allocator)
-        if err == os.General_Error.Not_Exist {
-            return true
-        }
-        if err != nil {
-            panic(fmt.aprintf("Failed to stat file: %v", err))
-        }
-        defer os.file_info_delete(info, context.allocator)
-        if info.modification_time._nsec > early_exit_value.compilation_start._nsec {
-            return true
-        }
-    }
-    return false
-}
-
-should_exit_early :: proc(early_exit_info: EarlyExitInfo) -> bool {
-    switch early_exit in early_exit_info {
-    case NeverExitEarly:
-        return false
-    case ^ExitEarly:
-        switch &early_exit_value in early_exit {
-        case ExitEarlyAfterSourceCodeChanged:
-            return true
-        case ExitEarlyAwaitingSourceCodeChange:
-            if !source_code_changed(&early_exit_value) {
-                return false
-            }
-            early_exit^ = ExitEarlyAfterSourceCodeChanged{}
-            return true
-        case:
-            panic("Unreachable")
-        }
-    case:
-        panic("Unreachable")
-    }
-}
-
-NeverExitEarly :: struct {}
-
-ExitEarlyAwaitingSourceCodeChange :: struct {
-    compilation_start: time.Time,
-    files:             []CompilerFile,
-    last_checked:      time.Time,
-}
-
-ExitEarlyAfterSourceCodeChanged :: struct {}
-
-ExitEarly :: union #no_nil {
-    ExitEarlyAwaitingSourceCodeChange,
-    ExitEarlyAfterSourceCodeChanged,
-}
-
-EarlyExitInfo :: union #no_nil {
-    NeverExitEarly,
-    ^ExitEarly, // A pointer so that the variant can be changed
-}
-
 compile :: proc(
-    a: ^Arena,
+    a: ^utils.Arena,
     func: FunctionRef,
-    compiler: Pipe(io.Writer),
+    out: utils.Pipe(io.Writer),
     command: Command,
-    stdin: io.Reader,
-    exit_early: EarlyExitInfo,
+    exit_early: compiler.EarlyExitInfo,
 ) -> int {
+    // TODO: There are some return paths where `exit_early` is not updated and
+    // therefore the `-watch` flag does not auto reload
+
     start := time.now()
-    if exit_early_info, exiting_early := exit_early.(^ExitEarly); exiting_early {
-        exit_early_info^ = ExitEarlyAwaitingSourceCodeChange{start, nil, time.Time{}}
+    if exit_early_info, exiting_early := exit_early.(^compiler.ExitEarly); exiting_early {
+        exit_early_info^ = compiler.ExitEarlyAwaitingSourceCodeChange{start, nil, time.Time{}}
     }
     defer {
-        fmt.wprintfln(
-            compiler.stdout,
-            "Done in %f ms!",
-            time.duration_milliseconds(time.since(start)),
-        )
+        fmt.wprintfln(out.stdout, "Done in %f ms!", time.duration_milliseconds(time.since(start)))
     }
 
-    parsed, ok := parse_project(a, func.file_name, compiler, exit_early)
-    if !ok {
+    files_cache := utils.empty_files_cache(a)
+    defer utils.cleanup_files_cache(files_cache)
+
+    file_absolute_path, abs_err := filepath.abs(func.file_name, context.allocator)
+    if abs_err != nil {
+        fmt.wprintfln(
+            out.stderr,
+            "Failed to make filepath `%s` absolute: %v",
+            func.file_name,
+            abs_err,
+        )
         return 1
     }
 
-    when debug_parser_output {
-        debug("Printing function defs")
-        debug_nesting += 1
-        for function_def, i in state.function_defs {
-            debug("Function def %d", i)
-            debug_nesting += 1
-            debug("%#v", function_def)
-            debug_nesting -= 1
-        }
-        debug_nesting -= 1
+    fmt.wprintfln(out.stdout, "Reading `%s`...", file_absolute_path)
+    first_file, read_err := utils.read_file(&files_cache, file_absolute_path)
+    if read_err != nil {
+        fmt.wprintfln(out.stderr, "Failed to read `%s`: %#v", file_absolute_path, read_err)
+        return 1
     }
 
-    fmt.wprintfln(compiler.stdout, "Checking...")
-    checker_output := check(a, parsed, func.func_name, compiler)
-    function_type := Type.Unknown
+    reporter_data := new_clone(utils.StandardDiagnosticReporter{io = out})
+    reporter := utils.DiagnosticReporter {
+        reporter_data,
+        utils.standard_has_errors,
+        utils.standard_diagnostic_header,
+    }
+    checker_output := compiler.parse_and_check(
+        a,
+        &files_cache,
+        first_file,
+        func.func_name,
+        out,
+        exit_early,
+        reporter,
+    )
+
+    function_type := compiler.Type.Unknown
     if checker_output.func_ref.index < len(checker_output.checked_funcs) {
         function_type = checker_output.checked_funcs[checker_output.func_ref.index].type
         if function_type != .Unknown {
-            // TODO: Include position in error message
+            // TODO: Include index in error message position
             switch c in command {
             case BuildC:
                 if function_type != .NoArgsToInt {
-                    diagnostic(
-                        &checker_output.reporter,
-                        unknown_pos,
+                    utils.diagnostic(
+                        reporter,
+                        utils.Pos{max(uint), first_file},
                         "Got the type `%s`\nExpected the type `%s`",
-                        type_to_string2(
+                        compiler.type_to_string2(
                             checker_output.types,
                             checker_output.globals_without_generic,
                             checker_output.globals_with_generic,
                             function_type,
                         ),
-                        type_to_string2(
+                        compiler.type_to_string2(
                             checker_output.types,
                             checker_output.globals_without_generic,
                             checker_output.globals_with_generic,
@@ -254,23 +192,23 @@ compile :: proc(
                 }
             case Run:
                 if function_type != .NoArgsToInt && function_type != .CompilerToInt {
-                    diagnostic(
-                        &checker_output.reporter,
-                        unknown_pos,
+                    utils.diagnostic(
+                        reporter,
+                        utils.Pos{max(uint), first_file},
                         "Got the type `%s`\nExpected the type `%s` or `%s`",
-                        type_to_string2(
+                        compiler.type_to_string2(
                             checker_output.types,
                             checker_output.globals_without_generic,
                             checker_output.globals_with_generic,
                             function_type,
                         ),
-                        type_to_string2(
+                        compiler.type_to_string2(
                             checker_output.types,
                             checker_output.globals_without_generic,
                             checker_output.globals_with_generic,
                             .NoArgsToInt,
                         ),
-                        type_to_string2(
+                        compiler.type_to_string2(
                             checker_output.types,
                             checker_output.globals_without_generic,
                             checker_output.globals_with_generic,
@@ -286,25 +224,25 @@ compile :: proc(
 
     errors, warnings: string = ---, ---
 
-    if checker_output.reporter.number_of[.Error] == 1 {
+    if reporter_data.number_of[.Error] == 1 {
         errors = fmt.aprint("1 error")
     } else {
-        errors = fmt.aprintf("%d errors", checker_output.reporter.number_of[.Error])
+        errors = fmt.aprintf("%d errors", reporter_data.number_of[.Error])
     }
     defer delete_string(errors)
 
-    if checker_output.reporter.number_of[.Warning] == 1 {
+    if reporter_data.number_of[.Warning] == 1 {
         warnings = fmt.aprint("1 warning")
     } else {
-        warnings = fmt.aprintf("%d warnings", checker_output.reporter.number_of[.Warning])
+        warnings = fmt.aprintf("%d warnings", reporter_data.number_of[.Warning])
     }
     defer delete_string(warnings)
 
     elapsed_ms := time.duration_milliseconds(time.since(start))
 
-    if checker_output.reporter.number_of[.Error] > 0 {
+    if reporter_data.number_of[.Error] > 0 {
         fmt.wprintfln(
-            compiler.stderr,
+            out.stderr,
             "Erroneously checked with %s and %s in %f ms",
             errors,
             warnings,
@@ -314,7 +252,7 @@ compile :: proc(
     }
 
     fmt.wprintfln(
-        compiler.stdout,
+        out.stdout,
         "Successfully checked with %s and %s in %f ms",
         errors,
         warnings,
@@ -322,8 +260,8 @@ compile :: proc(
     )
 
     if build_c, is_build_c := command.(BuildC); is_build_c {
-        fmt.wprintfln(compiler.stdout, "Emitting C code...")
-        fmt.wprintf(compiler.stderr, c_warning)
+        fmt.wprintfln(out.stdout, "Emitting C code...")
+        fmt.wprintf(out.stderr, c_warning)
         c := emit_c(checker_output.types, checker_output.checked_funcs, checker_output.func_ref)
         executable_path, ok2 := write_and_compile_c(c, func.file_name)
         if !ok2 {
@@ -338,12 +276,12 @@ compile :: proc(
 
     absolute_file_name, err := filepath.abs(func.file_name, context.allocator)
     if err != nil {
-        fmt.wprintfln(compiler.stderr, "Failed make path absolute: %#v", err)
+        fmt.wprintfln(out.stderr, "Failed make path absolute: %#v", err)
         return 1
     }
     defer delete(absolute_file_name)
 
-    fmt.wprintfln(compiler.stdout, "Interpreting `%s`...", func.func_name)
+    fmt.wprintfln(out.stdout, "Interpreting `%s`...", func.func_name)
 
     absolute_file_dir := filepath.dir(absolute_file_name)
     state := ShortLivedInterpState {
@@ -352,7 +290,7 @@ compile :: proc(
         globals_without_generic = checker_output.globals_without_generic,
         checked_funcs           = checker_output.checked_funcs,
         builtin_handler         = BuiltinHandler {
-            &DefaultBuiltinHandlerData{absolute_file_dir, run.program_io, stdin},
+            &DefaultBuiltinHandlerData{absolute_file_dir, run.program_io, run.stdin},
             default_builtin_handler_procedure,
         },
         exit_early              = exit_early,
@@ -360,12 +298,12 @@ compile :: proc(
     args: []RuntimeValue
     if function_type == .CompilerToInt {
         compiler_cache_struct_fields := make([]RuntimeValue, 3)
-        compiler_cache_struct_fields[0] = BuiltinFunction.cache_contains
-        compiler_cache_struct_fields[1] = BuiltinFunction.cache_set
-        compiler_cache_struct_fields[2] = BuiltinFunction.cache_get
+        compiler_cache_struct_fields[0] = compiler.BuiltinFunction.cache_contains
+        compiler_cache_struct_fields[1] = compiler.BuiltinFunction.cache_set
+        compiler_cache_struct_fields[2] = compiler.BuiltinFunction.cache_get
 
         compiler_struct_fields := make([]RuntimeValue, 2)
-        compiler_struct_fields[0] = BuiltinFunction.emit_js_code
+        compiler_struct_fields[0] = compiler.BuiltinFunction.emit_js_code
         compiler_struct_fields[1] = RuntimeStruct {
             true,
             compiler_cache_struct_fields,
@@ -380,7 +318,7 @@ compile :: proc(
         RuntimeFunc{checker_output.func_ref, nil},
         args,
     )
-    if should_exit_early(exit_early) {
+    if compiler.should_exit_early(exit_early) {
         return 1
     } else {
         return expect_int(result.(f64))
@@ -542,6 +480,9 @@ print_help :: proc(exit_code: int) -> ! {
         "` transpile a file into C and then build the C code into an executable",
     )
     fmt.println("- `run " + args + "` compile a file and interpret a function within that file")
+    fmt.println(
+        "- `lsp` start the LSP server, using stdin and stdout for communication with the client",
+    )
     fmt.println("- `help` show this help message")
     fmt.println("- For commands that take the arguments `" + args + "`:")
     fmt.println(
@@ -580,7 +521,7 @@ parse_args_after_command :: proc(args_after_command: []string) -> (FunctionRef, 
         return FunctionRef{default_file_name, default_func_name}, watch
     case 1:
         for char in func_ref_args[0] {
-            if !is_alphanumeric_char_any(char) {
+            if !utils.is_alphanumeric_char_any(char) {
                 return FunctionRef{func_ref_args[0], default_func_name}, watch
             }
         }
@@ -619,7 +560,7 @@ main :: proc() {
     stderr_writer: bufio.Writer
     bufio.writer_init_with_buf(&stdout_writer, os.to_stream(os.stdout), stdout_buf[:])
     bufio.writer_init_with_buf(&stderr_writer, os.to_stream(os.stderr), stderr_buf[:])
-    std_pipe := Pipe(io.Writer) {
+    std_pipe := utils.Pipe(io.Writer) {
         bufio.writer_to_writer(&stdout_writer),
         bufio.writer_to_writer(&stderr_writer),
     }
@@ -629,38 +570,54 @@ main :: proc() {
         print_help(1)
     }
 
+    expect_args_finished :: proc(command: string) {
+        extra := os.args[2:]
+        if len(extra) > 0 {
+            fmt.eprintfln(
+                "Did not expect any extra argument to be passed to the `%s` command",
+                command,
+            )
+            fmt.eprintfln("Got %d extra arguments", len(extra))
+            os.exit(1)
+        }
+    }
+
     command: Command
     switch os.args[1] {
     case "build_c":
         command = BuildC{}
     case "run":
-        command = Run{std_pipe, new(LongLivedInterpState)}
+        command = Run{std_pipe, io.Reader(os.to_stream(os.stdin)), new(LongLivedInterpState)}
     case "help":
+        expect_args_finished("help")
         print_help(0)
+    case "lsp":
+        expect_args_finished("lsp")
+        lsp.run_lsp()
+        return
     case:
         fmt.eprintfln("Unexpected command `%s`", os.args[1])
         print_help(1)
     }
 
     ref, watch := parse_args_after_command(os.args[2:])
-    early_exit_info: EarlyExitInfo = watch ? new(ExitEarly) : NeverExitEarly{}
+    if ref.func_name == "" {
+        fmt.eprintfln("Error: Got an empty string as the function name")
+        print_help(1)
+    }
+    early_exit_info: compiler.EarlyExitInfo =
+        watch ? new(compiler.ExitEarly) : compiler.NeverExitEarly{}
+    a: utils.Arena
+    defer utils.cleanup_arena(&a, expect_empty = true, delete_blocks = true)
     for {
-        a: Arena
-        defer delete_arena(&a, expect_empty = false)
-        ret := compile(
-            &a,
-            ref,
-            std_pipe,
-            command,
-            io.to_reader(os.to_stream(os.stdin)),
-            early_exit_info,
-        )
+        defer utils.cleanup_arena(&a, expect_empty = false, delete_blocks = false)
+        ret := compile(&a, ref, std_pipe, command, early_exit_info)
         switch exit_early in early_exit_info {
-        case NeverExitEarly:
+        case compiler.NeverExitEarly:
             os.exit(ret)
-        case ^ExitEarly:
+        case ^compiler.ExitEarly:
             switch &exit_early_value in exit_early {
-            case ExitEarlyAwaitingSourceCodeChange:
+            case compiler.ExitEarlyAwaitingSourceCodeChange:
                 if len(exit_early_value.files) == 0 {
                     assert(ret != 0)
                     fmt.eprintln(
@@ -669,12 +626,12 @@ main :: proc() {
                     os.exit(ret)
                 }
                 fmt.println("Awaiting source code change...")
-                for !source_code_changed(&exit_early_value) {
+                for !compiler.source_code_changed(&exit_early_value) {
                     time.sleep(10 * time.Millisecond)
                 }
-            case ExitEarlyAfterSourceCodeChanged:
+            case compiler.ExitEarlyAfterSourceCodeChanged:
             }
         }
-        fmt.println(ansi_clear + "Recompiling after source code change...")
+        fmt.println(utils.ansi_clear + "Recompiling after source code change...")
     }
 }

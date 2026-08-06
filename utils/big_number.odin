@@ -1,4 +1,4 @@
-package main
+package utils
 
 // Custom arbitrary size number implementation
 // TODO:

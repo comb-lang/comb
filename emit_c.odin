@@ -1,12 +1,14 @@
 package main
 
+import "compiler"
 import "core:fmt"
 import "core:strings"
+import "utils"
 
 GeneralEmitterState :: struct {
     b:             strings.Builder,
-    types:         Types,
-    checked_funcs: []CheckedFunction,
+    types:         compiler.Types,
+    checked_funcs: []compiler.CheckedFunction,
 }
 
 CEmitterState :: struct {
@@ -19,16 +21,16 @@ CEmitterState :: struct {
 
 variable_format :: "nesting_level%dindex%d"
 
-emit_variable :: proc(b: ^strings.Builder, variable: VariableRef) {
+emit_variable :: proc(b: ^strings.Builder, variable: compiler.VariableRef) {
     var := fmt.aprintf(variable_format, variable.nesting_level, variable.index)
     strings.write_string(b, var)
     delete_string(var)
 }
 
 // Does not include the `struct`
-emit_struct_type :: proc(b: ^strings.Builder, type: StructType, loc := #caller_location) {
-    when debug_emitter {
-        print_call(loc, "emit_struct_type")
+emit_struct_type :: proc(b: ^strings.Builder, type: compiler.StructType, loc := #caller_location) {
+    when utils.debug_emitter {
+        utils.print_call(loc, "emit_struct_type")
     }
     strings.write_byte(b, '{')
     for _, index in type.m.keys {
@@ -40,7 +42,7 @@ emit_struct_type :: proc(b: ^strings.Builder, type: StructType, loc := #caller_l
     strings.write_byte(b, '}')
 }
 
-emit_type :: proc(b: ^strings.Builder, name: string, type: Type) {
+emit_type :: proc(b: ^strings.Builder, name: string, type: compiler.Type) {
     #partial switch type {
     case .Bool:
         strings.write_string(b, "bool")
@@ -53,7 +55,7 @@ emit_type :: proc(b: ^strings.Builder, name: string, type: Type) {
     case .Any:
         strings.write_string(b, "void*")
     case:
-        if type > Type.MaxIndex {
+        if type > compiler.Type.MaxIndex {
             panic(fmt.aprintf("Type is %v", type))
         }
         strings.write_string(b, "Type")
@@ -63,7 +65,7 @@ emit_type :: proc(b: ^strings.Builder, name: string, type: Type) {
     strings.write_string(b, name)
 }
 
-emit_c_func_call :: proc(s: ^CEmitterState, c: CheckedFunctionCall) {
+emit_c_func_call :: proc(s: ^CEmitterState, c: compiler.CheckedFunctionCall) {
     emit_c_value(s, c.function^)
     strings.write_byte(&s.b, '(')
     for arg, i in c.args {
@@ -75,18 +77,18 @@ emit_c_func_call :: proc(s: ^CEmitterState, c: CheckedFunctionCall) {
     strings.write_byte(&s.b, ')')
 }
 
-emit_c_comptime_value :: proc(s: ^CEmitterState, value: CompileTimeValue) {
+emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.CompileTimeValue) {
     switch comptime in value {
-    case CompileTimeArray:
+    case compiler.CompileTimeArray:
         panic("TODO")
-    case CompileTimeOrderedHashMapInitialisation:
+    case compiler.CompileTimeOrderedHashMapInitialisation:
         panic("TODO")
-    case CastFunction:
+    case compiler.CastFunction:
         panic("TODO")
-    case BuiltinFunction:
+    case compiler.BuiltinFunction:
         strings.write_string(&s.b, "builtin")
         strings.write_uint(&s.b, uint(comptime))
-    case CompileTimeStructInitialisation:
+    case compiler.CompileTimeStructInitialisation:
         strings.write_string(&s.b, "init_Type")
         strings.write_uint(&s.b, uint(comptime.func.return_type))
         strings.write_string(&s.b, "(")
@@ -99,20 +101,20 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: CompileTimeValue) {
             first_arg = false
         }
         strings.write_string(&s.b, ")")
-    case Func:
+    case compiler.Func:
         // TODO: Handle comptime.lambda_args
         strings.write_string(&s.b, "func")
         strings.write_uint(&s.b, comptime.ref.index)
-    case NumberValue:
+    case compiler.NumberValue:
         if comptime.is_negated {
             strings.write_byte(&s.b, '-')
         }
-        strings.write_string(&s.b, big_uint_to_string(comptime.whole_part))
+        strings.write_string(&s.b, utils.big_uint_to_string(comptime.whole_part))
         if comptime.fraction_part != "" {
             strings.write_byte(&s.b, '.')
             strings.write_string(&s.b, comptime.fraction_part)
         }
-    case StringLiteralValue:
+    case compiler.StringLiteralValue:
         strings.write_byte(&s.b, '"')
         for char in comptime {
             switch char {
@@ -127,32 +129,34 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: CompileTimeValue) {
             }
         }
         strings.write_byte(&s.b, '"')
-    case BoolValue:
+    case compiler.BoolValue:
         strings.write_string(&s.b, comptime ? "true" : "false")
-    case Type:
+    case compiler.Type:
         panic("Unreachable")
-    case GlobalValueWithGenericRef, UninitialisedOrderedHashMapType, Import:
+    case compiler.GlobalValueWithGenericRef,
+         compiler.UninitialisedOrderedHashMapType,
+         compiler.Import:
         panic("Unreachable")
     }
 }
 
-emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
+emit_c_value :: proc(s: ^CEmitterState, v: compiler.CheckedValue) {
     switch value in v {
-    case LengthOfString:
+    case compiler.LengthOfString:
         panic("TODO")
-    case OrderedHashMapInitialisation:
+    case compiler.OrderedHashMapInitialisation:
         panic("TODO")
-    case ArrayLiteral:
+    case compiler.ArrayLiteral:
         panic("TODO: Handle array literal in C emitter")
-    case CheckedDerivation:
+    case compiler.CheckedDerivation:
         panic("TODO: Handle checked derivation in C emitter")
-    case CheckedOrderedHashMapAccess,
-         KeysOfOrderedHashMapWithStringKey,
-         KeysOfOrderedHashMapWithIntKey:
+    case compiler.CheckedOrderedHashMapAccess,
+         compiler.KeysOfOrderedHashMapWithStringKey,
+         compiler.KeysOfOrderedHashMapWithIntKey:
         panic("TODO")
-    case CompileTimeValue:
+    case compiler.CompileTimeValue:
         emit_c_comptime_value(s, value)
-    case ToString:
+    case compiler.ToString:
         strings.write_string(&s.b, "asprintf_value(")
         switch value.from_type {
         case .BoolType:
@@ -166,7 +170,7 @@ emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
         strings.write_byte(&s.b, ',')
         emit_c_value(s, value.value^)
         strings.write_string(&s.b, ")")
-    case CheckedFieldAccess:
+    case compiler.CheckedFieldAccess:
         emit_c_value(s, value.value^)
         strings.write_string(&s.b, ".field")
         strings.write_uint(&s.b, uint(value.field_index))
@@ -174,14 +178,14 @@ emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
     //    panic("Internal error: JsFunctionCall received by C emitter")
     //case ArrayValue:
     //    panic("Internal error: Unexpected array value")
-    case LengthOfArray:
+    case compiler.LengthOfArray:
         emit_c_value(s, value.array^)
         strings.write_string(&s.b, ".length")
-    case LengthOfOrderedHashMapWithStringKey:
+    case compiler.LengthOfOrderedHashMapWithStringKey:
         panic("TODO")
-    case LengthOfOrderedHashMapWithIntKey:
+    case compiler.LengthOfOrderedHashMapWithIntKey:
         panic("TODO")
-    case CheckedIndexedAccess:
+    case compiler.CheckedIndexedAccess:
         if value.base_type == .String {
             panic("TODO")
         }
@@ -192,7 +196,7 @@ emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
             panic("TODO")
         }
         strings.write_byte(&s.b, ']')
-    case CheckedFunctionCall:
+    case compiler.CheckedFunctionCall:
         emit_c_func_call(s, value)
     //case CheckedStructTypeInitialisation:
     //    emit_type(s, "", value.type)
@@ -206,26 +210,26 @@ emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
     //        emit_c_value(s, v)
     //    }
     //    strings.write_byte(&s.b, '}')
-    case StructTypeInitFunc:
+    case compiler.StructTypeInitFunc:
         strings.write_string(&s.b, "init_Type")
         strings.write_uint(&s.b, uint(value.return_type))
-    case SumTypeInitFunc:
+    case compiler.SumTypeInitFunc:
         strings.write_string(&s.b, "init_Type")
         strings.write_uint(&s.b, uint(value.sum_type))
         strings.write_string(&s.b, "Variant")
         strings.write_uint(&s.b, uint(value.variant_index))
-    case BooleanNotValue:
+    case compiler.BooleanNotValue:
         strings.write_byte(&s.b, '(')
         strings.write_byte(&s.b, '!')
         emit_c_value(s, value^)
         strings.write_byte(&s.b, ')')
-    case StringsAreEqual:
+    case compiler.StringsAreEqual:
         strings.write_string(&s.b, "(strcmp(")
         emit_c_value(s, value.str0^)
         strings.write_byte(&s.b, ',')
         emit_c_value(s, value.str1^)
         strings.write_string(&s.b, ")==0)")
-    case CheckedJoinedValues:
+    case compiler.CheckedJoinedValues:
         if value.join_method == .StringConcat {
             strings.write_string(&s.b, "asprintf_value(\"%s%s\",")
             emit_c_value(s, value.val0^)
@@ -275,7 +279,7 @@ emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
         }
         emit_c_value(s, value.val1^)
         strings.write_byte(&s.b, ')')
-    case VariableRef:
+    case compiler.VariableRef:
         emit_variable(&s.b, value)
     //case CheckedReadFile:
     //    strings.write_string(&s.b, "compiler_read_file(")
@@ -291,11 +295,11 @@ emit_c_value :: proc(s: ^CEmitterState, v: CheckedValue) {
 emit_c_block_head :: proc(
     s: ^CEmitterState,
     nesting_level: uint,
-    variables: []Type,
+    variables: []compiler.Type,
     loc := #caller_location,
 ) {
-    when debug_emitter {
-        print_call(loc, "emit_c_block_head")
+    when utils.debug_emitter {
+        utils.print_call(loc, "emit_c_block_head")
     }
     for type, index in variables {
         name := fmt.aprintf(variable_format, nesting_level, index)
@@ -310,28 +314,28 @@ unreachable_c_code :: "fprintf(stderr, \"Unreachable\");exit(1);"
 emit_c_block_body :: proc(
     s: ^CEmitterState,
     nesting_level: uint,
-    body: []CheckedStatement,
+    body: []compiler.CheckedStatement,
     loc := #caller_location,
 ) {
-    when debug_emitter {
-        print_call(loc, "emit_c_block_body")
-        print_arg("nesting_level", nesting_level)
-        print_arg("body", body)
+    when utils.debug_emitter {
+        utils.print_call(loc, "emit_c_block_body")
+        utils.print_arg("nesting_level", nesting_level)
+        utils.print_arg("body", body)
     }
     for statement in body {
         switch stmt in statement {
         //case CheckedJsFunctionCall, CheckedJsAssignment:
         //    panic("Internal error: JS received by C emitter")
-        case UnreachableStatement:
+        case compiler.UnreachableStatement:
             strings.write_string(&s.b, unreachable_c_code)
-        case CheckedFunctionCall:
+        case compiler.CheckedFunctionCall:
             emit_c_func_call(s, stmt)
             strings.write_byte(&s.b, ';')
-        case CheckedReturn:
+        case compiler.CheckedReturn:
             strings.write_string(&s.b, "return ")
             emit_c_value(s, stmt.value)
             strings.write_byte(&s.b, ';')
-        case CheckedIf:
+        case compiler.CheckedIf:
             strings.write_string(&s.b, "if (")
             emit_c_value(s, stmt.condition)
             strings.write_string(&s.b, "){")
@@ -339,7 +343,7 @@ emit_c_block_body :: proc(
             strings.write_string(&s.b, "} else {")
             emit_c_block(s, nesting_level + 1, stmt.else_block.variables, stmt.else_block.body)
             strings.write_byte(&s.b, '}')
-        case CheckedMatch:
+        case compiler.CheckedMatch:
             strings.write_string(&s.b, "switch (")
             emit_variable(&s.b, stmt.value)
             strings.write_string(&s.b, ".variant) {")
@@ -348,7 +352,8 @@ emit_c_block_body :: proc(
                 strings.write_int(&s.b, i)
                 strings.write_string(&s.b, ": {")
                 emit_c_block_head(s, nesting_level + 1, branch.block.variables)
-                if value_var, has_value_var := branch.value_var.(VariableRef); has_value_var {
+                if value_var, has_value_var := branch.value_var.(compiler.VariableRef);
+                   has_value_var {
                     emit_variable(&s.b, value_var)
                     strings.write_string(&s.b, " = *")
                     emit_variable(&s.b, stmt.value)
@@ -360,7 +365,7 @@ emit_c_block_body :: proc(
                 strings.write_string(&s.b, "break;}")
             }
             strings.write_string(&s.b, "default:" + unreachable_c_code + "}")
-        case CheckedLoop:
+        case compiler.CheckedLoop:
             strings.write_byte(&s.b, '{')
             emit_c_block(s, nesting_level + 1, stmt.variables, stmt.enter)
             strings.write_string(&s.b, "while (1) {")
@@ -372,7 +377,7 @@ emit_c_block_body :: proc(
             strings.write_string(&s.b, "}}loop")
             strings.write_uint(&s.b, stmt.loop_index)
             strings.write_string(&s.b, "end:;")
-        case CheckedLoopControlFlow:
+        case compiler.CheckedLoopControlFlow:
             strings.write_string(&s.b, "goto loop")
             strings.write_uint(&s.b, stmt.loop_index)
             switch stmt.kind {
@@ -431,7 +436,7 @@ emit_c_block_body :: proc(
             }
             strings.write_byte(&s.b, '}')
             */
-        case CheckedAssignment:
+        case compiler.CheckedAssignment:
             emit_variable(&s.b, stmt.dest)
             strings.write_byte(&s.b, '=')
             emit_c_value(s, stmt.value)
@@ -443,12 +448,12 @@ emit_c_block_body :: proc(
 emit_c_block :: proc(
     s: ^CEmitterState,
     nesting_level: uint,
-    variables: []Type,
-    body: []CheckedStatement,
+    variables: []compiler.Type,
+    body: []compiler.CheckedStatement,
     loc := #caller_location,
 ) {
-    when debug_emitter {
-        print_call(loc, "emit_c_block")
+    when utils.debug_emitter {
+        utils.print_call(loc, "emit_c_block")
     }
     emit_c_block_head(s, nesting_level, variables)
     emit_c_block_body(s, nesting_level, body)
@@ -463,15 +468,15 @@ emit_forward_struct_definition :: proc(s: ^CEmitterState, name: string) {
 }
 
 emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_location) {
-    when debug_emitter {
-        print_call(loc, "emit_c_global_type")
+    when utils.debug_emitter {
+        utils.print_call(loc, "emit_c_global_type")
     }
     name := fmt.aprintf("Type%d", index)
     defer delete(name)
     switch type in s.types.m.keys[index].key {
-    case GlobalType:
+    case compiler.GlobalType:
         panic("TODO")
-    case ArrayType:
+    case compiler.ArrayType:
         strings.write_string(&s.other_type_definitions, "struct ")
         strings.write_string(&s.other_type_definitions, name)
         strings.write_string(&s.other_type_definitions, "Struct")
@@ -487,7 +492,7 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
             strings.write_string(&s.other_type_definitions, "* elems;};")
         }
         emit_forward_struct_definition(s, name)
-    case OrderedHashMapTypeWithStringKey:
+    case compiler.OrderedHashMapTypeWithStringKey:
         emit_forward_struct_definition(s, name)
         strings.write_string(&s.other_type_definitions, "typedef struct ")
         strings.write_string(&s.other_type_definitions, name)
@@ -497,7 +502,7 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
         )
         strings.write_string(&s.other_type_definitions, name)
         strings.write_byte(&s.other_type_definitions, ';')
-    case OrderedHashMapTypeWithIntKey:
+    case compiler.OrderedHashMapTypeWithIntKey:
         emit_forward_struct_definition(s, name)
         strings.write_string(&s.other_type_definitions, "typedef struct ")
         strings.write_string(&s.other_type_definitions, name)
@@ -507,7 +512,7 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
         )
         strings.write_string(&s.other_type_definitions, name)
         strings.write_byte(&s.other_type_definitions, ';')
-    case FuncType:
+    case compiler.FuncType:
         strings.write_string(&s.other_type_definitions, "typedef ")
         switch len(type.return_types) {
         case 0:
@@ -531,11 +536,11 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
             is_first_arg = false
         }
         strings.write_string(&s.other_type_definitions, ");")
-    case GenericTypeValue:
+    case compiler.GenericTypeValue:
         strings.write_string(&s.other_type_definitions, "typedef ")
         emit_type(&s.other_type_definitions, name, s.types.values.d[index].type)
         strings.write_byte(&s.other_type_definitions, ';')
-    case SumType:
+    case compiler.SumType:
         // Main struct type
         strings.write_string(&s.sum_type_definitions, "struct ")
         strings.write_string(&s.sum_type_definitions, name)
@@ -555,7 +560,7 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
         // Variant funcs
         for _, i in type.m.keys {
             payload_type := type.payloads.d[i]
-            payload := get_type(s.types, payload_type).key.(StructType)
+            payload := compiler.get_type(s.types, payload_type).key.(compiler.StructType)
             strings.write_string(&s.sum_type_initialisation_funcs, name)
             strings.write_string(&s.sum_type_initialisation_funcs, " init_")
             strings.write_string(&s.sum_type_initialisation_funcs, name)
@@ -597,7 +602,7 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
             }
             strings.write_string(&s.sum_type_initialisation_funcs, ");return out;}")
         }
-    case StructType:
+    case compiler.StructType:
         // Type def
         emit_forward_struct_definition(s, name)
 
@@ -636,11 +641,11 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
     }
 }
 
-emit_function_head :: proc(s: ^CEmitterState, func_index: int, type: Type) {
-    when debug_emitter {
-        debug("emitting function index %d", func_index)
+emit_function_head :: proc(s: ^CEmitterState, func_index: int, type: compiler.Type) {
+    when utils.debug_emitter {
+        utils.debug("emitting function index %d", func_index)
     }
-    info := get_type(s.types, type).key.(FuncType)
+    info := compiler.get_type(s.types, type).key.(compiler.FuncType)
     switch len(info.return_types) {
     case 0:
         strings.write_string(&s.b, "void")
@@ -666,9 +671,9 @@ emit_function_head :: proc(s: ^CEmitterState, func_index: int, type: Type) {
 }
 
 emit_c :: proc(
-    types: Types,
-    checked_funcs: []CheckedFunction,
-    main_func_ref: CheckedFuncRef,
+    types: compiler.Types,
+    checked_funcs: []compiler.CheckedFunction,
+    main_func_ref: compiler.CheckedFuncRef,
 ) -> []byte {
     s := CEmitterState {
         strings.builder_make(),

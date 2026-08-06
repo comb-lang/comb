@@ -68,12 +68,11 @@ A new language for the web, because it's time to stop working around javascript.
   - Once this is done, arrays should grow by a multiple of 2 when they overflow rather than growing the minimum amount to be able to fit their new contents
 - Add reference counting to the emitted C code to stop it from leaking memory
 - Do not leak memory in the compiler and interpreter
-  - Especially important since the `-watch` flag was added
+  - Especially important because the compiler process can continue running for a long time when LSP is running or when the `-watch` flag is being used and the OS will only clean up the leaked memory when the process exits
   - For the interpreter, any http server in `LongLivedInterpState.http_servers` should be cleaned up once it is no longer accessible through in-scope variables or the compiler cache
 - Tell the c compiler the type of the number literals that are emitted
 - Check that number literals aren't too big or small for their type
 - Implement parsing boolean not
-- Implement number types other than `Int`
 - Design and implement memory management
 - Implement string interpolation
 - Add support for `yield` in if statements (should `yield`ing from a loop be supported?)

@@ -188,6 +188,7 @@ A new language for the web, because it's time to stop working around javascript.
 - v0.1.0: Implement any language features for writing interactive user interfaces, and a UI library to do so:
   - Features of the UI system:
     - Functional, elm-like reactivity
+      - I prefer [this slight variation on how you implement reactivity in elm](https://discourse.elm-lang.org/t/a-different-api-design-for-elm-web-that-removes-the-need-for-msg-and-update/10400)
     - Can compile to several different artifacts, all of which can seamlessly work together in the same website:
       - Static HTML, with client side reactivity
       - An executable for a server to handle requests

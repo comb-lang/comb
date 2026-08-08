@@ -1,4 +1,4 @@
-# Programming language
+# The comb programming language
 
 The second programming language that I've developed, after [common assembly](https://github.com/godalming123/common-assembly).
 
@@ -11,7 +11,7 @@ odin build .
 # Executing the fizzbuzz example
 
 ```sh
-./programming_language run examples/00_fizzbuzz.code
+./comb run examples/00_fizzbuzz.code
 ```
 
 # Running tests

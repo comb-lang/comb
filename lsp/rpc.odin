@@ -165,9 +165,9 @@ Info :: struct {
     version: string,
 }
 
-// TODO: Update server info
+// TODO: Update server version
 @(private = "package")
-server_info :: Info{"programming_language", "0.0.1"}
+server_info :: Info{"Comb LSP", "0.0.1"}
 
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#positionEncodingKind
 @(private = "package")

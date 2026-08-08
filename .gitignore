@@ -1,4 +1,4 @@
-programming_language
+comb
 examples/**/*.c
 examples/**/*.bin
 gitignore*

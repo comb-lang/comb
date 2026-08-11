@@ -474,8 +474,10 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
     name := fmt.aprintf("Type%d", index)
     defer delete(name)
     switch type in s.types.m.keys[index].key {
+    /*
     case compiler.GlobalType:
         panic("TODO")
+        */
     case compiler.ArrayType:
         strings.write_string(&s.other_type_definitions, "struct ")
         strings.write_string(&s.other_type_definitions, name)
@@ -536,10 +538,12 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
             is_first_arg = false
         }
         strings.write_string(&s.other_type_definitions, ");")
+    /*
     case compiler.GenericTypeValue:
         strings.write_string(&s.other_type_definitions, "typedef ")
         emit_type(&s.other_type_definitions, name, s.types.values.d[index].type)
         strings.write_byte(&s.other_type_definitions, ';')
+        */
     case compiler.SumType:
         // Main struct type
         strings.write_string(&s.sum_type_definitions, "struct ")

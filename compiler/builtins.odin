@@ -49,11 +49,11 @@ GotBuiltin :: struct {
     type:  Type,
 }
 
-// `GotBuiltin.value == nil` if and only if the builtin does not exist
-get_builtin :: proc(name: string) -> GotBuiltin {
+// Returns `nil` if and only if the builtin does not exist
+get_builtin :: proc(name: string) -> Maybe(GotBuiltin) {
     switch name {
     case:
-        return GotBuiltin{}
+        return nil
     case "print":
         return GotBuiltin{BuiltinFunction.print, .StringToNil}
     case "println":
@@ -211,7 +211,7 @@ add_variable :: proc(
         TextAndPos{variable.ident, variable.pos},
         can_have_dollar_postfix = true,
     )
-    if get_builtin(variable.ident).value != nil {
+    if get_builtin(variable.ident) != nil {
         utils.diagnostic(s.r, variable.pos, builtins_err, variable.ident)
         return VariableRef{}, false
     }

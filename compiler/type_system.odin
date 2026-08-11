@@ -131,9 +131,11 @@ TypeKey :: union {
     SumType,
     StructType,
 
+    /*
     // Both of these are included to be able to prevent cycles
     GlobalType, // The `TypeValue.type` is the initialised type, which is set to `unknown_type` when the global is not initialised yet
     GenericTypeValue, // The `TypeValue.type` is the initialised type, which is set to `unknown_type` when the generic is not initialised yet
+    */
 }
 
 fix_types :: proc(t: Types) {
@@ -433,10 +435,12 @@ hash_type_value :: proc(value: TypeKey) -> u32 {
         return hash_struct_type(v)
     case FuncType:
         return hash_func_type(v)
+    /*
     case GenericTypeValue:
         return v.global.index ~ get_hash_of_array_of_types(v.generic_args)
     case GlobalType:
         return u32(v.global.index)
+        */
     }
     panic("Unreachable")
 }
@@ -503,6 +507,7 @@ type_key_is_equal :: proc(a: TypeKey, b: TypeKey) -> bool {
             return false
         }
         return func_types_are_equal(va, vb)
+    /*
     case GenericTypeValue:
         vb, ok := b.(GenericTypeValue)
         if !ok {
@@ -526,6 +531,7 @@ type_key_is_equal :: proc(a: TypeKey, b: TypeKey) -> bool {
             return false
         }
         return va.global == vb.global
+        */
     case:
         panic("Unreachable")
     }

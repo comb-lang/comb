@@ -401,12 +401,12 @@ emit_js_global_type :: proc(s: ^GeneralEmitterState, index: int) {
     name := fmt.aprintf("Type%d", index)
     defer delete(name)
     switch t in s.types.m.keys[index].key {
-    case compiler.GlobalType:
+    // case compiler.GlobalType:
     case compiler.OrderedHashMapTypeWithStringKey:
     case compiler.OrderedHashMapTypeWithIntKey:
     case compiler.ArrayType:
     case compiler.FuncType:
-    case compiler.GenericTypeValue:
+    // case compiler.GenericTypeValue:
     case compiler.SumType:
         for _, i in t.m.keys {
             payload := compiler.get_type(s.types, t.payloads.d[i]).key.(compiler.StructType)

@@ -124,6 +124,7 @@ UnitWithoutPos :: union {
     Bool,
     MarkedUnit,
     Import,
+    UnitInRecursive,
 }
 
 UnitWithPos :: struct {
@@ -405,6 +406,8 @@ debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
     utils.debug("value at %v", unit.pos)
     utils.debug_nesting += 1
     switch v in unit.first_unit {
+    case UnitInRecursive:
+        panic("TODO")
     case UnitsInSquareBrackets:
         panic("TODO")
     case StructUnit:

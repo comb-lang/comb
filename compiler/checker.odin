@@ -3393,6 +3393,10 @@ check_initial_value :: proc(
         utils.diagnostic(s.r, pos, "Internal error: got nil value in check_value")
         return nil
 
+    case UnitInRecursive:
+        t := check_type(s, value.unit^, a.generic_args)
+        panic("TODO")
+
     case StructUnit:
         /*
         if a.early_exit_if_value_is_type != nil {

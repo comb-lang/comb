@@ -48,6 +48,7 @@ ElseToken :: struct {} // else
 ImportToken :: struct {} // import
 ReturnToken :: struct {} // return
 YieldToken :: struct {} // yield
+RecursiveToken :: struct {} // recursive
 LoopControlFlowKind :: enum {
     Continue,
     Break,
@@ -110,6 +111,7 @@ TokenContents :: union {
     ImportToken,
     ReturnToken,
     YieldToken,
+    RecursiveToken,
     AndToken,
     OrToken,
     MatchToken,
@@ -211,6 +213,8 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
         fmt.wprint(fi.writer, "the keyword `return`")
     case YieldToken:
         fmt.wprint(fi.writer, "the keyword `yield`")
+    case RecursiveToken:
+        fmt.wprint(fi.writer, "the keyword `recursive`")
     case LoopControlFlowToken:
         switch value.kind {
         case .Continue:
@@ -542,6 +546,8 @@ get_next_token :: proc(
             state.last_token = ReturnToken{}
         case "yield":
             state.last_token = YieldToken{}
+        case "recursive":
+            state.last_token = RecursiveToken{}
         case "continue":
             state.last_token = LoopControlFlowToken{.Continue}
         case "break":

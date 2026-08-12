@@ -11,6 +11,11 @@
 h = import "http.code"
 p = import "path.code"
 
+UIUpdater = <
+    None,
+    Redraw {f: () -> UI},
+>
+
 SvgElem = <
     Line {
         x1: UInt,
@@ -23,21 +28,26 @@ SvgElem = <
     },
 >
 
-HtmlElem = <
-    Button {children: []HtmlElem, onclick: () -> UI},
-    Div {style: String, children: []HtmlElem},
+HtmlElemProps[HandlerOutput] = {
+    style: String,
+    onclick: () -> UI[{}],
+    on_key_down: (Key) -> HandlerOutput,
+}
+
+HtmlElem = recursive <
+    Button {children: []Recurse, props: HtmlElemProps[UI[[]Recurse]]},
+    Div {children: []Recurse, props: HtmlElemProps[UI]},
     Text {text: String},
-    Svg {style: String, width: UInt, height: UInt, contents: []SvgElem},
+    Svg {width: UInt, height: UInt, contents: []SvgElem, props: HtmlElemProps[UI]},
 >
 
 Key = {
     key: String,
 }
 
-UI = {
+UI[Contents] = {
     page_title: String,
-    ui_contents: []HtmlElem,
-    on_key_down: (Key) -> UI,
+    ui_contents: Contents,
 }
 
 Site = {

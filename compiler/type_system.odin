@@ -90,7 +90,8 @@ Type :: enum u32 {
     Bool = max(u32) - 9,
     Invalid = max(u32) - 10,
     Unknown = max(u32) - 11, // TODO: Ideally `unknown_type` would not be necersarry
-    MaxIndex = max(u32) - 12,
+    Recurse = max(u32) - 12,
+    MaxIndex = max(u32) - 13,
 }
 
 response_type_variant_index_to_content_type :: proc(variant_index: u32) -> string {

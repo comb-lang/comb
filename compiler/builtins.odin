@@ -118,6 +118,8 @@ get_builtin :: proc(name: string) -> Maybe(GotBuiltin) {
         return GotBuiltin{Type.HttpResponse, .Type}
     case "HttpServer":
         return GotBuiltin{Type.HttpServer, .Type}
+    case "Recurse":
+        return GotBuiltin{Type.Recurse, .Type}
     }
 }
 

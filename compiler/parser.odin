@@ -192,6 +192,7 @@ maybe_parse_initial_unit :: proc(
             "`[` to create an array type",
             "`{` to create a struct type",
             "`re`",
+            "`recursive` to define a recursive type",
             // "`dynamic` for a dynamic type",
         )
         return nil, true
@@ -199,6 +200,14 @@ maybe_parse_initial_unit :: proc(
     #partial switch token in s.last_token {
     case:
         return e(s)
+
+    case RecursiveToken:
+        get_next_token(s, false)
+        value, ok := parse_unit(s)
+        if !ok {
+            return nil, false
+        }
+        return UnitInRecursive{new_clone(value)}, true
 
     case ImportToken:
         get_next_token(s, false)
@@ -1436,6 +1445,10 @@ GlobalValueWithoutGenericRef :: struct {
 
 Import :: struct {
     file: ^utils.CompilerFile,
+}
+
+UnitInRecursive :: struct {
+    unit: ^Unit,
 }
 
 ParsedGlobal :: struct {

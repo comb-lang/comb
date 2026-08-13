@@ -473,7 +473,7 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
     }
     name := fmt.aprintf("Type%d", index)
     defer delete(name)
-    switch type in s.types.m.keys[index].key {
+    switch type in s.types.values[index].key {
     case compiler.GlobalType:
         panic("TODO")
     case compiler.ArrayType:
@@ -538,7 +538,7 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
         strings.write_string(&s.other_type_definitions, ");")
     case compiler.GenericTypeValue:
         strings.write_string(&s.other_type_definitions, "typedef ")
-        emit_type(&s.other_type_definitions, name, s.types.values.d[index].type)
+        emit_type(&s.other_type_definitions, name, s.types.values[index].value.type)
         strings.write_byte(&s.other_type_definitions, ';')
     case compiler.SumType:
         // Main struct type
@@ -683,7 +683,7 @@ emit_c :: proc(
         GeneralEmitterState{strings.builder_make(), types, checked_funcs},
     }
 
-    for _, i in types.m.keys {
+    for _, i in types.values {
         emit_c_global_type(&s, i)
     }
 

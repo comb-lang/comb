@@ -440,7 +440,7 @@ basic_type_system_test :: proc(t: ^testing.T) {
         &types,
         compiler.GenericTypeValue{compiler.GlobalValueWithGenericRef{7}, generic_args0},
     )
-    types.values.d[generic1.type].type = .Int
+    types.values[generic1.type].value.type = .Int
     generic2 := compiler.create_type(
         &types,
         compiler.GenericTypeValue{compiler.GlobalValueWithGenericRef{7}, generic_args1},

@@ -137,14 +137,14 @@ TypeKey :: union {
 }
 
 fix_types :: proc(t: Types) {
-    utils.fix_key_to_index(t.m)
-    utils.fix_resizable_multi(t.values)
+    utils.fix_hash_to_possible_indexes(t.m)
+    utils.fix_resizable_dynamic(t.values)
 }
 
 create_types :: proc(a: ^utils.Arena) -> Types {
     out := Types {
-        utils.make_key_to_index(a, utils.KeyToIndex(TypeKey)),
-        utils.arena_make_multi(a, utils.Multi(TypeValue), 0, resizable = true),
+        utils.make_hash_to_possible_indexes(a),
+        utils.arena_make(a, []T, 0, resizable = true),
     }
 
     array_with_string_type := utils.arena_make(a, []Type, 1)
@@ -373,9 +373,18 @@ TypeValue :: struct {
     type: Type,
 }
 
+initial_type_value :: TypeValue{.Unknown}
+
+@(private = "file")
+T :: struct {
+    key_hash: u32,
+    key:      TypeKey,
+    value:    TypeValue,
+}
+
 Types :: struct {
-    m:      utils.KeyToIndex(TypeKey),
-    values: utils.Multi(TypeValue),
+    m:      utils.HashToPossibleIndexes,
+    values: []T,
 }
 
 GotType :: struct {
@@ -387,7 +396,7 @@ get_type :: proc(types: Types, t: Type) -> GotType {
     if t > Type.MaxIndex {
         return GotType{nil, TypeValue{}}
     }
-    return GotType{types.m.keys[t].key, types.values.d[t]}
+    return GotType{types.values[t].key, types.values[t].value}
 }
 
 CreatedType :: struct {
@@ -401,24 +410,33 @@ create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> C
         utils.print_call(loc, "create_type")
         utils.debug("value: %v", value)
     }
-    type, result := utils.lookup_or_insert(
-        &types.m,
-        value,
-        utils.KeyToIndexProcs(TypeKey){hash_type_value, type_key_is_equal},
-        loc,
-    )
-    if result == .Inserted {
-        utils.resize_multi(&types.values, len(types.m.keys))
-        types.values.d[type.index] = TypeValue{.Unknown}
+
+    if new_size := utils.size_after_next_insertion(types.m); new_size != len(types.m.slots) {
+        utils.resize_dynamic(&types.m.slots, new_size)
+        utils.set_to_ones(types.m.slots)
+        for t, index in types.values {
+            r := utils.get_possible_indexes(types.m, t.key_hash)
+            types.m.slots[r.next_empty_slot.index] = utils.Index{u32(index)}
+        }
     }
 
-    out := CreatedType{Type(type.index), types.values.d[type.index], result}
-    when utils.debug_checker {
-        utils.debug("out: %v", out)
+    hash := hash_type_value(value)
+    r := utils.get_possible_indexes(types.m, hash)
+    for possible_index in r.possible_indexes {
+        t := types.values[possible_index.index]
+        if type_key_is_equal(t.key, value) {
+            return CreatedType{Type(possible_index.index), t.value, .LookedUp}
+        }
     }
-    return out
+
+    index := u32(len(types.values))
+    utils.append_dynamic(&types.values, T{hash, value, initial_type_value})
+    types.m.slots[r.next_empty_slot.index] = utils.Index{index}
+    types.m.number_of_used_slots += 1
+    return CreatedType{Type(index), initial_type_value, .Inserted}
 }
 
+@(private = "file")
 hash_type_value :: proc(value: TypeKey) -> u32 {
     switch v in value {
     case ArrayType:
@@ -441,6 +459,7 @@ hash_type_value :: proc(value: TypeKey) -> u32 {
     panic("Unreachable")
 }
 
+@(private = "file")
 hash_struct_type :: proc(value: StructType) -> u32 {
     result: u32
     for field, i in value.m.keys {
@@ -452,6 +471,7 @@ hash_struct_type :: proc(value: StructType) -> u32 {
     return result
 }
 
+@(private = "file")
 hash_sum_type :: proc(value: SumType) -> u32 {
     result: u32
     for variant, i in value.m.keys {
@@ -463,6 +483,7 @@ hash_sum_type :: proc(value: SumType) -> u32 {
     return result
 }
 
+@(private = "file")
 hash_func_type :: proc(value: FuncType) -> u32 {
     result: u32
     for arg in value.args {
@@ -531,6 +552,7 @@ type_key_is_equal :: proc(a: TypeKey, b: TypeKey) -> bool {
     }
 }
 
+@(private = "file")
 struct_types_are_equal :: proc(a: StructType, b: StructType) -> bool {
     if len(a.m.keys) != len(b.m.keys) {
         return false
@@ -546,6 +568,7 @@ struct_types_are_equal :: proc(a: StructType, b: StructType) -> bool {
     return true
 }
 
+@(private = "file")
 sum_types_are_equal :: proc(a: SumType, b: SumType) -> bool {
     if len(a.m.keys) != len(b.m.keys) {
         return false
@@ -561,6 +584,7 @@ sum_types_are_equal :: proc(a: SumType, b: SumType) -> bool {
     return true
 }
 
+@(private = "file")
 func_types_are_equal :: proc(a: FuncType, b: FuncType) -> bool {
     if len(a.args) != len(b.args) {
         return false

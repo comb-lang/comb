@@ -869,11 +869,11 @@ check_comptime_func_call :: proc(
         assert(value_type == .Type)
         assert(
             type_key_is_equal(
-                s.types.m.keys[type_value].key,
+                s.types.values[type_value].key,
                 GenericTypeValue{global, generic_args},
             ),
         )
-        s.types.values.d[type_value].type =
+        s.types.values[type_value].value.type =
             initialised_type == nil ? .Invalid : initialised_type.(CompileTimeValue).(Type)
     }
 
@@ -4276,7 +4276,7 @@ check_global_value_without_generic :: proc(
     global.v = CheckedGlobalValue{type, comptime_value}
     if type == .Type {
         type_value := comptime_value.(Type)
-        assert(type_key_is_equal(s.types.m.keys[type_value].key, early_exit_if_value_is_type))
+        assert(type_key_is_equal(s.types.values[type_value].key, early_exit_if_value_is_type))
         initialised_type := check_value(
             s,
             value.unit,
@@ -4284,9 +4284,9 @@ check_global_value_without_generic :: proc(
         )
         assert(type == .Type)
         if initialised_type == nil {
-            s.types.values.d[type_value].type = .Invalid
+            s.types.values[type_value].value.type = .Invalid
         } else {
-            s.types.values.d[type_value].type = initialised_type.(CompileTimeValue).(Type)
+            s.types.values[type_value].value.type = initialised_type.(CompileTimeValue).(Type)
         }
     }
     return global.v

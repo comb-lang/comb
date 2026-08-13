@@ -400,7 +400,7 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
 emit_js_global_type :: proc(s: ^GeneralEmitterState, index: int) {
     name := fmt.aprintf("Type%d", index)
     defer delete(name)
-    switch t in s.types.m.keys[index].key {
+    switch t in s.types.values[index].key {
     case compiler.GlobalType:
     case compiler.OrderedHashMapTypeWithStringKey:
     case compiler.OrderedHashMapTypeWithIntKey:
@@ -612,7 +612,7 @@ emit_javascript :: proc(
         "function map_update(map, key, func) {return new Map(map).set(key, func(map.get(key)))}",
     )
 
-    for _, index in types.m.keys {
+    for _, index in types.values {
         emit_js_global_type(&s, index)
     }
 

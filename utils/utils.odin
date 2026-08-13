@@ -5,9 +5,14 @@ import "core:bufio"
 import "core:fmt"
 import "core:io"
 import "core:math/rand"
+import "core:mem"
 import "core:os"
 import "core:strings"
 import "core:testing"
+
+set_to_ones :: proc(data: $T/[]$E) {
+    mem.set(&data[0], max(u8), len(data) * size_of(E))
+}
 
 Position :: struct {
     line: uint,

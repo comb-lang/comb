@@ -370,10 +370,9 @@ TypeValue :: struct {
     // Either `.unknown_type` or a simplification of the type
     // Should only be a simplification of the type if the type is `GlobalType`
     // or `GenericTypeValue`
-    type: Type,
+    type:                          Type,
+    potentially_cyclical_children: []Type,
 }
-
-initial_type_value :: TypeValue{.Unknown}
 
 @(private = "file")
 T :: struct {
@@ -405,10 +404,10 @@ CreatedType :: struct {
     result:     utils.Result,
 }
 
-create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> CreatedType {
+create_type :: proc(types: ^Types, key: TypeKey, loc := #caller_location) -> CreatedType {
     when utils.debug_checker {
         utils.print_call(loc, "create_type")
-        utils.debug("value: %v", value)
+        utils.debug("key: %v", key)
     }
 
     if new_size := utils.size_after_next_insertion(types.m); new_size != len(types.m.slots) {
@@ -420,20 +419,80 @@ create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> C
         }
     }
 
-    hash := hash_type_value(value)
+    hash := hash_type_value(key)
     r := utils.get_possible_indexes(types.m, hash)
     for possible_index in r.possible_indexes {
         t := types.values[possible_index.index]
-        if type_key_is_equal(t.key, value) {
+        if type_key_is_equal(t.key, key) {
             return CreatedType{Type(possible_index.index), t.value, .LookedUp}
         }
     }
 
     index := u32(len(types.values))
-    utils.append_dynamic(&types.values, T{hash, value, initial_type_value})
+    type := Type(index)
+    value := TypeValue{.Unknown, get_possible_cyclical_children(types^, key, type)}
+    utils.append_dynamic(&types.values, T{hash, key, value})
     types.m.slots[r.next_empty_slot.index] = utils.Index{index}
     types.m.number_of_used_slots += 1
-    return CreatedType{Type(index), initial_type_value, .Inserted}
+    return CreatedType{type, value, .Inserted}
+}
+
+@(private = "file")
+get_possible_cyclical_children :: proc(types: Types, key: TypeKey, type: Type) -> []Type {
+    arena := utils.get_info(&types.m.slots[0]).block.arena
+    switch t in key {
+    case ArrayType:
+        return get_type(types, t.item_type).value.potentially_cyclical_children
+    case OrderedHashMapTypeWithStringKey:
+        return get_type(types, t.value_type).value.potentially_cyclical_children
+    case OrderedHashMapTypeWithIntKey:
+        return get_type(types, t.value_type).value.potentially_cyclical_children
+    case FuncType:
+        out := utils.arena_make(arena, []Type, 0)
+        for a in t.args {
+            utils.append_dynamic_elems(
+                &out,
+                ..get_type(types, a).value.potentially_cyclical_children,
+            )
+        }
+        for v in t.return_types {
+            utils.append_dynamic_elems(
+                &out,
+                ..get_type(types, v).value.potentially_cyclical_children,
+            )
+        }
+        return out
+    case SumType:
+        out := utils.arena_make(arena, []Type, 0)
+        for payload in utils.multi_to_array(t.payloads, len(t.m.keys)) {
+            utils.append_dynamic_elems(
+                &out,
+                ..get_type(types, payload).value.potentially_cyclical_children,
+            )
+        }
+        return out
+    case StructType:
+        out := utils.arena_make(arena, []Type, 0)
+        for field in utils.multi_to_array(t.types, len(t.m.keys)) {
+            utils.append_dynamic_elems(
+                &out,
+                ..get_type(types, field).value.potentially_cyclical_children,
+            )
+        }
+        return out
+    case GenericTypeValue:
+        // panic("TODO: Remove")
+        out := utils.arena_make(arena, []Type, 1)
+        out[0] = type
+        return out
+    case GlobalType:
+        // panic("TODO: Remove")
+        out := utils.arena_make(arena, []Type, 1)
+        out[0] = type
+        return out
+    case:
+        panic("Unreachable")
+    }
 }
 
 @(private = "file")

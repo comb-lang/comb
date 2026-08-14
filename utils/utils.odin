@@ -74,8 +74,8 @@ when ODIN_DEBUG {
     SourceCodeLocationOnDebug :: struct {}
 }
 
-panicf :: proc(format: string, args: ..any) -> ! {
-    panic(fmt.aprintf(format, ..args))
+panicf :: proc(format: string, args: ..any, loc := #caller_location) -> ! {
+    panic(fmt.aprintf(format, ..args), loc)
 }
 
 reader_stream_proc :: proc(

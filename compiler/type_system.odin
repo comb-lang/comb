@@ -106,6 +106,7 @@ response_type_variant_index_to_content_type :: proc(variant_index: u32) -> strin
     }
 }
 
+/*
 GlobalType :: struct {
     global: GlobalValueWithoutGenericRef,
 }
@@ -113,6 +114,14 @@ GlobalType :: struct {
 GenericTypeValue :: struct {
     global:       GlobalValueWithGenericRef,
     generic_args: []Type,
+}
+*/
+
+UninitialisedType :: struct {
+    created_at: utils.SourceCodeLocationOnDebug,
+}
+InitialisedType :: struct {
+    t: Type,
 }
 
 get_hash_of_array_of_types :: proc(arr: []Type) -> u32 {
@@ -131,9 +140,17 @@ TypeKey :: union {
     SumType,
     StructType,
 
+    // Used as a placeholder for a type which will be initialised in the future
+    // when initialising the type may cause infinite recursion in the checker
+    // The key is changed to an `InitialisedType` when the type is initialised
+    UninitialisedType,
+    InitialisedType,
+
+    /*
     // Both of these are included to be able to prevent cycles
     GlobalType, // The `TypeValue.type` is the initialised type, which is set to `unknown_type` when the global is not initialised yet
     GenericTypeValue, // The `TypeValue.type` is the initialised type, which is set to `unknown_type` when the generic is not initialised yet
+    */
 }
 
 fix_types :: proc(t: Types) {
@@ -365,12 +382,9 @@ create_types :: proc(a: ^utils.Arena) -> Types {
 }
 
 TypeValue :: struct {
+    // TODO: The alias used by the type to string function should be the alias which is in the current scope
+    // TODO: The checker should check that there is only one alias in the current scope
     // aliases: [dynamic]string, // TODO
-
-    // Either `.unknown_type` or a simplification of the type
-    // Should only be a simplification of the type if the type is `GlobalType`
-    // or `GenericTypeValue`
-    type:                          Type,
     potentially_cyclical_children: []Type,
 }
 
@@ -414,12 +428,18 @@ create_type :: proc(types: ^Types, key: TypeKey, loc := #caller_location) -> Cre
         utils.resize_dynamic(&types.m.slots, new_size)
         utils.set_to_ones(types.m.slots)
         for t, index in types.values {
+            if t.key_hash == max(u32) {
+                continue
+            }
             r := utils.get_possible_indexes(types.m, t.key_hash)
             types.m.slots[r.next_empty_slot.index] = utils.Index{u32(index)}
         }
     }
 
     hash := hash_type_value(key)
+    if hash == max(u32) {
+        hash = max(u32) - 1
+    }
     r := utils.get_possible_indexes(types.m, hash)
     for possible_index in r.possible_indexes {
         t := types.values[possible_index.index]
@@ -430,15 +450,33 @@ create_type :: proc(types: ^Types, key: TypeKey, loc := #caller_location) -> Cre
 
     index := u32(len(types.values))
     type := Type(index)
-    value := TypeValue{.Unknown, get_possible_cyclical_children(types^, key, type)}
+    value := TypeValue{get_possibly_cyclical_children(types^, key)}
     utils.append_dynamic(&types.values, T{hash, key, value})
     types.m.slots[r.next_empty_slot.index] = utils.Index{index}
     types.m.number_of_used_slots += 1
     return CreatedType{type, value, .Inserted}
 }
 
+create_uninitialised_type :: proc(types: ^Types, loc := #caller_location) -> Type {
+    arena := utils.get_info(&types.m.slots[0]).block.arena
+    out := Type(len(types.values))
+    possibly_cyclical_children := utils.arena_make(arena, []Type, 1)
+    possibly_cyclical_children[0] = out
+    when ODIN_DEBUG {
+        t := UninitialisedType{loc}
+    } else {
+        t := UninitialisedType{}
+    }
+    utils.append_dynamic(&types.values, T{max(u32), t, TypeValue{possibly_cyclical_children}})
+    return out
+}
+
 @(private = "file")
-get_possible_cyclical_children :: proc(types: Types, key: TypeKey, type: Type) -> []Type {
+get_possibly_cyclical_children :: proc(
+    types: Types,
+    key: TypeKey,
+    loc := #caller_location,
+) -> []Type {
     arena := utils.get_info(&types.m.slots[0]).block.arena
     switch t in key {
     case ArrayType:
@@ -480,6 +518,11 @@ get_possible_cyclical_children :: proc(types: Types, key: TypeKey, type: Type) -
             )
         }
         return out
+    case UninitialisedType:
+        utils.panicf("Unreachable (called at %v)", loc)
+    case InitialisedType:
+        utils.panicf("Unreachable (called at %v)", loc)
+    /*
     case GenericTypeValue:
         // panic("TODO: Remove")
         out := utils.arena_make(arena, []Type, 1)
@@ -490,13 +533,14 @@ get_possible_cyclical_children :: proc(types: Types, key: TypeKey, type: Type) -
         out := utils.arena_make(arena, []Type, 1)
         out[0] = type
         return out
+        */
     case:
         panic("Unreachable")
     }
 }
 
 @(private = "file")
-hash_type_value :: proc(value: TypeKey) -> u32 {
+hash_type_value :: proc(value: TypeKey, loc := #caller_location) -> u32 {
     switch v in value {
     case ArrayType:
         return v.length ~ u32(v.item_type)
@@ -510,12 +554,19 @@ hash_type_value :: proc(value: TypeKey) -> u32 {
         return hash_struct_type(v)
     case FuncType:
         return hash_func_type(v)
+    case UninitialisedType:
+        utils.panicf("hash_type_value called for uninitialised type at %v", loc)
+    case InitialisedType:
+        utils.panicf("Unreachbaled (called at %v)", loc)
+    /*
     case GenericTypeValue:
         return v.global.index ~ get_hash_of_array_of_types(v.generic_args)
     case GlobalType:
         return u32(v.global.index)
+        */
+    case:
+        panic("Unreachable")
     }
-    panic("Unreachable")
 }
 
 @(private = "file")
@@ -554,7 +605,7 @@ hash_func_type :: proc(value: FuncType) -> u32 {
     return result
 }
 
-type_key_is_equal :: proc(a: TypeKey, b: TypeKey) -> bool {
+type_key_is_equal :: proc(a: TypeKey, b: TypeKey, loc := #caller_location) -> bool {
     switch va in a {
     case OrderedHashMapTypeWithStringKey:
         vb, ok := b.(OrderedHashMapTypeWithStringKey)
@@ -583,6 +634,11 @@ type_key_is_equal :: proc(a: TypeKey, b: TypeKey) -> bool {
             return false
         }
         return func_types_are_equal(va, vb)
+    case UninitialisedType:
+        utils.panicf("type_key_is_equal called for uninitialised type at %v", loc)
+    case InitialisedType:
+        utils.panicf("Unreachabled (called at %v)", loc)
+    /*
     case GenericTypeValue:
         vb, ok := b.(GenericTypeValue)
         if !ok {
@@ -606,6 +662,7 @@ type_key_is_equal :: proc(a: TypeKey, b: TypeKey) -> bool {
             return false
         }
         return va.global == vb.global
+        */
     case:
         panic("Unreachable")
     }

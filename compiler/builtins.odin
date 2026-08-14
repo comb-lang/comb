@@ -204,6 +204,10 @@ add_variable :: proc(
     when utils.debug_checker {
         utils.print_call(loc, "add_variable")
     }
+    if _, is_uninitialised := get_type(s.types, variable_type).key.(UninitialisedType);
+       is_uninitialised {
+        utils.panicf("Unreachable (called from %v)", loc)
+    }
     // TODO: Add a warning for unused variables
     expect_snake_case(
         s,

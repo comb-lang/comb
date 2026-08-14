@@ -422,6 +422,7 @@ basic_fuzz_test :: proc(t: ^testing.T) {
     }
 }
 
+/*
 @(test)
 basic_type_system_test :: proc(t: ^testing.T) {
     a := utils.Arena{}
@@ -450,6 +451,7 @@ basic_type_system_test :: proc(t: ^testing.T) {
     testing.expect(t, generic0_initialised == .Int)
     testing.expect(t, generic0.type != generic2.type)
 }
+*/
 
 @(test)
 example_08_result :: proc(t: ^testing.T) {

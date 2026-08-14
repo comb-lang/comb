@@ -262,9 +262,12 @@ A new language for the web, because it's time to stop working around javascript.
       - Being able to convert a value of any arbitrary type to a string without writing any extra code (like in odin)
   - Maybe add a REPL
   - Type inference?
-    - Most of the verbosity of explicit types can be taken away by always know the type of the value's destination, and using the type of the destination to infer things about the value
+    - Most of the verbosity of explicit types can be taken away by always knowing the type of the value's destination, and using the type of the destination to infer things about the value
       - However this approach has disadvantages:
         - You would have to specify what the generic arg is when calling a generic function
+        - You would have to specify the type of every variable explicitly
+        - You would have to specify the return type of every function
+          - Currently this is the case, but in the future function return types may be inferable
   - Make the compiler faster?
     - Concurrency?
       - Could use https://github.com/pmbanugo/tina

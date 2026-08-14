@@ -1050,7 +1050,7 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeVa
                 ),
             }
 
-        case .Append, .Concat, .Colon, .Arrow:
+        case .Append, .Concat, .Arrow:
             panic("Unreachable")
         }
 

@@ -1732,6 +1732,18 @@ check_mutation :: proc(
     return true
 }
 
+// Returns `Unit{}, Unit{}, false` on failure
+try_split_by :: proc(u: Unit, split: LeftToRightUnitJoinMethod) -> (Unit, Unit, bool) {
+    for extra_unit, i in u.extra_units {
+        if extra_unit.join_method == split {
+            return Unit{u.pos, u.first_unit, u.extra_units[:i]},
+                Unit{extra_unit.unit.pos, extra_unit.unit.unit, u.extra_units[i + 1:]},
+                true
+        }
+    }
+    return Unit{}, Unit{}, false
+}
+
 // The boolean returned is whether the block checked successfully
 check_block :: proc(
     s: ^CheckerState,
@@ -2240,18 +2252,9 @@ check_block :: proc(
 
                 branch_type: Unit = ---
                 variable_name: ^Unit = nil
-                if joined, is_joined := branch.label.first_unit.(HierarchyJoinedUnits); is_joined {
-                    if joined.join_method != .Colon {
-                        utils.diagnostic(
-                            s.r,
-                            branch.label.pos,
-                            "Expected the join method to be `:`, got %v",
-                            joined.join_method,
-                        )
-                        return nil, false
-                    }
-                    variable_name = joined.unit0
-                    branch_type = joined.unit1^
+                if a, b, ok := try_split_by(branch.label, .Colon); ok {
+                    variable_name = new_clone(a)
+                    branch_type = b
                 } else {
                     branch_type = branch.label
                 }
@@ -2915,10 +2918,6 @@ check_joined_unit_value :: proc(
     array_err :: "Expected an array type\nGot the type `%s`"
     switch value.join_method {
 
-    case .Colon:
-        utils.diagnostic(s.r, pos, "Cannot use `:` to join values")
-        return nil
-
     case .In:
         val0_type := Type.Unknown
         val0 := expect_runtime_value(
@@ -3342,8 +3341,8 @@ check_index :: proc(
     body: ^[dynamic]CheckedStatement,
     generic_args: map[string]Type,
 ) -> CheckedIndex {
-    joined, is_joined := u.first_unit.(HierarchyJoinedUnits)
-    if len(u.extra_units) != 0 || !is_joined || joined.join_method != .Colon {
+    start, end, is_range := try_split_by(u, .Colon)
+    if !is_range {
         start_index := expect_runtime_value(
             s,
             u.pos,
@@ -3356,13 +3355,13 @@ check_index :: proc(
     }
     start_index := expect_runtime_value(
         s,
-        joined.unit0.pos,
-        check_value(s, joined.unit0^, CheckValueArgs{body, index_type, generic_args, nil}),
+        start.pos,
+        check_value(s, start, CheckValueArgs{body, index_type, generic_args, nil}),
     )
     end_index := expect_runtime_value(
         s,
-        joined.unit1.pos,
-        check_value(s, joined.unit1^, CheckValueArgs{body, index_type, generic_args, nil}),
+        end.pos,
+        check_value(s, end, CheckValueArgs{body, index_type, generic_args, nil}),
     )
     if start_index == nil || end_index == nil {
         return CheckedIndex{}

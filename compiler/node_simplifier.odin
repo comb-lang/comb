@@ -44,7 +44,7 @@ create_joined_values :: proc(
          .Modulo,
          .StringConcat,
          .In: // TODO
-    case .Append, .Concat, .Colon, .Arrow:
+    case .Append, .Concat, .Arrow:
         panic(fmt.aprintf("Unreachable (%v)", method))
     case .Multiplication, .Division, .Addition, .Subtraction:
         comptime0, val0_is_comptime := val0.(CompileTimeValue)

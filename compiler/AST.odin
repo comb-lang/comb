@@ -149,6 +149,7 @@ LeftToRightUnitJoinMethod :: enum {
     Assign, // =
     Tilde, // ~
     PipeEquals, // |=
+    Colon, // Used for array indexing (for example `my_array[start_index:end_index]`)
 }
 
 HierarchyUnitJoinMethod :: enum {
@@ -171,7 +172,6 @@ HierarchyUnitJoinMethod :: enum {
     Append, // ::
     Concat, // ++
     StringConcat, // &
-    Colon, // Used for array indexing (for example `my_array[start_index:end_index]`)
     Arrow, // Used for function types (for example `(String) -> U64`)
 
     // Prioraty 4
@@ -199,7 +199,7 @@ get_prioraty :: proc(join_method: HierarchyUnitJoinMethod) -> uint {
         return 1
     case .In:
         return 2
-    case .Append, .Concat, .StringConcat, .Colon, .Arrow:
+    case .Append, .Concat, .StringConcat, .Arrow:
         return 3
     case .Subtraction, .Addition, .Modulo:
         return 4

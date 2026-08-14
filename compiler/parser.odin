@@ -606,8 +606,6 @@ parse_unit_with_pos :: proc(s: ^ParserState, loc := #caller_location) -> UnitWit
         value_type = .IsGreaterThan
     case GreaterThanOrEqualToken:
         value_type = .IsGreaterThanOrEqual
-    case ColonToken:
-        value_type = .Colon
     case ArrowToken:
         value_type = .Arrow
     case SymbolsToken:
@@ -673,6 +671,8 @@ parse_unit :: proc(s: ^ParserState) -> (Unit, bool) {
             join_method = .Tilde
         case PipeEqualsToken:
             join_method = .PipeEquals
+        case ColonToken:
+            join_method = .Colon
         case:
             return Unit{pos, first_unit, extra_units}, true
         }

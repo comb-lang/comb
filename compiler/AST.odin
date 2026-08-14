@@ -3,6 +3,11 @@ package compiler
 import "../utils"
 
 StructUnit :: struct {
+    elements: []Unit,
+}
+
+// BEFORE MERGE TODO: remove this
+OldStructUnit :: struct {
     m:         utils.KeyToIndex(string),
     positions: utils.Multi(utils.Pos),
     types:     utils.Multi(Unit),
@@ -17,7 +22,7 @@ StructType :: struct {
 SumUnit :: struct {
     m:         utils.KeyToIndex(string),
     positions: utils.Multi(utils.Pos),
-    payloads:  utils.Multi(StructUnit),
+    payloads:  utils.Multi(OldStructUnit),
 }
 
 SumType :: struct {

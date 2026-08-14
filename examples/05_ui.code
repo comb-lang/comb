@@ -35,7 +35,7 @@ render_ui[T] = |ui: []UI[T], focussed_button_index: UInt, nesting: UInt, state: 
                 if focussed_button_index == s$.button_index {
                     println("Focused button")
                     // ~s.focussed_button_onclick = button.onclick
-                    s$ = UIRenderingState[T](s$.button_index, button.onclick)
+                    s$ = {button_index = s$.button_index, focussed_button_onclick = button.onclick}
                 } else {
                     println("Button")
                 }
@@ -61,7 +61,12 @@ main = || -> Int {
     while true {
         ui = text_picker(state$)
         clear()
-        rendering_state = render_ui[String](ui, focussed_button_index$, 0, UIRenderingState[String](0, nothing))
+        rendering_state = render_ui[String](
+            ui,
+            focussed_button_index$,
+            0,
+            {button_index = 0, focussed_button_onclick = nothing},
+        )
         max_button_index = rendering_state.button_index - 1
 
         input = readline("Enter either `next`, `prev`, `click`, or `quit`: ")

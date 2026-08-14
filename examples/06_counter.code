@@ -5,10 +5,10 @@ CounterState = {
     count: UInt,
 }
 
-counter_initial_state = CounterState(1)
+counter_initial_state = {count = 1}
 
 increment_count = |s: CounterState| -> CounterState {
-	return CounterState(s.count + 1)
+	return {count = s.count + 1}
 }
 
 counter = |s: CounterState| -> h.UI {
@@ -18,12 +18,16 @@ counter = |s: CounterState| -> h.UI {
             || -> h.UI { return counter(increment_count(s)) }, // TODO: Cleanup syntax
         ),
     )
-    return h.UI("Counter", contents, |_: h.Key| -> h.UI {return counter(s)})
+    return {
+        page_title = "Counter",
+        ui_contents = contents,
+        on_key_down = |_: h.Key| -> h.UI {return counter(s)},
+    }
 }
 
-site = h.Site(OrderedHashMap[String, () -> h.UI][
+site = {pages = OrderedHashMap[String, () -> h.UI][
     "/" = || -> h.UI {return counter(counter_initial_state)},
-])
+]}
 
 build = |c: Compiler| -> Int {
     h.build_reactive_site(c, site, "gitignore_counter")

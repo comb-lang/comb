@@ -93,6 +93,22 @@ create_field_access :: proc(value: CheckedValue, field_index: u32) -> CheckedVal
     return CheckedFieldAccess{new_clone(value), field_index}
 }
 
+to_checked_value :: proc(func: union {
+        CheckedFunctionCall,
+        CompileTimeValue,
+    }) -> CheckedValue {
+    switch f in func {
+    case CheckedFunctionCall:
+        return f
+    case CompileTimeValue:
+        return f
+    case nil:
+        return nil
+    case:
+        panic("Unreachable")
+    }
+}
+
 create_checked_func_call :: proc(func: CheckedValue, args: []CheckedValue) -> union {
         CheckedFunctionCall,
         CompileTimeValue,

@@ -48,11 +48,12 @@ ParserState :: struct {
     function_defs:                  [dynamic]FunctionDefinition,
 }
 
+// BEFORE MERGE TODO: Remove this function
 // Does not include the `{`
-parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
+parse_struct :: proc(s: ^ParserState) -> (OldStructUnit, bool) {
     utils.append_dynamic(&s.parser_context, ParsingContext{s.last_token_pos, .StructType})
     defer utils.pop_dynamic(&s.parser_context)
-    out := StructUnit {
+    out := OldStructUnit {
         utils.make_key_to_index(s.a, utils.KeyToIndex(string)),
         utils.arena_make_multi(s.a, utils.Multi(utils.Pos), 0, resizable = true),
         utils.arena_make_multi(s.a, utils.Multi(Unit), 0, resizable = true),
@@ -65,7 +66,7 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
     for {
         field: TextAndPos = ---
         get_next_token(s, true)
-        wrong_token :: proc(s: ^ParserState) -> (StructUnit, bool) {
+        wrong_token :: proc(s: ^ParserState) -> (OldStructUnit, bool) {
             utils.clear_dynamic(&s.last_token_descriptions_of_other_possible_tokens)
             utils.append_dynamic_elems(
                 &s.last_token_descriptions_of_other_possible_tokens,
@@ -73,7 +74,7 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
                 "`}`",
             )
             wrong_token_err(s)
-            return StructUnit{}, false
+            return OldStructUnit{}, false
         }
         #partial switch token in s.last_token {
         case CloseBraceToken:
@@ -96,7 +97,7 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
                 fmt.aprintf("`:` to specify the type of the `%s` field", field.text),
             )
             wrong_token_err(s)
-            return StructUnit{}, false
+            return OldStructUnit{}, false
         case ColonToken:
         }
 
@@ -105,7 +106,7 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
         defer utils.pop_dynamic(&s.parser_context)
         parsed, parsed_ok := parse_unit(s)
         if !parsed_ok {
-            return StructUnit{}, false
+            return OldStructUnit{}, false
         }
         i, result := utils.lookup_or_insert(&out.m, field.text, utils.string_to_index_procs)
         if result == .LookedUp {
@@ -116,7 +117,7 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
                 field.text,
                 out.positions.d[i.index],
             )
-            return StructUnit{}, false
+            return OldStructUnit{}, false
         }
         utils.resize_multi(&out.positions, len(out.m.keys))
         utils.resize_multi(&out.types, len(out.m.keys))
@@ -131,7 +132,7 @@ parse_struct :: proc(s: ^ParserState) -> (StructUnit, bool) {
                 "`}`",
             )
             wrong_token_err(s)
-            return StructUnit{}, false
+            return OldStructUnit{}, false
         case CommaToken:
         case CloseBraceToken:
             return out, true
@@ -243,18 +244,18 @@ maybe_parse_initial_unit :: proc(
     //     return Unit{type_pos, DynamicUnit(new_clone(type))}, other_possible_tokens, true
 
     case OpenBraceToken:
-        out, ok := parse_struct(s)
+        elements, ok := parse_units_until(s, is_close_brace, "`}` to end the struct")
         if !ok {
             return nil, false
         }
         get_next_token(s, true)
-        return out, true
+        return StructUnit{elements}, true
 
     case OpenAngleBracketToken:
         sum_type := SumUnit {
             utils.make_key_to_index(s.a, utils.KeyToIndex(string)),
             utils.arena_make_multi(s.a, utils.Multi(utils.Pos), 0, resizable = true),
-            utils.arena_make_multi(s.a, utils.Multi(StructUnit), 0, resizable = true),
+            utils.arena_make_multi(s.a, utils.Multi(OldStructUnit), 0, resizable = true),
         }
         defer {
             utils.fix_key_to_index(sum_type.m)
@@ -281,7 +282,7 @@ maybe_parse_initial_unit :: proc(
                     return nil, false
                 }
                 variant_name := token2[0]
-                variant_payload := StructUnit{}
+                variant_payload := OldStructUnit{}
                 get_next_token(s, true)
                 _, has_payload := s.last_token.(OpenBraceToken)
                 if has_payload {

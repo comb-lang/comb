@@ -439,7 +439,7 @@ no_generic_args :: map[string]Type{}
 
 check_struct_type :: proc(
     s: ^CheckerState,
-    type: StructUnit,
+    type: OldStructUnit,
     generic_args: map[string]Type,
 ) -> Type {
     field_types := utils.arena_make_multi(s.a, utils.Multi(Type), len(type.m.keys))
@@ -1069,12 +1069,14 @@ get_func_type :: proc(
     if simplified == .Type && value != nil {
         value_type_unsimplified := value.(CompileTimeValue).(Type)
         value_type := simplify_type(s, value_type_unsimplified)
+        /*
         got := get_type(s.types, value_type)
         #partial switch type in got.key {
         case StructType:
             value^ = StructTypeInitFunc{value_type}
             return get_func_type_from_struct_type(s, type, value_type_unsimplified)
         }
+        */
         utils.diagnostic(
             s.r,
             pos,
@@ -1703,16 +1705,32 @@ check_mutation :: proc(
     return true
 }
 
-// Returns `Unit{}, Unit{}, false` on failure
-try_split_by :: proc(u: Unit, split: LeftToRightUnitJoinMethod) -> (Unit, Unit, bool) {
+SuccessfulSplit :: struct {
+    before_split:     Unit,
+    split_method:     LeftToRightUnitJoinMethod,
+    split_method_pos: utils.Pos,
+    after_split:      Unit,
+}
+
+// Returns `nil` on failure
+try_split_by :: proc(
+    u: Unit,
+    possible_splits: ..LeftToRightUnitJoinMethod,
+) -> Maybe(SuccessfulSplit) {
     for extra_unit, i in u.extra_units {
-        if extra_unit.join_method == split {
-            return Unit{u.pos, u.first_unit, u.extra_units[:i]},
-                Unit{extra_unit.unit.pos, extra_unit.unit.unit, u.extra_units[i + 1:]},
-                true
+        for possible_split in possible_splits {
+            if extra_unit.join_method == possible_split {
+                return SuccessfulSplit {
+                    Unit{u.pos, u.first_unit, u.extra_units[:i]},
+                    extra_unit.join_method,
+                    extra_unit.join_method_pos,
+                    Unit{extra_unit.unit.pos, extra_unit.unit.unit, u.extra_units[i + 1:]},
+                }
+            }
+
         }
     }
-    return Unit{}, Unit{}, false
+    return nil
 }
 
 // The boolean returned is whether the block checked successfully
@@ -2227,9 +2245,9 @@ check_block :: proc(
 
                 branch_type: Unit = ---
                 variable_name: ^Unit = nil
-                if a, b, ok := try_split_by(branch.label, .Colon); ok {
-                    variable_name = new_clone(a)
-                    branch_type = b
+                if split, ok := try_split_by(branch.label, .Colon).(SuccessfulSplit); ok {
+                    variable_name = new_clone(split.before_split)
+                    branch_type = split.after_split
                 } else {
                     branch_type = branch.label
                 }
@@ -3310,7 +3328,7 @@ check_index :: proc(
     body: ^utils.DebugValue([dynamic]CheckedStatement),
     generic_args: map[string]Type,
 ) -> CheckedIndex {
-    start, end, is_range := try_split_by(u, .Colon)
+    split, is_range := try_split_by(u, .Colon).(SuccessfulSplit)
     if !is_range {
         start_index := expect_runtime_value(
             s,
@@ -3324,13 +3342,13 @@ check_index :: proc(
     }
     start_index := expect_runtime_value(
         s,
-        start.pos,
-        check_value(s, start, CheckValueArgs{body, index_type, generic_args, nil}),
+        split.before_split.pos,
+        check_value(s, split.before_split, CheckValueArgs{body, index_type, generic_args, nil}),
     )
     end_index := expect_runtime_value(
         s,
-        end.pos,
-        check_value(s, end, CheckValueArgs{body, index_type, generic_args, nil}),
+        split.after_split.pos,
+        check_value(s, split.after_split, CheckValueArgs{body, index_type, generic_args, nil}),
     )
     if start_index == nil || end_index == nil {
         return CheckedIndex{}
@@ -3350,17 +3368,136 @@ check_initial_value :: proc(
         return nil
 
     case StructUnit:
-        if a.early_exit_if_value_is_type != nil {
-            return finish_checking_early_return_type(s, pos, a)
+        if len(value.elements) == 0 {
+            utils.diagnostic(
+                s.r,
+                pos,
+                "Cannot have empty `{{}}` because the checker cannot tell if the value is a struct type or a struct literal",
+            )
+            return nil
         }
-        return finish_checking_value(
-            s,
-            pos,
-            a.type,
-            CompileTimeValue(check_struct_type(s, value, a.generic_args)),
-            .Type,
-            "",
-        )
+        fields := OldStructUnit {
+            utils.make_key_to_index(s.a, utils.KeyToIndex(string)),
+            utils.arena_make_multi(s.a, utils.Multi(utils.Pos), len(value.elements)),
+            utils.arena_make_multi(s.a, utils.Multi(Unit), len(value.elements)),
+        }
+        defer utils.fix_key_to_index(fields.m)
+        kind: enum {
+            Unknown,
+            StructType,
+            StrutLiteral,
+        } = .Unknown
+        for element in value.elements {
+            split, ok := try_split_by(element, .Assign, .Colon).(SuccessfulSplit)
+            if !ok {
+                utils.diagnostic(
+                    s.r,
+                    element.pos,
+                    "Elements in `{}` must be like `name: Type` or `name = type`",
+                )
+                return nil
+            }
+
+            switch kind {
+            case .Unknown:
+                kind = split.split_method == .Colon ? .StructType : .StrutLiteral
+            case .StructType:
+                if split.split_method != .Colon {
+                    utils.diagnostic(
+                        s.r,
+                        split.split_method_pos,
+                        "Expected `:` for struct type field",
+                    )
+                    return nil
+                }
+            case .StrutLiteral:
+                if split.split_method != .Assign {
+                    utils.diagnostic(
+                        s.r,
+                        split.split_method_pos,
+                        "Expected `=` for struct literal field",
+                    )
+                    return nil
+                }
+            }
+
+            ident, ident_ok := split.before_split.first_unit.(IdentNode)
+            if len(split.before_split.extra_units) != 0 ||
+               !ident_ok ||
+               ident.has_re_before ||
+               len(ident.segments) != 1 ||
+               ident.segments[0].has_dollar_at_end {
+                utils.diagnostic(
+                    s.r,
+                    split.before_split.pos,
+                    "Before `:` or `=` in struct field must be just an identifier with no re before, just one segment, and no dollar sign at the end",
+                )
+                return nil
+            }
+
+            name := ident.segments[0]
+            i, result := utils.lookup_or_insert(&fields.m, name.ident, utils.string_to_index_procs)
+            if result == .LookedUp {
+                utils.diagnostic(
+                    s.r,
+                    name.pos,
+                    "There is already a field called `%s` defined in this struct at `%v`",
+                    name.ident,
+                    fields.positions.d[i.index],
+                )
+                return nil
+            }
+
+            fields.positions.d[i.index] = name.pos
+            fields.types.d[i.index] = split.after_split
+        }
+        switch kind {
+        case .StructType:
+            if a.early_exit_if_value_is_type != nil {
+                return finish_checking_early_return_type(s, pos, a)
+            }
+            return finish_checking_value(
+                s,
+                pos,
+                a.type,
+                CompileTimeValue(check_struct_type(s, fields, a.generic_args)),
+                .Type,
+                "",
+            )
+        case .StrutLiteral:
+            arg_values := make([]CheckedValue, len(value.elements))
+            arg_types := make([]Type, len(value.elements))
+            ok: bool
+            for key, i in fields.m.keys {
+                arg_values[i] = check_value(
+                    s,
+                    fields.types.d[i],
+                    CheckValueArgs{a.body, AnyType{&arg_types[i]}, a.generic_args, nil},
+                )
+                if arg_values[i] == nil {
+                    ok = false
+                }
+            }
+            if !ok {
+                return nil
+            }
+            struct_type :=
+                create_type(&s.types, StructType{fields.m, utils.array_to_multi(arg_types)}).type
+            return finish_checking_value(
+                s,
+                pos,
+                a.type,
+                to_checked_value(
+                    create_checked_func_call(StructTypeInitFunc{struct_type}, arg_values),
+                ),
+                struct_type,
+                "",
+            )
+        case .Unknown:
+            panic("Unreachable")
+        case:
+            panic("Unreachable")
+        }
 
     case CallWithFrontedSquareBrackets:
         if a.early_exit_if_value_is_type != nil {
@@ -3400,6 +3537,7 @@ check_initial_value :: proc(
             .Type,
             "",
         )
+
     case Import:
         utils.diagnostic(s.r, pos, import_use_err)
         return nil
@@ -4344,6 +4482,24 @@ CheckerOutput :: struct {
     globals_with_generic:    []GlobalValueWithGeneric,
     checked_funcs:           []CheckedFunction,
     types:                   Types,
+}
+
+// Returns `.Invalid` on failure
+find_most_specific_supertype :: proc(
+    s: ^CheckerState,
+    pos: utils.Pos,
+    args: map[Type]struct{},
+) -> Type {
+    if len(args) != 1 {
+        utils.diagnostic(s.r, pos, "TODO: len(args) != 1")
+        return .Invalid
+    }
+
+    for arg in args {
+        return arg
+    }
+
+    panic("Unreachable")
 }
 
 check :: proc(

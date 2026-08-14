@@ -4,11 +4,11 @@ Pos = {
 }
 
 other_pos = || -> Pos {
-  return Pos(3, 1)
+  return {x = 3, y = 1}
 }
 
 main = || -> Int {
-  re pos$ = Pos(0, 0)
+  re pos$ = {x = 0, y = 0}
   pos$ = other_pos()
   pos$ = "hi"
   return 0

@@ -328,6 +328,7 @@ interp_execute_function2 :: proc(
     state: InterpState,
     func: RuntimeFunc,
     args: []RuntimeValue,
+    loc := #caller_location,
 ) -> RuntimeValue {
     utils.call(loc, "interp_execute_function2")
     checked_func := state.checked_funcs[func.ref.index]

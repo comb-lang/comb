@@ -65,7 +65,11 @@ game_of_life = |s: [game_height][game_width]Bool| -> h.UI {
 		),
         .Div(grid_style, grid_pixels$),
     )
-	return h.UI(main_title, ui_contents, |_: h.Key| -> h.UI { return game_of_life(s) })
+	return {
+		page_title = main_title,
+		ui_contents = ui_contents,
+		on_key_down = |_: h.Key| -> h.UI { return game_of_life(s) },
+	}
 }
 
 pulsar_initial_state = [game_height][game_width]Bool(
@@ -86,9 +90,9 @@ pulsar_initial_state = [game_height][game_width]Bool(
     [game_width]Bool(false, false, false, false, false, false, false, false, false, false, false, false, false, false, false),
 )
 
-site = h.Site(OrderedHashMap[String, () -> h.UI][
+site = {pages = OrderedHashMap[String, () -> h.UI][
 	"/" = || -> h.UI { return game_of_life(pulsar_initial_state) },
-])
+]}
 
 build = |c: Compiler| -> Int {
 	h.build_reactive_site(c, site, "gitignore_conways_game_of_life")

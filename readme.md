@@ -38,7 +38,6 @@ A new language for the web, because it's time to stop working around javascript.
 
 # Todo
 
-- Choose a name
 - Make the `examples/std` standard library accessible from source code in any directory
 - Consider using a different syntax for generics, where `$` is used to specify a generic, and the type of that generic is inferred:
   - For functions, something like `typeof(append) = ([]$T, []$T) -> []$T`

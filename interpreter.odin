@@ -330,7 +330,7 @@ interp_execute_function2 :: proc(
     args: []RuntimeValue,
     loc := #caller_location,
 ) -> RuntimeValue {
-    utils.call(loc, "interp_execute_function2")
+    utils.call(loc, "interp_execute_function2", utils.debug_interpreter)
     checked_func := state.checked_funcs[func.ref.index]
     utils.debug("checked_func.body: %v", checked_func.body)
 

@@ -10,7 +10,7 @@ debug_dynamic_array_append :: proc(
 }
 
 debug_dynamic_array_to_slice :: proc(a: DebugValue([dynamic]$E)) -> DebugValue([]E) {
-    return DebugValue([]E){a.v[:], a.created_at, a.mutated_at}
+    return DebugValue([]E){a.v[:], a.created_at, a.creation_info, a.mutated_at}
 }
 
 debug_dynamic_array_len :: proc(a: DebugValue([dynamic]$E)) -> int {

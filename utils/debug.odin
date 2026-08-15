@@ -35,8 +35,10 @@ when ODIN_DEBUG {
     }
 
     CallStackOnDebug :: CallStack
+    StringOnDebug :: string
 } else {
     CallStackOnDebug :: struct {}
+    StringOnDebug :: struct {}
 }
 
 get_call_stack_on_debug :: proc(loc := #caller_location) -> CallStackOnDebug {
@@ -48,14 +50,25 @@ get_call_stack_on_debug :: proc(loc := #caller_location) -> CallStackOnDebug {
 }
 
 DebugValue :: struct(T: typeid) {
-    v:          T,
-    created_at: CallStackOnDebug,
-    mutated_at: CallStackOnDebug,
+    v:             T,
+    created_at:    CallStackOnDebug,
+    creation_info: StringOnDebug,
+    mutated_at:    CallStackOnDebug,
 }
 
-to_debug_value :: proc(v: $T, loc := #caller_location) -> DebugValue(T) {
+to_debug_value :: proc(
+    v: $T,
+    creation_info_format := "",
+    creation_info_args: ..any,
+    loc := #caller_location,
+) -> DebugValue(T) {
     call_stack := get_call_stack_on_debug(loc)
-    return DebugValue(T){v, call_stack, call_stack}
+    when ODIN_DEBUG {
+        creation_info := fmt.aprintf(creation_info_format, ..creation_info_args)
+    } else {
+        creation_info := StringOnDebug{}
+    }
+    return DebugValue(T){v, call_stack, creation_info, call_stack}
 }
 
 @(deferred_in_out = call_finished)

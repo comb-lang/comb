@@ -112,7 +112,7 @@ InitialUnit :: union {
 }
 */
 
-UnitWithoutPos :: union {
+UnitWithoutPos :: union #no_nil {
     StructUnit,
     SumUnit,
     Tuple,

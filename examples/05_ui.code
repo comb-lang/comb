@@ -40,7 +40,7 @@ render_ui[T] = |ui: []UI[T], focussed_button_index: UInt, nesting: UInt, state: 
                     println("Button")
                 }
                 // ~s.button_index += 1
-                s$ = UIRenderingState[T](s$.button_index + 1, s$.focussed_button_onclick)
+                s$ = s$ ~ .button_index = s$.button_index + 1
                 s$ = render_ui[T](button.children, focussed_button_index, nesting + 1, s$)
             }
             list: .List {

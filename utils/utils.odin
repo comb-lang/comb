@@ -142,21 +142,21 @@ string_builder_stream_proc :: proc(
 StringBuilder :: io.Writer
 
 make_builder :: proc(a: ^Arena, loc := #caller_location) -> StringBuilder {
-    call(loc, "make_builder", debug_builder)
+    call(loc, "make_builder", "", enable_debug = debug_builder)
     data := arena_new(a, []byte)
     data^ = arena_make(a, []byte, 0, resizable = true)
     return StringBuilder{string_builder_stream_proc, data}
 }
 
 finish_building :: proc(s: StringBuilder, loc := #caller_location) -> string {
-    call(loc, "finish_building", debug_builder)
+    call(loc, "finish_building", "", enable_debug = debug_builder)
     data := (^[]byte)(s.data)
     fix_resizable_dynamic(data^)
     return string(data^)
 }
 
 delete_builder :: proc(s: StringBuilder, loc := #caller_location) {
-    call(loc, "delete_builder", debug_builder)
+    call(loc, "delete_builder", "", enable_debug = debug_builder)
     data := (^[]byte)(s.data)
     dealloc(raw_data(data^))
     dealloc(data)

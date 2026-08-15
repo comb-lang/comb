@@ -29,7 +29,7 @@ emit_variable :: proc(b: ^strings.Builder, variable: compiler.VariableRef) {
 
 // Does not include the `struct`
 emit_struct_type :: proc(b: ^strings.Builder, type: compiler.StructType, loc := #caller_location) {
-    utils.call(loc, "emit_struct_type")
+    utils.call(loc, "emit_struct_type", "")
     strings.write_byte(b, '{')
     for _, index in type.m.keys {
         name := fmt.aprintf("field%d", index)
@@ -140,6 +140,16 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.CompileTimeValu
 
 emit_c_value :: proc(s: ^CEmitterState, v: compiler.CheckedValue) {
     switch value in v {
+    case compiler.SumTypeInitinitialisation:
+        strings.write_string(&s.b, "init_Type")
+        strings.write_uint(&s.b, uint(value.sum_type))
+        strings.write_string(&s.b, "Variant")
+        strings.write_uint(&s.b, uint(value.variant_index))
+        strings.write_byte(&s.b, '(')
+        if value.payload != nil {
+            emit_c_value(s, value.payload^)
+        }
+        strings.write_byte(&s.b, ')')
     case compiler.LengthOfString:
         panic("TODO")
     case compiler.OrderedHashMapInitialisation:
@@ -211,11 +221,6 @@ emit_c_value :: proc(s: ^CEmitterState, v: compiler.CheckedValue) {
     case compiler.StructTypeInitFunc:
         strings.write_string(&s.b, "init_Type")
         strings.write_uint(&s.b, uint(value.return_type))
-    case compiler.SumTypeInitFunc:
-        strings.write_string(&s.b, "init_Type")
-        strings.write_uint(&s.b, uint(value.sum_type))
-        strings.write_string(&s.b, "Variant")
-        strings.write_uint(&s.b, uint(value.variant_index))
     case compiler.BooleanNotValue:
         strings.write_byte(&s.b, '(')
         strings.write_byte(&s.b, '!')
@@ -296,7 +301,7 @@ emit_c_block_head :: proc(
     variables: []compiler.Type,
     loc := #caller_location,
 ) {
-    utils.call(loc, "emit_c_block_head")
+    utils.call(loc, "emit_c_block_head", "")
     for type, index in variables {
         name := fmt.aprintf(variable_format, nesting_level, index)
         emit_type(&s.b, name, type)
@@ -313,7 +318,7 @@ emit_c_block_body :: proc(
     body: []compiler.CheckedStatement,
     loc := #caller_location,
 ) {
-    utils.call(loc, "emit_c_block_body")
+    utils.call(loc, "emit_c_block_body", "")
     utils.print_arg("nesting_level", nesting_level)
     utils.print_arg("body", body)
     for statement in body {
@@ -446,7 +451,7 @@ emit_c_block :: proc(
     body: []compiler.CheckedStatement,
     loc := #caller_location,
 ) {
-    utils.call(loc, "emit_c_block")
+    utils.call(loc, "emit_c_block", "")
     emit_c_block_head(s, nesting_level, variables)
     emit_c_block_body(s, nesting_level, body)
 }
@@ -460,7 +465,7 @@ emit_forward_struct_definition :: proc(s: ^CEmitterState, name: string) {
 }
 
 emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_location) {
-    utils.call(loc, "emit_c_global_type")
+    utils.call(loc, "emit_c_global_type", "")
     name := fmt.aprintf("Type%d", index)
     defer delete(name)
     switch type in s.types.m.keys[index].key {
@@ -531,6 +536,8 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
         emit_type(&s.other_type_definitions, name, s.types.values.d[index].type)
         strings.write_byte(&s.other_type_definitions, ';')
     case compiler.SumType:
+        panic("TODO")
+    /*
         // Main struct type
         strings.write_string(&s.sum_type_definitions, "struct ")
         strings.write_string(&s.sum_type_definitions, name)
@@ -592,6 +599,7 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
             }
             strings.write_string(&s.sum_type_initialisation_funcs, ");return out;}")
         }
+        */
     case compiler.StructType:
         // Type def
         emit_forward_struct_definition(s, name)
@@ -664,7 +672,7 @@ emit_c :: proc(
     main_func_ref: compiler.CheckedFuncRef,
     loc := #caller_location,
 ) -> []byte {
-    utils.call(loc, "emit_c", utils.debug_emitter)
+    utils.call(loc, "emit_c", "", utils.debug_emitter)
     s := CEmitterState {
         strings.builder_make(),
         strings.builder_make(),

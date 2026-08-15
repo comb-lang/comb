@@ -258,6 +258,11 @@ is_close_square_bracket :: proc(t: TokenContents) -> bool {
     return is_close_square_bracket
 }
 
+is_close_angle_bracket :: proc(t: TokenContents) -> bool {
+    _, is_close_angle_bracket := t.(CloseAngleBracketToken)
+    return is_close_angle_bracket
+}
+
 TokenizerState :: struct {
     index:                                            uint,
     last_token:                                       TokenContents,
@@ -299,7 +304,7 @@ skip :: proc(s: ^TokenizerState, should_continue: proc(_: byte) -> bool) -> Skip
 }
 
 wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
-    utils.call(loc, "wrong_token_err", utils.debug_diagnostics)
+    utils.call(loc, "wrong_token_err", "", enable_debug = utils.debug_diagnostics)
     w := state.r.diagnostic_header(state.r.data, state.last_token_pos, .Error)
     defer io.close(w)
 
@@ -381,7 +386,7 @@ get_next_token :: proc(
     skip_newlines_and_comments_and_semicolons: bool,
     loc := #caller_location,
 ) {
-    utils.call(loc, "get next token", utils.debug_tokenizer)
+    utils.call(loc, "get next token", "", enable_debug = utils.debug_tokenizer)
     defer {
         utils.debug("last token set to %v", state.last_token)
     }

@@ -14,7 +14,7 @@ parse_and_check :: proc(
     diagnostic_reporter: utils.DiagnosticReporter,
     loc := #caller_location,
 ) -> CheckerOutput {
-    utils.call(loc, "parse_and_check", utils.debug_parser)
+    utils.call(loc, "parse_and_check", "", enable_debug = utils.debug_parser)
     parsed := parse_project(a, files_cache, out, exit_early, diagnostic_reporter)
     if diagnostic_reporter.has_errors(diagnostic_reporter.data) {
         return CheckerOutput{}

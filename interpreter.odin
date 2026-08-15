@@ -26,7 +26,6 @@ RuntimeValue :: union {
     RuntimeStruct,
     compiler.StructTypeInitFunc,
     RuntimeSumType,
-    compiler.SumTypeInitFunc,
     RuntimeFunc,
     compiler.BuiltinFunction,
     compiler.CastFunction,
@@ -62,8 +61,6 @@ get_value_type :: proc(s: InterpState, value: RuntimeValue) -> compiler.Type {
         return compiler.create_type(&s.types, compiler.FuncType{nil, return_types}).type
     case RuntimeSumType:
         return v.type
-    case compiler.SumTypeInitFunc:
-        panic("TODO")
     case RuntimeFunc:
         return s.checked_funcs[v.ref.index].type
     case compiler.BuiltinFunction:
@@ -124,7 +121,7 @@ RuntimeSumType :: struct {
     type:          compiler.Type,
     needs_freeing: bool,
     variant_index: u32,
-    payload:       []RuntimeValue,
+    payload:       ^RuntimeValue, // May be nil
 }
 
 Frame :: struct {
@@ -208,8 +205,6 @@ interp_execute_function :: proc(s: InterpState, c: compiler.CheckedFunctionCall)
     #partial switch val in fn_val {
     case compiler.StructTypeInitFunc:
         return RuntimeStruct{true, args, val.return_type}
-    case compiler.SumTypeInitFunc:
-        return RuntimeSumType{val.sum_type, true, val.variant_index, args}
     case compiler.CastFunction:
         assert(len(args) == 1)
         got_type := get_value_type(s, args[0])
@@ -310,7 +305,7 @@ interp_execute_function :: proc(s: InterpState, c: compiler.CheckedFunctionCall)
                     200,
                     "OK",
                     compiler.response_type_variant_index_to_content_type(response.variant_index),
-                    transmute([]byte)(response.payload[0].(RuntimeString).value),
+                    transmute([]byte)(response.payload.(RuntimeString).value),
                 )
                 if err != nil {
                     // TODO: Better error handling
@@ -330,7 +325,7 @@ interp_execute_function2 :: proc(
     args: []RuntimeValue,
     loc := #caller_location,
 ) -> RuntimeValue {
-    utils.call(loc, "interp_execute_function2", utils.debug_interpreter)
+    utils.call(loc, "interp_execute_function2", "", enable_debug = utils.debug_interpreter)
     checked_func := state.checked_funcs[func.ref.index]
     utils.debug("checked_func.body: %v", checked_func.body)
 
@@ -433,7 +428,7 @@ interp_push_scope :: proc(state: ^ShortLivedInterpState, variable_types: []compi
 }
 
 interp_pop_scope :: proc(state: ^ShortLivedInterpState, loc := #caller_location) {
-    utils.call(loc, "interp_pop_scope")
+    utils.call(loc, "interp_pop_scope", "")
     frame := &state.frames[len(state.frames) - 1]
     scope := pop(&frame.scopes)
     for &val in scope {
@@ -515,7 +510,7 @@ interp_destroy_value :: proc(val: ^RuntimeValue, loc := #caller_location) {
 }
 
 interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> RuntimeValue {
-    utils.call(loc, "interp_clone_value")
+    utils.call(loc, "interp_clone_value", "")
     switch v in val {
     case nil:
         panic("Unreachable: Uninitialised")
@@ -546,11 +541,11 @@ interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> Runtim
         }
         return RuntimeStruct{true, new_fields, v.type}
     case RuntimeSumType:
-        payload := make([]RuntimeValue, len(v.payload))
-        for value, i in v.payload {
-            payload[i] = interp_clone_value(value)
+        out := RuntimeSumType{v.type, true, v.variant_index, nil}
+        if v.payload != nil {
+            out.payload = new_clone(interp_clone_value(v.payload^))
         }
-        return RuntimeSumType{v.type, true, v.variant_index, payload}
+        return out
     case RuntimeString:
         return RuntimeString{true, strings.clone(v.value)}
     case f64,
@@ -558,7 +553,6 @@ interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> Runtim
          RuntimeFunc,
          compiler.BuiltinFunction,
          compiler.StructTypeInitFunc,
-         compiler.SumTypeInitFunc,
          HttpServerListenAndServe,
          SetHttpServerHandler,
          compiler.CastFunction:
@@ -708,9 +702,7 @@ interp_exec_statement :: proc(state: InterpState, stmt: compiler.CheckedStatemen
         interp_push_scope(state, branch.block.variables)
         val_var, has_val := branch.value_var.(compiler.VariableRef)
         if has_val {
-            sum_type := compiler.get_type(state.types, val.type).key.(compiler.SumType)
-            state.frames[len(state.frames) - 1].scopes[val_var.nesting_level][val_var.index] =
-                RuntimeStruct{false, val.payload, sum_type.payloads.d[val.variant_index]}
+            state.frames[len(state.frames) - 1].scopes[val_var.nesting_level][val_var.index] = val.payload^
         }
         interp_exec_block(state, branch.block.body)
         interp_pop_scope(state)
@@ -873,6 +865,12 @@ expect_int :: proc(f: f64) -> int {
 
 interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeValue {
     switch value in v {
+    case compiler.SumTypeInitinitialisation:
+        out := RuntimeSumType{value.sum_type, true, value.variant_index, nil}
+        if value.payload != nil {
+            out.payload = new_clone(interp_eval_value(s, value.payload^))
+        }
+        return out
     case compiler.LengthOfString:
         return f64(len(interp_eval_value(s, value.str^).(RuntimeString).value))
     case compiler.OrderedHashMapInitialisation:
@@ -959,7 +957,6 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeVa
              RuntimeStringOrderedHashMap,
              RuntimeIntOrderedHashMap,
              compiler.StructTypeInitFunc,
-             compiler.SumTypeInitFunc,
              HttpServerListenAndServe,
              SetHttpServerHandler,
              compiler.CastFunction:
@@ -1057,9 +1054,6 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeVa
         // fields[i] = interp_default_value(state, field_type.type)
         // }
         // return RuntimeStruct{fields}
-        return value
-
-    case compiler.SumTypeInitFunc:
         return value
 
     case compiler.CheckedIndexedAccess:

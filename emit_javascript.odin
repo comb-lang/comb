@@ -146,7 +146,6 @@ emit_js_runtime_value :: proc(b: ^strings.Builder, value: RuntimeValue) {
     case compiler.CastFunction,
          RuntimeIntOrderedHashMap,
          compiler.StructTypeInitFunc,
-         compiler.SumTypeInitFunc,
          compiler.BuiltinFunction,
          SetHttpServerHandler,
          HttpServerListenAndServe:
@@ -154,13 +153,9 @@ emit_js_runtime_value :: proc(b: ^strings.Builder, value: RuntimeValue) {
     case RuntimeSumType:
         strings.write_string(b, "{variant:")
         strings.write_uint(b, uint(v.variant_index))
-        strings.write_byte(b, ',')
-        for field, i in v.payload {
-            strings.write_string(b, "field")
-            strings.write_int(b, i)
-            strings.write_byte(b, ':')
-            emit_js_runtime_value(b, field)
-            strings.write_byte(b, ',')
+        if v.payload != nil {
+            strings.write_string(b, ",payload:")
+            emit_js_runtime_value(b, v.payload^)
         }
         strings.write_byte(b, '}')
     case RuntimeStringOrderedHashMap:
@@ -255,6 +250,14 @@ emit_js_derivation :: proc(
 
 emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
     switch v in value {
+    case compiler.SumTypeInitinitialisation:
+        strings.write_string(&s.b, "{variant:")
+        strings.write_uint(&s.b, uint(v.variant_index))
+        if v.payload != nil {
+            strings.write_string(&s.b, ",payload:")
+            emit_js_value(s, v.payload^)
+        }
+        strings.write_byte(&s.b, '}')
     case compiler.LengthOfString:
         emit_js_value(s, v.str^)
         strings.write_string(&s.b, ".length")
@@ -333,11 +336,6 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
     case compiler.StructTypeInitFunc:
         strings.write_string(&s.b, "init_Type")
         strings.write_uint(&s.b, uint(v.return_type))
-    case compiler.SumTypeInitFunc:
-        strings.write_string(&s.b, "init_Type")
-        strings.write_uint(&s.b, uint(v.sum_type))
-        strings.write_string(&s.b, "Variant")
-        strings.write_uint(&s.b, uint(v.variant_index))
     case compiler.BooleanNotValue:
         strings.write_byte(&s.b, '(')
         strings.write_byte(&s.b, '!')
@@ -408,32 +406,6 @@ emit_js_global_type :: proc(s: ^GeneralEmitterState, index: int) {
     case compiler.FuncType:
     case compiler.GenericTypeValue:
     case compiler.SumType:
-        for _, i in t.m.keys {
-            payload := compiler.get_type(s.types, t.payloads.d[i]).key.(compiler.StructType)
-            strings.write_string(&s.b, "function init_")
-            strings.write_string(&s.b, name)
-            strings.write_string(&s.b, "Variant")
-            strings.write_int(&s.b, i)
-            strings.write_byte(&s.b, '(')
-            first_arg := true
-            for _, j in payload.m.keys {
-                if first_arg {
-                    first_arg = false
-                } else {
-                    strings.write_byte(&s.b, ',')
-                }
-                strings.write_string(&s.b, "field")
-                strings.write_int(&s.b, j)
-            }
-            strings.write_string(&s.b, ") {return {variant:")
-            strings.write_int(&s.b, i)
-            for _, j in payload.m.keys {
-                strings.write_byte(&s.b, ',')
-                strings.write_string(&s.b, "field")
-                strings.write_int(&s.b, j)
-            }
-            strings.write_string(&s.b, "}}")
-        }
     case compiler.StructType:
         strings.write_string(&s.b, "function init_")
         strings.write_string(&s.b, name)
@@ -579,7 +551,7 @@ emit_js_block :: proc(
     body: []compiler.CheckedStatement,
     loc := #caller_location,
 ) {
-    utils.call(loc, "emit_js_block")
+    utils.call(loc, "emit_js_block", "")
     emit_js_block_head(s, nesting_level, variables)
     emit_js_block_body(s, nesting_level, body)
 }
@@ -589,7 +561,7 @@ emit_javascript :: proc(
     checked_functions: []compiler.CheckedFunction,
     loc := #caller_location,
 ) -> strings.Builder {
-    utils.call(loc, "emit_javascript", utils.debug_emitter)
+    utils.call(loc, "emit_javascript", "", enable_debug = utils.debug_emitter)
     s := GeneralEmitterState{strings.builder_make(), types, checked_functions}
     strings.write_string(
         &s.b,

@@ -6,7 +6,7 @@ StructUnit :: struct {
     elements: []Unit,
 }
 
-// BEFORE MERGE TODO: remove this
+// BEFORE MERGE TODO: Remove this
 OldStructUnit :: struct {
     m:         utils.KeyToIndex(string),
     positions: utils.Multi(utils.Pos),
@@ -20,15 +20,13 @@ StructType :: struct {
 }
 
 SumUnit :: struct {
-    m:         utils.KeyToIndex(string),
-    positions: utils.Multi(utils.Pos),
-    payloads:  utils.Multi(OldStructUnit),
+    elements: []Unit,
 }
 
 SumType :: struct {
     m:        utils.KeyToIndex(string),
     // positions: utils.Multi(utils.Pos),
-    payloads: utils.Multi(Type), // Always a struct type
+    payloads: utils.Multi(Maybe(Type)),
 }
 
 IdentNode :: struct {
@@ -112,6 +110,11 @@ InitialUnit :: union {
 }
 */
 
+TagUnit :: struct {
+    tag:   IdentToken,
+    value: ^UnitWithPos, // May be `nil`
+}
+
 UnitWithoutPos :: union #no_nil {
     StructUnit,
     SumUnit,
@@ -129,6 +132,7 @@ UnitWithoutPos :: union #no_nil {
     Bool,
     MarkedUnit,
     Import,
+    TagUnit,
 }
 
 UnitWithPos :: struct {

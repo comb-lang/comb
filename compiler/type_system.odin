@@ -317,7 +317,7 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     assert(i.index == 2)
     utils.fix_key_to_index(http_response_map)
 
-    http_response_types := utils.arena_make(a, []Type, 3)
+    http_response_types := utils.arena_make(a, []Maybe(Type), 3)
     http_response_types[0] = .HttpResponseBody
     http_response_types[1] = .HttpResponseBody
     http_response_types[2] = .HttpResponseBody
@@ -397,7 +397,7 @@ CreatedType :: struct {
 }
 
 create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> CreatedType {
-    utils.call(loc, "create_type")
+    utils.call(loc, "create_type", "")
     utils.debug("value: %v", value)
     type, result := utils.lookup_or_insert(
         &types.m,
@@ -454,7 +454,10 @@ hash_sum_type :: proc(value: SumType) -> u32 {
         for c in variant.key {
             result ~= u32(c)
         }
-        result ~= u32(value.payloads.d[i])
+        type, is_type := value.payloads.d[i].(Type)
+        if is_type {
+            result ~= u32(type)
+        }
     }
     return result
 }

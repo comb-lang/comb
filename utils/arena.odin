@@ -118,7 +118,7 @@ alloc :: proc(
 }
 
 arena_new :: proc(a: ^Arena, $T: typeid, resizable := false, loc := #caller_location) -> ^T {
-    call(loc, "arena_new", debug_arena)
+    call(loc, "arena_new", "", enable_debug = debug_arena)
     allocated := alloc(a, size_of(T), align_of(T), resizable, true, loc)
     return (^T)(allocated)
 }
@@ -130,7 +130,7 @@ arena_make :: proc(
     resizable := false,
     loc := #caller_location,
 ) -> T {
-    call(loc, "arena_make", debug_arena)
+    call(loc, "arena_make", "", enable_debug = debug_arena)
     out: T = ---
     out_raw := (^runtime.Raw_Slice)(&out)
     out_raw.data = alloc(a, uint(size_of(E) * len), align_of(E), resizable, true, loc)
@@ -145,7 +145,7 @@ arena_make_multi :: proc(
     resizable := false,
     loc := #caller_location,
 ) -> T {
-    call(loc, "arena_make_multi", debug_arena)
+    call(loc, "arena_make_multi", "", enable_debug = debug_arena)
     when ODIN_DEBUG {
         return T{arena_make(a, []E, len, resizable, loc)}
     } else {
@@ -180,7 +180,7 @@ is_resizable :: proc {
 }
 
 resize :: proc(allocation: rawptr, new_size: int, loc := #caller_location) {
-    call(loc, "resize", debug_arena)
+    call(loc, "resize", "", enable_debug = debug_arena)
     assert(new_size >= 0)
     info := get_info(allocation)
     assert(is_resizable(info))
@@ -194,7 +194,7 @@ resize :: proc(allocation: rawptr, new_size: int, loc := #caller_location) {
 }
 
 fix_resizable :: proc(allocation: rawptr, loc := #caller_location) {
-    call(loc, "fix_resizable")
+    call(loc, "fix_resizable", "")
     info := get_info(allocation)
     assert(is_resizable(info))
     assert(info.block.last_resizable_block == nil)
@@ -203,7 +203,7 @@ fix_resizable :: proc(allocation: rawptr, loc := #caller_location) {
 }
 
 dealloc :: proc(allocation: rawptr, loc := #caller_location) {
-    call(loc, "dealloc")
+    call(loc, "dealloc", "")
     info := get_info(allocation)
     assert(info.block.arena.last_allocation == info.allocation)
     info.allocation.block.used = uint(
@@ -220,7 +220,7 @@ cleanup_arena :: proc(
     delete_blocks := true,
     loc := #caller_location,
 ) {
-    call(loc, "cleanup_arena")
+    call(loc, "cleanup_arena", "")
     if expect_empty {
         assert(a.last_allocation == nil)
     } else {

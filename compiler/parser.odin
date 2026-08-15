@@ -48,7 +48,7 @@ ParserState :: struct {
     function_defs:                  [dynamic]FunctionDefinition,
 }
 
-// BEFORE MERGE TODO: Remove this function
+/*
 // Does not include the `{`
 parse_struct :: proc(s: ^ParserState) -> (OldStructUnit, bool) {
     utils.append_dynamic(&s.parser_context, ParsingContext{s.last_token_pos, .StructType})
@@ -139,6 +139,7 @@ parse_struct :: proc(s: ^ParserState) -> (OldStructUnit, bool) {
         }
     }
 }
+*/
 
 parse_non_negative_number :: proc(s: ^ParserState, whole_part: string) -> NonNegativeNumber {
     get_next_token(s, true)
@@ -179,7 +180,7 @@ maybe_parse_initial_unit :: proc(
     s: ^ParserState,
     loc := #caller_location,
 ) -> MaybeParseInitialUnitResult {
-    utils.call(loc, "maybe_parse_initial_unit")
+    utils.call(loc, "maybe_parse_initial_unit", "")
     e :: proc(s: ^ParserState) -> MaybeParseInitialUnitResult {
         utils.append_dynamic_elems(
             &s.last_token_descriptions_of_other_possible_tokens,
@@ -203,6 +204,30 @@ maybe_parse_initial_unit :: proc(
     #partial switch token in s.last_token {
     case:
         return e(s)
+
+    case ColonToken:
+        get_next_token(s, false)
+        ident, is_ident := s.last_token.(IdentToken)
+        if !is_ident {
+            utils.append_dynamic(
+                &s.last_token_descriptions_of_other_possible_tokens,
+                "an identifier for the tag name",
+            )
+            wrong_token_err(s)
+            return Failure{}
+        }
+        get_next_token(s, true)
+        pos := s.last_token_pos
+        switch unit in maybe_parse_initial_unit(s) {
+        case:
+            panic("Unreachable")
+        case Failure:
+            return Failure{}
+        case NothingToParse:
+            return TagUnit{ident, nil}
+        case UnitWithoutPos:
+            return TagUnit{ident, new_clone(UnitWithPos{unit, pos})}
+        }
 
     case ImportToken:
         get_next_token(s, false)
@@ -257,10 +282,17 @@ maybe_parse_initial_unit :: proc(
         return UnitWithoutPos(StructUnit{elements})
 
     case OpenAngleBracketToken:
+        elems, elems_ok := parse_units_until(s, is_close_angle_bracket, "`>`").([]Unit)
+        if !elems_ok {
+            return Failure{}
+        }
+        get_next_token(s, true)
+        return UnitWithoutPos(SumUnit{elems})
+    /*
         sum_type := SumUnit {
             utils.make_key_to_index(s.a, utils.KeyToIndex(string)),
             utils.arena_make_multi(s.a, utils.Multi(utils.Pos), 0, resizable = true),
-            utils.arena_make_multi(s.a, utils.Multi(OldStructUnit), 0, resizable = true),
+            utils.arena_make_multi(s.a, utils.Multi(Unit), 0, resizable = true),
         }
         defer {
             utils.fix_key_to_index(sum_type.m)
@@ -343,6 +375,7 @@ maybe_parse_initial_unit :: proc(
         }
         get_next_token(s, true)
         return sum_type
+        */
 
     case OpenSquareBracketToken:
         args, args_ok := parse_units_until(s, is_close_square_bracket, "`]`").([]Unit)
@@ -483,7 +516,7 @@ maybe_parse_initial_unit :: proc(
 }
 
 parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> Maybe(UnitWithoutPos) {
-    utils.call(loc, "parse_initial_unit")
+    utils.call(loc, "parse_initial_unit", "")
     switch unit in maybe_parse_initial_unit(s) {
     case Failure:
         return nil
@@ -552,7 +585,7 @@ create_joined_unit :: proc(
 
 // Returns `nil` on failure
 parse_unit_with_pos :: proc(s: ^ParserState, loc := #caller_location) -> Maybe(UnitWithoutPos) {
-    utils.call(loc, "parse_unit_without_pos")
+    utils.call(loc, "parse_unit_without_pos", "")
     pos := s.last_token_pos
     unit, unit_ok := parse_initial_unit(s).(UnitWithoutPos)
     if !unit_ok {
@@ -1606,7 +1639,7 @@ parse_project :: proc(
     diagnostic_reporter: utils.DiagnosticReporter,
     loc := #caller_location,
 ) -> ParserOutput {
-    utils.call(loc, "parse_project", utils.debug_parser)
+    utils.call(loc, "parse_project", "", enable_debug = utils.debug_parser)
     state := ParserState {
             r              = diagnostic_reporter,
             files_cache    = files_cache,

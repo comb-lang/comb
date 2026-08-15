@@ -51,6 +51,9 @@ init :: proc "contextless" () {
     user_formatters[compiler.TokenContents] = compiler.token_formatter
     user_formatters[runtime.Source_Code_Location] = source_code_location_formatter
     user_formatters[time.Time] = time_formatter
+    when ODIN_DEBUG {
+        user_formatters[utils.CallStack] = utils.print_call_stack
+    }
     fmt.set_user_formatters(user_formatters)
 }
 

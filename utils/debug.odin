@@ -19,6 +19,9 @@ debug_builder :: false
 
 debug_writer := io.Writer{}
 
+@(private = "file")
+format :: "func: %q, call_site: %v, call_info: %q"
+
 when ODIN_DEBUG {
     call_stack: ^CallStack = nil
     debug_nesting := 0
@@ -26,12 +29,33 @@ when ODIN_DEBUG {
     CallStack :: struct {
         handle_debug:    bool,
         func_name:       string,
+        call_info:       string,
         call_site:       runtime.Source_Code_Location,
         call_site_stack: ^CallStack,
     }
 
     should_debug :: proc() -> bool {
         return call_stack != nil && call_stack.handle_debug == true
+    }
+
+    print_call_stack :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+        if verb != 'v' {
+            return false
+        }
+        stack := cast(^CallStack)arg.data
+        for {
+            fmt.wprintf(
+                fi.writer,
+                format + "\n",
+                stack.func_name,
+                stack.call_site,
+                stack.call_info,
+            )
+            stack = stack.call_site_stack
+            if stack == nil {
+                return true
+            }
+        }
     }
 
     CallStackOnDebug :: CallStack
@@ -43,7 +67,7 @@ when ODIN_DEBUG {
 
 get_call_stack_on_debug :: proc(loc := #caller_location) -> CallStackOnDebug {
     when ODIN_DEBUG {
-        return CallStackOnDebug{should_debug(), "get_call_stack_on_debug", loc, call_stack}
+        return CallStackOnDebug{should_debug(), "get_call_stack_on_debug", "", loc, call_stack}
     } else {
         return CallStackOnDebug{}
     }
@@ -72,17 +96,30 @@ to_debug_value :: proc(
 }
 
 @(deferred_in_out = call_finished)
-call :: proc(loc: runtime.Source_Code_Location, func_name: string, enable_debug: bool = false) {
+call :: proc(
+    loc: runtime.Source_Code_Location,
+    func_name: string,
+    info_format: string,
+    info_args: ..any,
+    enable_debug: bool = false,
+) {
     when ODIN_DEBUG {
+        info := fmt.aprintf(info_format, ..info_args)
         call_stack = new_clone(
-            CallStack{enable_debug || should_debug(), func_name, loc, call_stack},
+            CallStack{enable_debug || should_debug(), func_name, info, loc, call_stack},
         )
-        debug("%s called from %v", func_name, loc)
+        debug(format, func_name, loc, info)
         debug_nesting += 1
     }
 }
 
-call_finished :: proc(_: runtime.Source_Code_Location, func_name: string, enable_debug: bool) {
+call_finished :: proc(
+    _: runtime.Source_Code_Location,
+    func_name: string,
+    info_format: string,
+    info_args: ..any,
+    enable_debug := false,
+) {
     when ODIN_DEBUG {
         debug("%s returned from", func_name)
         debug_nesting -= 1

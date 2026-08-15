@@ -1,10 +1,10 @@
 LinkedList[T] = <
-    Empty,
-    NotEmpty{head: T, tail: LinkedList[T]},
+    :Empty,
+    :NotEmpty {head: T, tail: LinkedList[T]},
 >
 
 insert[T] = |list: LinkedList[T], number: T| -> LinkedList[T] {
-    return .NotEmpty(number, list)
+    return :NotEmpty {head: number, tail: list}
 }
 
 reverse[T] = |list: LinkedList[T], end: LinkedList[T]| -> LinkedList[T] {
@@ -50,7 +50,7 @@ foreach[T] = |list: LinkedList[T], func: (T) -> ()| {
 }
 
 empty_list[T] = || -> LinkedList[T] {
-    return .Empty()
+    return :Empty
 }
 
 debug_number = |number: Int| {
@@ -72,6 +72,6 @@ main = || -> Int {
         println(number.to_str)
     }
     println("Reversed:")
-    foreach[Int](reverse[Int](l$, .Empty()), debug_number)
+    foreach[Int](reverse[Int](l$, :Empty), debug_number)
     return 0
 }

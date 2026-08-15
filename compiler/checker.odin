@@ -1,7 +1,6 @@
 package compiler
 
 import "../utils"
-import "core:fmt"
 import "core:io"
 import "core:os"
 import "core:path/filepath"
@@ -62,7 +61,7 @@ CheckedGlobalValue :: struct {
 
 GenericInitialisations :: struct {
     m:      utils.KeyToIndex(GenericInitialisation),
-    values: utils.Multi(CheckedGlobalValue),
+    values: utils.Multi(utils.DebugValue(CheckedGlobalValue)),
 }
 
 CheckerScopeState :: struct {
@@ -126,9 +125,10 @@ CheckedFunctionCall :: struct {
 StructTypeInitFunc :: struct {
     return_type: Type,
 }
-SumTypeInitFunc :: struct {
+SumTypeInitinitialisation :: struct {
     sum_type:      Type,
     variant_index: u32,
+    payload:       ^CheckedValue, // May be `nil`
 }
 LengthOfString :: struct {
     str: ^CheckedValue,
@@ -238,7 +238,7 @@ CheckedValue :: union {
     CheckedJoinedValues,
     CheckedFunctionCall,
     StructTypeInitFunc,
-    SumTypeInitFunc,
+    SumTypeInitinitialisation,
     CheckedIndexedAccess,
     CheckedOrderedHashMapAccess,
     CheckedFieldAccess,
@@ -575,7 +575,7 @@ check_type :: proc(
     generic_args: map[string]Type,
     loc := #caller_location,
 ) -> Type {
-    utils.call(loc, "check_type")
+    utils.call(loc, "check_type", "")
     body := utils.to_debug_value([dynamic]CheckedStatement{})
     value := check_value(s, type, CheckValueArgs{&body, .Type, generic_args, nil}).v
     if value == nil {
@@ -608,7 +608,7 @@ expect_runtime_value :: proc(
     v: CheckedValue,
     loc := #caller_location,
 ) -> CheckedValue {
-    utils.call(loc, "expect_runtime_value")
+    utils.call(loc, "expect_runtime_value", "")
     if comptime_value, is_comptime_value := v.(CompileTimeValue); is_comptime_value {
         #partial switch _ in comptime_value {
         case Type, GlobalValueWithGenericRef, UninitialisedOrderedHashMapType, Import:
@@ -804,16 +804,18 @@ check_comptime_func_call :: proc(
     )
     if res == .LookedUp {
         value := s.generic_initialisations.values.d[ref.index]
-        if value.type == .Unknown {
-            panic("TODO: Handle cycles")
+        if value.v.type == .Unknown {
+            utils.panicf("TODO: Handle cycles (value is %v)", value)
         }
-        return finish_checking_value(s, pos, type, value.value, value.type, "")
+        return finish_checking_value(s, pos, type, value.v.value, value.v.type, "")
     } else {
         utils.resize_multi(
             &s.generic_initialisations.values,
             len(s.generic_initialisations.m.keys),
         )
-        s.generic_initialisations.values.d[ref.index] = CheckedGlobalValue{.Unknown, nil}
+        s.generic_initialisations.values.d[ref.index] = utils.to_debug_value(
+            CheckedGlobalValue{.Unknown, nil},
+        )
     }
 
     generic_args_map := make(map[string]Type)
@@ -830,11 +832,15 @@ check_comptime_func_call :: proc(
         check_value(s, generic.value, CheckValueArgs{&body, AnyType{&value_type}, generic_args_map, GenericTypeValue{global, generic_args}}).v
     s.scope_state = old_scope_state
     if checked_value == nil {
-        s.generic_initialisations.values.d[ref.index] = CheckedGlobalValue{.Invalid, nil}
+        s.generic_initialisations.values.d[ref.index] = utils.to_debug_value(
+            CheckedGlobalValue{.Invalid, nil},
+        )
         return nil
     }
     comptime_value, ok := checked_value.(CompileTimeValue)
-    s.generic_initialisations.values.d[ref.index] = CheckedGlobalValue{value_type, comptime_value}
+    s.generic_initialisations.values.d[ref.index] = utils.to_debug_value(
+        CheckedGlobalValue{value_type, comptime_value},
+    )
     if !ok {
         utils.diagnostic(s.r, generic.value.pos, non_compiletime_global_err)
         return nil
@@ -932,7 +938,7 @@ initialise_global_type_without_generic :: proc(
     loc := #caller_location,
 ) -> Type {
     when true {
-        utils.call(loc, "initialise_global_type_without_generic")
+        utils.call(loc, "initialise_global_type_without_generic", "")
     }
     // TODO: Check for cycles
     type := s.global_values_without_generic[i]
@@ -949,7 +955,7 @@ initialise_global_type_without_generic :: proc(
 */
 
 simplify_type :: proc(s: ^CheckerState, type: Type, loc := #caller_location) -> Type {
-    utils.call(loc, "simplify_type")
+    utils.call(loc, "simplify_type", "")
     utils.print_arg("type", type)
     cur_type := type
     for {
@@ -982,7 +988,7 @@ get_sum_type :: proc(
     Type,
     bool,
 ) {
-    utils.call(loc, "get_sum_type")
+    utils.call(loc, "get_sum_type", "")
     utils.print_arg("pos", pos)
     utils.print_arg("type", type)
     simplified := simplify_type(s, type)
@@ -1048,7 +1054,7 @@ get_func_type :: proc(
     type: Type,
     loc := #caller_location,
 ) -> Type {
-    utils.call(loc, "get_func_type")
+    utils.call(loc, "get_func_type", "")
     utils.print_arg("type", type_to_string(s, type))
     simplified := simplify_type(s, type)
     if simplified == .Type && value != nil {
@@ -1118,7 +1124,7 @@ type_is_subset :: proc(
     superset: Type,
     loc := #caller_location,
 ) -> bool {
-    utils.call(loc, "type_is_subset")
+    utils.call(loc, "type_is_subset", "")
     utils.debug("type: %v", get_type(s.types, type))
     utils.debug("superset: %v", get_type(s.types, superset))
     if type == superset {
@@ -1175,7 +1181,7 @@ finish_checking_value :: proc(
     extra_text: string,
     loc := #caller_location,
 ) -> CheckedValue {
-    utils.call(loc, "finish_checking_value")
+    utils.call(loc, "finish_checking_value", "")
     got_value_mut := got_value
     if expect_value_of_type(s, pos, type, &got_value_mut, got_type, extra_text) {
         return got_value_mut
@@ -1219,7 +1225,7 @@ expect_value_of_type :: proc(
     extra_text: string,
     loc := #caller_location,
 ) -> bool {
-    utils.call(loc, "expect_value_of_type")
+    utils.call(loc, "expect_value_of_type", "")
     utils.print_arg("expected", expected)
     utils.print_arg("got_type", type_to_string(s, got_type))
     switch e in expected {
@@ -1271,7 +1277,7 @@ expect_exact_type :: proc(
     extra_text: string,
     loc := #caller_location,
 ) -> bool {
-    utils.call(loc, "expect_exact_type")
+    utils.call(loc, "expect_exact_type", "")
     if !type_is_subset(s, got, expected) {
         utils.diagnostic(
             s.r,
@@ -1291,7 +1297,7 @@ get_variable_type :: proc(
     variable: VariableRef,
     loc := #caller_location,
 ) -> Type {
-    utils.call(loc, "get_variable_type")
+    utils.call(loc, "get_variable_type", "")
     return s.scopes[variable.nesting_level].variables[variable.index].type
 }
 
@@ -1312,7 +1318,7 @@ type_to_string2 :: proc(
     t: Type,
     loc := #caller_location,
 ) -> string {
-    utils.call(loc, "type_to_string2")
+    utils.call(loc, "type_to_string2", "")
     builder := strings.builder_make()
     build_type_string(types, globals_without_generic, globals_with_generic, &builder, t)
     return strings.to_string(builder)
@@ -1347,7 +1353,7 @@ build_type_string :: proc(
     t: Type,
     loc := #caller_location,
 ) {
-    utils.call(loc, "build_type_string")
+    utils.call(loc, "build_type_string", "")
     // TODO: Format the string better
     #partial switch t {
     case .String:
@@ -1386,15 +1392,18 @@ build_type_string :: proc(
                 if !first_variant {
                     strings.write_string(b, ", ")
                 }
-                variant_type := get_type(types, tv.payloads.d[i]).key.(StructType)
+                strings.write_byte(b, ':')
                 strings.write_string(b, variant.key)
-                build_struct_string(
-                    types,
-                    globals_without_generic,
-                    globals_with_generic,
-                    b,
-                    variant_type,
-                )
+                if payload, has_payload := tv.payloads.d[i].(Type); has_payload {
+                    strings.write_byte(b, ' ')
+                    build_type_string(
+                        types,
+                        globals_without_generic,
+                        globals_with_generic,
+                        b,
+                        payload,
+                    )
+                }
                 first_variant = false
             }
             strings.write_byte(b, '>')
@@ -1486,7 +1495,7 @@ build_type_string :: proc(
 }
 
 pop_scope :: proc(s: ^CheckerState, loc := #caller_location) {
-    utils.call(loc, "pop_scope")
+    utils.call(loc, "pop_scope", "")
     pop(&s.scopes)
     for var_name, var_ref in s.variables_map {
         if var_ref.nesting_level == len(s.scopes) {
@@ -1590,7 +1599,7 @@ check_mutation :: proc(
     generic_args: map[string]Type,
     loc := #caller_location,
 ) -> bool {
-    utils.call(loc, "check_mutation")
+    utils.call(loc, "check_mutation", "")
     ident, is_ident := unit.first_unit.(IdentNode)
     if !is_ident || len(ident.segments) != 1 {
         utils.diagnostic(
@@ -1726,7 +1735,7 @@ check_block :: proc(
     []Type,
     bool,
 ) {
-    utils.call(loc, "check_block")
+    utils.call(loc, "check_block", "")
     for stmt, stmt_index in block {
         switch value in stmt.value {
 
@@ -2257,12 +2266,17 @@ check_block :: proc(
                         utils.diagnostic(s.r, variable_name.pos, "Expected " + plain_ident_normal)
                         return nil, false
                     }
+                    payload, has_payload := val_sum_type.payloads.d[variant.index].(Type)
+                    if !has_payload {
+                        utils.diagnostic(
+                            s.r,
+                            ident.segments[0].pos,
+                            "Cannot have variable for sum type variant with no payload",
+                        )
+                        return nil, false
+                    }
                     var_ok: bool = ---
-                    var, var_ok = add_variable(
-                        s,
-                        val_sum_type.payloads.d[variant.index],
-                        ident.segments[0],
-                    )
+                    var, var_ok = add_variable(s, payload, ident.segments[0])
                     if !var_ok {
                         return nil, false
                     }
@@ -2460,9 +2474,10 @@ check_var_ref :: proc(
     a: CheckValueArgs,
     loc := #caller_location,
 ) -> CheckedValue {
-    utils.call(loc, "check_var_ref")
+    utils.call(loc, "check_var_ref", "")
     utils.print_arg("segments", segments)
     utils.print_arg("a", a)
+    /*
     if len(segments) == 2 && segments[0].ident == "" {
         expected_return_type: Type = ---
         switch expected in a.type {
@@ -2548,6 +2563,7 @@ check_var_ref :: proc(
         return dest
         */
     }
+    */
 
     out, out_type, start_i := check_var_ref_start(s, pos, segments, a.generic_args)
     if out == nil {
@@ -2630,7 +2646,7 @@ check_array_initialisation :: proc(
     a: CheckValueArgs,
     loc := #caller_location,
 ) -> CheckedValue {
-    utils.call(loc, "check_array_initialisation")
+    utils.call(loc, "check_array_initialisation", "")
     array_type_value, ok := check_array_type(s, array_type_pos, array_type_node, a.generic_args)
     if !ok {
         return nil
@@ -2715,7 +2731,7 @@ check_function_call :: proc(
         CheckedFunctionCall,
         CompileTimeValue,
     } {
-    utils.call(loc, "check_function_call")
+    utils.call(loc, "check_function_call", "")
     utils.print_arg("expected_return_types", expected_return_types)
 
     func_args: []Type = ---
@@ -3276,10 +3292,39 @@ check_initial_value :: proc(
     pos: utils.Pos,
     v: UnitWithoutPos,
     a: CheckValueArgs,
+    loc := #caller_location,
 ) -> utils.DebugValue(CheckedValue) {
     switch value in v {
     case:
         utils.diagnostic(s.r, pos, "Internal error: got nil value in check_value")
+        return utils.to_debug_value(CheckedValue(nil))
+
+    case TagUnit:
+        if len(value.tag) != 1 {
+            utils.diagnostic(s.r, value.tag[0].pos, "Expected the tag to have one segment")
+            return utils.to_debug_value(CheckedValue(nil))
+        }
+        tag_name := value.tag[0].ident
+        expect_camel_case(s, "the tag name", TextAndPos{tag_name, value.tag[0].pos})
+
+        variant_type: Maybe(Type) = nil
+        if value.value == nil {
+            panic("TODO")
+        } else {
+            checked_type := Type.Any
+            checked := check_initial_value(
+                s,
+                value.value.pos,
+                value.value.unit,
+                CheckValueArgs{a.body, AnyType{&checked_type}, a.generic_args, nil},
+            )
+            if checked.v == nil {
+                return utils.to_debug_value(CheckedValue(nil))
+            }
+            variant_type = checked_type
+        }
+
+        utils.diagnostic(s.r, pos, "TODO: Handle tag unit")
         return utils.to_debug_value(CheckedValue(nil))
 
     case StructUnit:
@@ -3435,17 +3480,54 @@ check_initial_value :: proc(
         if a.early_exit_if_value_is_type != nil {
             return utils.to_debug_value(finish_checking_early_return_type(s, pos, a))
         }
-        variant_payloads := utils.arena_make_multi(s.a, utils.Multi(Type), len(value.m.keys))
+        variant_positions := utils.arena_make(s.a, []utils.Pos, len(value.elements))
+        sum_type := SumType {
+            utils.make_key_to_index(s.a, utils.KeyToIndex(string)),
+            utils.arena_make_multi(s.a, utils.Multi(Maybe(Type)), len(value.elements)),
+        }
         ok := true
-        for key, i in value.m.keys {
+        for elem in value.elements {
+            tag_unit, is_tag_unit := elem.first_unit.(TagUnit)
+            if len(elem.extra_units) != 0 ||
+               !is_tag_unit ||
+               len(tag_unit.tag) != 1 ||
+               tag_unit.tag[0].has_dollar_at_end {
+                utils.diagnostic(
+                    s.r,
+                    elem.pos,
+                    "Expected something like `:VariantName VariantType` to create a sum type variant",
+                )
+                ok = false
+                continue
+            }
             expect_camel_case(
                 s,
                 "the name of a sum type variant",
-                TextAndPos{key.key, value.positions.d[i]},
+                TextAndPos{tag_unit.tag[0].ident, tag_unit.tag[0].pos},
             )
-            variant_payloads.d[i] = check_struct_type(s, value.payloads.d[i], a.generic_args)
-            if variant_payloads.d[i] == .Invalid {
+            index, result := utils.lookup_or_insert(
+                &sum_type.m,
+                tag_unit.tag[0].ident,
+                utils.string_to_index_procs,
+            )
+            if result == .LookedUp {
+                utils.diagnostic(
+                    s.r,
+                    tag_unit.tag[0].pos,
+                    "The variant `%s` is already defined at %v in this sum type",
+                    tag_unit.tag[0].ident,
+                    variant_positions[index.index],
+                )
                 ok = false
+                continue
+            }
+            if tag_unit.value != nil {
+                payload := check_initial_type(s, tag_unit.value^, a.generic_args)
+                if payload == .Invalid {
+                    ok = false
+                    continue
+                }
+                sum_type.payloads.d[index.index] = payload
             }
         }
         if !ok {
@@ -3456,7 +3538,7 @@ check_initial_value :: proc(
                 s,
                 pos,
                 a.type,
-                CompileTimeValue(create_type(&s.types, SumType{value.m, variant_payloads}).type),
+                CompileTimeValue(create_type(&s.types, sum_type).type),
                 .Type,
                 "",
             ),
@@ -4057,6 +4139,7 @@ check_derivation_alteration :: proc(
             s.r,
             join_method_pos,
             "Expected join method to be `=` to set the subset's new value or `|=` to update the subset's value",
+            "",
         )
         return DerivationAlteration{}
     }
@@ -4068,7 +4151,12 @@ check_value :: proc(
     a: CheckValueArgs,
     loc := #caller_location,
 ) -> utils.DebugValue(CheckedValue) {
-    utils.call(loc, "check_value")
+    utils.call(
+        loc,
+        "check_value",
+        "a.early_exit_if_value_is_type: %v",
+        a.early_exit_if_value_is_type,
+    )
     utils.print_arg("v", v)
 
     if len(v.extra_units) == 0 {
@@ -4250,7 +4338,7 @@ check_global_value_without_generic :: proc(
     ref: GlobalValueWithoutGenericRef,
     loc := #caller_location,
 ) -> CheckedGlobalValue {
-    utils.call(loc, "check_global_value_without_generic")
+    utils.call(loc, "check_global_value_without_generic", "")
     global := &s.global_values_without_generic[ref.index]
     if global.v.type != .Unknown {
         return global.v
@@ -4429,12 +4517,17 @@ check :: proc(
     diagnostic_reporter: utils.DiagnosticReporter,
     loc := #caller_location,
 ) -> CheckerOutput {
-    utils.call(loc, "check", utils.debug_checker)
+    utils.call(loc, "check", "", utils.debug_checker)
     state := CheckerState {
         a                             = a,
         generic_initialisations       = GenericInitialisations {
             utils.make_key_to_index(a, utils.KeyToIndex(GenericInitialisation)),
-            utils.arena_make_multi(a, utils.Multi(CheckedGlobalValue), 0, resizable = true),
+            utils.arena_make_multi(
+                a,
+                utils.Multi(utils.DebugValue(CheckedGlobalValue)),
+                0,
+                resizable = true,
+            ),
         },
         r                             = diagnostic_reporter,
         parsed_files                  = parsed.parsed_files,

@@ -62,7 +62,7 @@ resize_key_to_index :: proc(
     new_slots_len: u32,
     loc := #caller_location,
 ) {
-    call(loc, "resize")
+    call(loc, "resize", "")
     debug("new_slots_len: %d", new_slots_len)
     resize_dynamic(&key_to_index.slots, int(new_slots_len))
     mem.set(&key_to_index.slots[0], max(u8), int(new_slots_len) * size_of(Index))
@@ -148,7 +148,7 @@ lookup :: proc(
     procs: KeyToIndexProcs(K),
     loc := #caller_location,
 ) -> Index {
-    call(loc, "lookup", debug_key_to_index)
+    call(loc, "lookup", "", enable_debug = debug_key_to_index)
     debug("key: %v", key)
 
     if len(key_to_index.keys) == 0 {
@@ -172,7 +172,7 @@ lookup_or_insert :: proc(
     Index,
     Result,
 ) {
-    call(loc, "lookup_or_insert", debug_key_to_index)
+    call(loc, "lookup_or_insert", "", enable_debug = debug_key_to_index)
     debug("key: %v", key)
     full_key := Key(K){key, procs.hash_proc(key)}
     if len(key_to_index.keys) == 0 {

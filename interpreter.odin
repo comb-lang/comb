@@ -329,7 +329,9 @@ interp_execute_function2 :: proc(
     func: RuntimeFunc,
     args: []RuntimeValue,
 ) -> RuntimeValue {
+    utils.call(loc, "interp_execute_function2")
     checked_func := state.checked_funcs[func.ref.index]
+    utils.debug("checked_func.body: %v", checked_func.body)
 
     frame := Frame {
         func_index = func.ref.index,
@@ -430,9 +432,7 @@ interp_push_scope :: proc(state: ^ShortLivedInterpState, variable_types: []compi
 }
 
 interp_pop_scope :: proc(state: ^ShortLivedInterpState, loc := #caller_location) {
-    when utils.debug_interpreter {
-        utils.print_call(loc, "interp_pop_scope")
-    }
+    utils.call(loc, "interp_pop_scope")
     frame := &state.frames[len(state.frames) - 1]
     scope := pop(&frame.scopes)
     for &val in scope {
@@ -443,9 +443,7 @@ interp_pop_scope :: proc(state: ^ShortLivedInterpState, loc := #caller_location)
 
 interp_destroy_value :: proc(val: ^RuntimeValue, loc := #caller_location) {
     /*
-    when debug_interpreter {
-        utils.print_call(loc, "interp_destroy_value")
-    }
+        utils.call(loc, "interp_destroy_value")
     switch &v in val {
     case RuntimeStringOrderedHashMap:
         if v.needs_freeing {
@@ -516,9 +514,7 @@ interp_destroy_value :: proc(val: ^RuntimeValue, loc := #caller_location) {
 }
 
 interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> RuntimeValue {
-    when utils.debug_interpreter {
-        utils.print_call(loc, "interp_clone_value")
-    }
+    utils.call(loc, "interp_clone_value")
     switch v in val {
     case nil:
         panic("Unreachable: Uninitialised")
@@ -583,9 +579,7 @@ interp_exec_statement :: proc(state: InterpState, stmt: compiler.CheckedStatemen
         } else {
             state.control_flow_op = ReturnFromFunction{nil}
         }
-        when utils.debug_interpreter {
-            utils.debug("state.control_flow_op set to %v", state.control_flow_op)
-        }
+        utils.debug("state.control_flow_op set to %v", state.control_flow_op)
 
     case compiler.CheckedIf:
         cond := interp_eval_value(state, s.condition)
@@ -645,9 +639,7 @@ interp_exec_statement :: proc(state: InterpState, stmt: compiler.CheckedStatemen
             value: CheckedValue,
             loc := #caller_location,
         ) -> ^RuntimeValue {
-            when debug_interpreter {
-                utils.print_call(loc, "get_mutable_value")
-            }
+            utils.call(loc, "get_mutable_value")
             #partial switch v in value {
             case CheckedArrayAccess:
                 array := get_mutable_value(s, v.array^).(RuntimeArray)

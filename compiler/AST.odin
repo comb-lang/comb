@@ -386,7 +386,6 @@ print_output_list :: proc(s: ^TreePrinterState, label: string, list: []FunctionO
         print_type(s, output.value_type)
     }
 }
-*/
 
 debug_call :: proc(funcs: []FunctionDefinition, c: Call) {
     utils.debug_nesting += 1
@@ -467,6 +466,7 @@ debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
     }
     utils.debug_nesting -= 1
 }
+*/
 
 /*
 print_block :: proc(

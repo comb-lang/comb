@@ -14,9 +14,7 @@ when ODIN_DEBUG {
 }
 
 array_to_multi :: proc(a: []$T, loc := #caller_location) -> Multi(T) {
-    when debug_dynamic_array {
-        print_call(loc, "array_to_multi")
-    }
+    call(loc, "array_to_multi", debug_dynamic_array)
     when ODIN_DEBUG {
         return Multi(T){a}
     } else {
@@ -25,9 +23,7 @@ array_to_multi :: proc(a: []$T, loc := #caller_location) -> Multi(T) {
 }
 
 multi_to_array :: proc(a: Multi($T), length: int, loc := #caller_location) -> []T {
-    when debug_dynamic_array {
-        print_call(loc, "multi_to_array")
-    }
+    call(loc, "multi_to_array", debug_dynamic_array)
     when ODIN_DEBUG {
         assert(len(a.d) == length)
         return a.d
@@ -37,16 +33,12 @@ multi_to_array :: proc(a: Multi($T), length: int, loc := #caller_location) -> []
 }
 
 fix_resizable_dynamic :: proc(d: []$T, loc := #caller_location) {
-    when debug_dynamic_array {
-        print_call(loc, "fix_resizable_dynamic")
-    }
+    call(loc, "fix_resizable_dynamic", debug_dynamic_array)
     fix_resizable(raw_data(d))
 }
 
 fix_resizable_multi :: proc(d: Multi($T), loc := #caller_location) {
-    when debug_dynamic_array {
-        print_call(loc, "fix_resizable_multi")
-    }
+    call(loc, "fix_resizable_multi", debug_dynamic_array)
     when ODIN_DEBUG {
         fix_resizable_dynamic(d.d)
     } else {
@@ -55,18 +47,14 @@ fix_resizable_multi :: proc(d: Multi($T), loc := #caller_location) {
 }
 
 resize_dynamic :: proc(d: ^[]$T, new_length: int, loc := #caller_location) {
-    when debug_dynamic_array {
-        print_call(loc, "resize_dynamic")
-    }
+    call(loc, "resize_dynamic")
     raw := (^runtime.Raw_Slice)(d)
     raw.len = new_length
     resize(raw.data, new_length * size_of(T))
 }
 
 resize_multi :: proc(d: ^Multi($T), new_length: int, loc := #caller_location) {
-    when debug_dynamic_array {
-        print_call(loc, "resize_multi")
-    }
+    call(loc, "resize_multi")
     when ODIN_DEBUG {
         resize_dynamic(&d.d, new_length)
     } else {
@@ -75,9 +63,7 @@ resize_multi :: proc(d: ^Multi($T), new_length: int, loc := #caller_location) {
 }
 
 append_dynamic :: proc(d: ^[]$T, elem: T, loc := #caller_location) {
-    when debug_dynamic_array {
-        print_call(loc, "append_dynamic")
-    }
+    call(loc, "append_dynamic")
     resize_dynamic(d, len(d) + 1)
     d[len(d) - 1] = elem
 }
@@ -87,9 +73,7 @@ pop_dynamic :: proc(d: ^[]$T) {
 }
 
 append_dynamic_elems :: proc(d: ^[]$T, elems: ..T, loc := #caller_location) {
-    when debug_dynamic_array {
-        print_call(loc, "append_dynamic_elems")
-    }
+    call(loc, "append_dynamic_elems", debug_dynamic_array)
     old_len := len(d)
     resize_dynamic(d, len(d) + len(elems))
     for elem, i in elems {
@@ -98,10 +82,8 @@ append_dynamic_elems :: proc(d: ^[]$T, elems: ..T, loc := #caller_location) {
 }
 
 append_multi_dynamic :: proc(d: ^Multi($T), old_length: int, elem: T, loc := #caller_location) {
-    when debug_dynamic_array {
-        print_call(loc, "append_multi_dynamic")
-        print_arg("old_length", old_length)
-    }
+    call(loc, "append_multi_dynamic", debug_dynamic_array)
+    print_arg("old_length", old_length)
     when ODIN_DEBUG {
         assert(old_length == len(d.d))
     }
@@ -110,8 +92,6 @@ append_multi_dynamic :: proc(d: ^Multi($T), old_length: int, elem: T, loc := #ca
 }
 
 clear_dynamic :: proc(d: ^[]$T, loc := #caller_location) {
-    when debug_dynamic_array {
-        print_call(loc, "clear_dynamic")
-    }
+    call(loc, "clear_dynamic", debug_dynamic_array)
     resize_dynamic(d, 0)
 }

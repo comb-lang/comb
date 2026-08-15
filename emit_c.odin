@@ -29,9 +29,7 @@ emit_variable :: proc(b: ^strings.Builder, variable: compiler.VariableRef) {
 
 // Does not include the `struct`
 emit_struct_type :: proc(b: ^strings.Builder, type: compiler.StructType, loc := #caller_location) {
-    when utils.debug_emitter {
-        utils.print_call(loc, "emit_struct_type")
-    }
+    utils.call(loc, "emit_struct_type")
     strings.write_byte(b, '{')
     for _, index in type.m.keys {
         name := fmt.aprintf("field%d", index)
@@ -298,9 +296,7 @@ emit_c_block_head :: proc(
     variables: []compiler.Type,
     loc := #caller_location,
 ) {
-    when utils.debug_emitter {
-        utils.print_call(loc, "emit_c_block_head")
-    }
+    utils.call(loc, "emit_c_block_head")
     for type, index in variables {
         name := fmt.aprintf(variable_format, nesting_level, index)
         emit_type(&s.b, name, type)
@@ -317,11 +313,9 @@ emit_c_block_body :: proc(
     body: []compiler.CheckedStatement,
     loc := #caller_location,
 ) {
-    when utils.debug_emitter {
-        utils.print_call(loc, "emit_c_block_body")
-        utils.print_arg("nesting_level", nesting_level)
-        utils.print_arg("body", body)
-    }
+    utils.call(loc, "emit_c_block_body")
+    utils.print_arg("nesting_level", nesting_level)
+    utils.print_arg("body", body)
     for statement in body {
         switch stmt in statement {
         //case CheckedJsFunctionCall, CheckedJsAssignment:
@@ -452,9 +446,7 @@ emit_c_block :: proc(
     body: []compiler.CheckedStatement,
     loc := #caller_location,
 ) {
-    when utils.debug_emitter {
-        utils.print_call(loc, "emit_c_block")
-    }
+    utils.call(loc, "emit_c_block")
     emit_c_block_head(s, nesting_level, variables)
     emit_c_block_body(s, nesting_level, body)
 }
@@ -468,9 +460,7 @@ emit_forward_struct_definition :: proc(s: ^CEmitterState, name: string) {
 }
 
 emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_location) {
-    when utils.debug_emitter {
-        utils.print_call(loc, "emit_c_global_type")
-    }
+    utils.call(loc, "emit_c_global_type")
     name := fmt.aprintf("Type%d", index)
     defer delete(name)
     switch type in s.types.m.keys[index].key {
@@ -642,9 +632,7 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
 }
 
 emit_function_head :: proc(s: ^CEmitterState, func_index: int, type: compiler.Type) {
-    when utils.debug_emitter {
-        utils.debug("emitting function index %d", func_index)
-    }
+    utils.debug("emitting function index %d", func_index)
     info := compiler.get_type(s.types, type).key.(compiler.FuncType)
     switch len(info.return_types) {
     case 0:
@@ -674,7 +662,9 @@ emit_c :: proc(
     types: compiler.Types,
     checked_funcs: []compiler.CheckedFunction,
     main_func_ref: compiler.CheckedFuncRef,
+    loc := #caller_location,
 ) -> []byte {
+    utils.call(loc, "emit_c", utils.debug_emitter)
     s := CEmitterState {
         strings.builder_make(),
         strings.builder_make(),

@@ -173,9 +173,7 @@ maybe_parse_initial_unit :: proc(
     UnitWithoutPos,
     bool,
 ) {
-    when utils.debug_parser {
-        utils.print_call(loc, "maybe_parse_initial_unit")
-    }
+    utils.call(loc, "maybe_parse_initial_unit")
     e :: proc(s: ^ParserState) -> (UnitWithoutPos, bool) {
         utils.append_dynamic_elems(
             &s.last_token_descriptions_of_other_possible_tokens,
@@ -471,9 +469,7 @@ maybe_parse_initial_unit :: proc(
 }
 
 parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> UnitWithoutPos {
-    when utils.debug_parser {
-        utils.print_call(loc, "parse_initial_unit")
-    }
+    utils.call(loc, "parse_initial_unit")
     out, ok := maybe_parse_initial_unit(s)
     if out == nil {
         if ok {
@@ -544,9 +540,7 @@ create_joined_unit :: proc(
 
 // Returns `nil` on failure
 parse_unit_with_pos :: proc(s: ^ParserState, loc := #caller_location) -> UnitWithoutPos {
-    when utils.debug_parser {
-        utils.print_call(loc, "parse_unit_without_pos")
-    }
+    utils.call(loc, "parse_unit_without_pos")
     pos := s.last_token_pos
     unit := parse_initial_unit(s)
     if unit == nil {
@@ -1598,7 +1592,9 @@ parse_project :: proc(
     out: utils.Pipe(io.Writer),
     exit_early: EarlyExitInfo,
     diagnostic_reporter: utils.DiagnosticReporter,
+    loc := #caller_location,
 ) -> ParserOutput {
+    utils.call(loc, "parse_project", utils.debug_parser)
     state := ParserState {
             r              = diagnostic_reporter,
             files_cache    = files_cache,

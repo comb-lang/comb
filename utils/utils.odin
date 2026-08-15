@@ -63,12 +63,6 @@ override_close_handler :: proc(
     }
 }
 
-when ODIN_DEBUG {
-    SourceCodeLocationOnDebug :: runtime.Source_Code_Location
-} else {
-    SourceCodeLocationOnDebug :: struct {}
-}
-
 panicf :: proc(format: string, args: ..any) -> ! {
     panic(fmt.aprintf(format, ..args))
 }
@@ -148,27 +142,21 @@ string_builder_stream_proc :: proc(
 StringBuilder :: io.Writer
 
 make_builder :: proc(a: ^Arena, loc := #caller_location) -> StringBuilder {
-    when debug_builder {
-        print_call(loc, "make_builder")
-    }
+    call(loc, "make_builder", debug_builder)
     data := arena_new(a, []byte)
     data^ = arena_make(a, []byte, 0, resizable = true)
     return StringBuilder{string_builder_stream_proc, data}
 }
 
 finish_building :: proc(s: StringBuilder, loc := #caller_location) -> string {
-    when debug_builder {
-        print_call(loc, "finish_building")
-    }
+    call(loc, "finish_building", debug_builder)
     data := (^[]byte)(s.data)
     fix_resizable_dynamic(data^)
     return string(data^)
 }
 
 delete_builder :: proc(s: StringBuilder, loc := #caller_location) {
-    when debug_builder {
-        print_call(loc, "delete_builder")
-    }
+    call(loc, "delete_builder", debug_builder)
     data := (^[]byte)(s.data)
     dealloc(raw_data(data^))
     dealloc(data)
@@ -592,72 +580,6 @@ Pipe :: struct(T: typeid) {
     stderr: T,
 }
 
-debug_nesting := 0
-debug_writer := io.Writer{}
-
-// Print flushing is necessary even when we know that a flushing print call is
-// going to happen because flush does not work properly
-// See https://github.com/odin-lang/Odin/issues/6656
-// In this case flush is not necersarry because we are printing to a writer
-// rather than using the `fmt.print` family
-flush_needed :: false
-
-debug :: proc(format: string, args: ..any, loc := #caller_location) {
-    if debug_writer.data == nil {
-        buffer := make([]byte, 1024)
-        bufio_writer := new(bufio.Writer)
-        bufio.writer_init_with_buf(bufio_writer, os.to_stream(os.stdout), buffer)
-        debug_writer = bufio.writer_to_writer(bufio_writer)
-    }
-
-    max_line_length :: 100
-    line_padding := (4 * debug_nesting) + 4
-
-    formatted := fmt.aprintf(format, ..args)
-    defer delete_string(formatted)
-    assert(formatted != "")
-
-    for _ in 0 ..< debug_nesting {
-        fmt.wprint(debug_writer, "│   ", flush = flush_needed)
-    }
-    fmt.wprint(debug_writer, "├── ", flush = flush_needed)
-
-    if line_padding >= max_line_length {
-        fmt.wprintln(debug_writer, formatted)
-    } else {
-        col := line_padding
-        if len(formatted) > 1 {
-            for char in formatted[0:len(formatted) - 1] {
-                fmt.wprint(debug_writer, char, flush = flush_needed)
-                if char == '\n' {
-                    col = 0
-                } else {
-                    col += 1
-                    if col >= max_line_length {
-                        fmt.wprint(debug_writer, "\n...", flush = flush_needed)
-                        col = 3
-                    } else {
-                        continue
-                    }
-                }
-                for _ in col ..< line_padding {
-                    fmt.wprint(debug_writer, ' ', flush = flush_needed)
-                }
-                col = line_padding
-            }
-        }
-        fmt.wprintfln(debug_writer, "%c", formatted[len(formatted) - 1])
-    }
-
-    when false {
-        fmt.wprint(debug_writer, "Press enter to continue")
-        buf := make([]byte, 1)
-        os.read(os.stdin, buf)
-        delete(buf)
-        fmt.wprint(debug_writer, up_line + erase_line)
-    }
-}
-
 /*
 debug_exact_checked_type :: proc(s: ^CheckerState, type: Type) {
     debug("type is %#v", type)
@@ -676,18 +598,3 @@ debug_exact_checked_type :: proc(s: ^CheckerState, type: Type) {
     debug_nesting -= 1
 }
 */
-
-print_arg :: proc(arg_name: string, arg_value: any) {
-    debug("arg `%s`: %v", arg_name, arg_value)
-}
-
-@(deferred_in_out = print_call_finished)
-print_call :: proc(loc: runtime.Source_Code_Location, func_name: string) {
-    debug("%s called from %v", func_name, loc)
-    debug_nesting += 1
-}
-
-print_call_finished :: proc(_: runtime.Source_Code_Location, func_name: string) {
-    debug("%s returned from", func_name)
-    debug_nesting -= 1
-}

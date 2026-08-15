@@ -579,9 +579,7 @@ emit_js_block :: proc(
     body: []compiler.CheckedStatement,
     loc := #caller_location,
 ) {
-    when utils.debug_emitter {
-        utils.print_call(loc, "emit_js_block")
-    }
+    utils.call(loc, "emit_js_block")
     emit_js_block_head(s, nesting_level, variables)
     emit_js_block_body(s, nesting_level, body)
 }
@@ -589,7 +587,9 @@ emit_js_block :: proc(
 emit_javascript :: proc(
     types: compiler.Types,
     checked_functions: []compiler.CheckedFunction,
+    loc := #caller_location,
 ) -> strings.Builder {
+    utils.call(loc, "emit_javascript", utils.debug_emitter)
     s := GeneralEmitterState{strings.builder_make(), types, checked_functions}
     strings.write_string(
         &s.b,
@@ -634,9 +634,7 @@ emit_javascript :: proc(
     */
 
     for func, index in checked_functions {
-        when utils.debug_emitter {
-            utils.debug("emitting function index %d", index)
-        }
+        utils.debug("emitting function index %d", index)
         strings.write_string(&s.b, "const func")
         strings.write_int(&s.b, index)
         strings.write_byte(&s.b, '=')

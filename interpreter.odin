@@ -347,7 +347,7 @@ interp_execute_function2 :: proc(
     append_elem(&state.frames, frame)
 
     assert(state.control_flow_op == nil)
-    interp_exec_block(state, checked_func.body)
+    interp_exec_block(state, checked_func.body.v)
     f := pop(&state.frames)
     assert(len(f.scopes) == 3)
     for &v in f.scopes[2] {

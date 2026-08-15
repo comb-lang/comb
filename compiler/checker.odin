@@ -106,7 +106,7 @@ CheckedFunction :: struct {
     definition:   FuncDefinitionRef,
     generic_args: map[string]Type,
     variables:    []Type,
-    body:         []CheckedStatement,
+    body:         utils.DebugValue([]CheckedStatement),
     inline_stuff: InlineFuncFields,
 }
 
@@ -522,7 +522,7 @@ check_array_type :: proc(
     if len(type.args) == 0 {
         length = 0
     } else if len(type.args) == 1 {
-        body := make([dynamic]CheckedStatement)
+        body := utils.to_debug_value([dynamic]CheckedStatement{})
         value := expect_runtime_value(
             s,
             type.args[0].pos,
@@ -541,7 +541,7 @@ check_array_type :: proc(
             return ArrayType{}, false
         }
         number := compile_time_value.(NumberValue)
-        assert(len(body) == 0)
+        assert(len(body.v) == 0)
         assert(number.fraction_part == "")
         length, ok = utils.big_uint_to_u32(number.whole_part)
         if number.is_negated || !ok || length == 0 {
@@ -576,12 +576,12 @@ check_type :: proc(
     loc := #caller_location,
 ) -> Type {
     utils.call(loc, "check_type")
-    body := make([dynamic]CheckedStatement)
+    body := utils.to_debug_value([dynamic]CheckedStatement{})
     value := check_value(s, type, CheckValueArgs{&body, .Type, generic_args, nil})
     if value == nil {
         return .Invalid
     }
-    assert(len(body) == 0)
+    assert(len(body.v) == 0)
     return value.(CompileTimeValue).(Type)
 }
 
@@ -590,7 +590,7 @@ check_initial_type :: proc(
     type: UnitWithPos,
     generic_args: map[string]Type,
 ) -> Type {
-    body := make([dynamic]CheckedStatement)
+    body := utils.to_debug_value([dynamic]CheckedStatement{})
     value := check_initial_value(
         s,
         type.pos,
@@ -600,7 +600,7 @@ check_initial_type :: proc(
     if value == nil {
         return .Invalid
     }
-    assert(len(body) == 0)
+    assert(len(body.v) == 0)
     return value.(CompileTimeValue).(Type)
 
 }
@@ -826,7 +826,7 @@ check_comptime_func_call :: proc(
         generic_args_map[arg.text] = generic_args[i]
     }
 
-    body: [dynamic]CheckedStatement
+    body := utils.to_debug_value([dynamic]CheckedStatement{})
     value_type := Type.Invalid
     old_scope_state := s.scope_state
     s.scope_state = CheckerScopeState{}
@@ -851,7 +851,7 @@ check_comptime_func_call :: proc(
         utils.diagnostic(s.r, generic.value.pos, non_compiletime_global_err)
         return nil
     }
-    assert(len(body) == 0)
+    assert(utils.debug_dynamic_array_len(body) == 0)
 
     out := finish_checking_value(s, pos, type, checked_value, value_type, "")
 
@@ -1599,7 +1599,7 @@ check_mutation :: proc(
     unit: Unit,
     // unit_being_mutated: UnitWithPos,
     // new_value_unit: Unit,
-    body: ^[dynamic]CheckedStatement,
+    body: ^utils.DebugValue([dynamic]CheckedStatement),
     generic_args: map[string]Type,
     loc := #caller_location,
 ) -> bool {
@@ -1661,7 +1661,7 @@ check_mutation :: proc(
             return false
         }
 
-        append_elem(
+        utils.debug_dynamic_array_append(
             body,
             CheckedAssignment {
                 var_ref,
@@ -1699,7 +1699,7 @@ check_mutation :: proc(
         return false
     }
 
-    append_elem(body, CheckedAssignment{variable, new_value})
+    utils.debug_dynamic_array_append(body, CheckedAssignment{variable, new_value})
     return true
 }
 
@@ -1719,7 +1719,7 @@ try_split_by :: proc(u: Unit, split: LeftToRightUnitJoinMethod) -> (Unit, Unit, 
 check_block :: proc(
     s: ^CheckerState,
     block: []Statement,
-    body: ^[dynamic]CheckedStatement,
+    body: ^utils.DebugValue([dynamic]CheckedStatement),
     generic_args: map[string]Type,
     loc := #caller_location,
 ) -> (
@@ -1804,7 +1804,7 @@ check_block :: proc(
                         return nil, false
                     }
                     // Call cannot be a `CompileTimeValue` because `expected_return_types` is set to `nil`
-                    append_elem(body, call.(CheckedFunctionCall))
+                    utils.debug_dynamic_array_append(body, call.(CheckedFunctionCall))
                 case:
                     utils.diagnostic(s.r, value.pos, "Cannot use this kind of unit as a statement")
                     return nil, false
@@ -1829,12 +1829,12 @@ check_block :: proc(
                 ),
             )
 
-            loop_body_array := make([dynamic]CheckedStatement)
+            loop_body_array := utils.to_debug_value([dynamic]CheckedStatement{})
             exit_loop := make([]CheckedStatement, 1)
             exit_loop[0] = CheckedLoopControlFlow{loop_index, .Break}
             condition_check := CheckedIf{condition, CheckedBlock{}, CheckedBlock{nil, exit_loop}}
             if value.type == .WhileLoop {
-                append_elem(&loop_body_array, condition_check)
+                utils.debug_dynamic_array_append(&loop_body_array, condition_check)
             }
 
             loop_variables, loop_body_ok := check_block(
@@ -1848,12 +1848,12 @@ check_block :: proc(
             }
 
             if value.type == .DoWhileLoop {
-                append_elem(&loop_body_array, condition_check)
+                utils.debug_dynamic_array_append(&loop_body_array, condition_check)
             }
 
-            append_elem(
+            utils.debug_dynamic_array_append(
                 body,
-                CheckedLoop{loop_index, loop_variables, nil, nil, loop_body_array[:]},
+                CheckedLoop{loop_index, loop_variables, nil, nil, loop_body_array.v[:]},
             )
 
         case ForInLoop:
@@ -1876,7 +1876,7 @@ check_block :: proc(
             }
             s.parent_loop_index = loop_index
             s.loop_index += 1
-            loop_body_array := make([dynamic]CheckedStatement)
+            loop_body_array := utils.to_debug_value([dynamic]CheckedStatement{})
             outer: switch iter in value.iterator {
             case Unit:
                 type := Type.Unknown
@@ -1921,13 +1921,13 @@ check_block :: proc(
                     if !loop_body_ok {
                         return nil, false
                     }
-                    append_elem(
+                    utils.debug_dynamic_array_append(
                         body,
                         iterate_array(
                             loop_index,
                             index_ref,
                             elem_ref,
-                            &utils.DoubleDynamic(CheckedStatement){loop_body_array, 0},
+                            &utils.DoubleDynamic(CheckedStatement){loop_body_array.v, 0},
                             loop_variables,
                             v,
                             t,
@@ -1962,7 +1962,7 @@ check_block :: proc(
                     if !loop_body_ok {
                         return nil, false
                     }
-                    append_elem(
+                    utils.debug_dynamic_array_append(
                         body,
                         iterate_ordered_hash_map(
                             loop_index,
@@ -1970,7 +1970,7 @@ check_block :: proc(
                             index,
                             key,
                             value_var,
-                            &utils.DoubleDynamic(CheckedStatement){loop_body_array, 0},
+                            &utils.DoubleDynamic(CheckedStatement){loop_body_array.v, 0},
                             loop_variables,
                         ),
                     )
@@ -2042,7 +2042,7 @@ check_block :: proc(
                 if !loop_body_ok {
                     return nil, false
                 }
-                append_elem(
+                utils.debug_dynamic_array_append(
                     body,
                     iterate_start_end_step(
                         loop_index,
@@ -2051,7 +2051,7 @@ check_block :: proc(
                         start,
                         end,
                         step,
-                        &utils.DoubleDynamic(CheckedStatement){loop_body_array, 0},
+                        &utils.DoubleDynamic(CheckedStatement){loop_body_array.v, 0},
                         loop_variables,
                     ),
                 )
@@ -2070,31 +2070,31 @@ check_block :: proc(
             )
 
             append_elem(&s.scopes, Scope{})
-            if_block_array := make([dynamic]CheckedStatement)
+            if_block_array := utils.to_debug_value([dynamic]CheckedStatement{})
             if_variables, if_block_ok := check_block(
                 s,
                 value.if_block,
                 &if_block_array,
                 generic_args,
             )
-            if_block := CheckedBlock{if_variables, if_block_array[:]}
+            if_block := CheckedBlock{if_variables, if_block_array.v[:]}
             pop_scope(s)
 
             append_elem(&s.scopes, Scope{})
-            else_block_array := make([dynamic]CheckedStatement)
+            else_block_array := utils.to_debug_value([dynamic]CheckedStatement{})
             else_variables, else_block_ok := check_block(
                 s,
                 value.else_block,
                 &else_block_array,
                 generic_args,
             )
-            else_block := CheckedBlock{else_variables, else_block_array[:]}
+            else_block := CheckedBlock{else_variables, else_block_array.v[:]}
             pop_scope(s)
 
             if condition == nil || !if_block_ok || !else_block_ok {
                 return nil, false
             }
-            append_elem(body, CheckedIf{condition, if_block, else_block})
+            utils.debug_dynamic_array_append(body, CheckedIf{condition, if_block, else_block})
 
         case LoopControlFlow:
             if stmt_index + 1 != len(block) {
@@ -2114,7 +2114,10 @@ check_block :: proc(
                 return nil, false
             }
             if value.label.text == "" {
-                append_elem(body, CheckedLoopControlFlow{s.parent_loop_index, value.kind})
+                utils.debug_dynamic_array_append(
+                    body,
+                    CheckedLoopControlFlow{s.parent_loop_index, value.kind},
+                )
             } else {
                 loop_ref, ok := s.labels_map[value.label.text]
                 if !ok {
@@ -2126,7 +2129,10 @@ check_block :: proc(
                     )
                     return nil, false
                 }
-                append_elem(body, CheckedLoopControlFlow{loop_ref.loop_index, value.kind})
+                utils.debug_dynamic_array_append(
+                    body,
+                    CheckedLoopControlFlow{loop_ref.loop_index, value.kind},
+                )
             }
 
         case UnreachableStatement:
@@ -2138,7 +2144,7 @@ check_block :: proc(
                 )
                 return nil, false
             }
-            append_elem(body, UnreachableStatement{})
+            utils.debug_dynamic_array_append(body, UnreachableStatement{})
 
         case ReturnStatement:
             if stmt_index + 1 != len(block) {
@@ -2161,7 +2167,7 @@ check_block :: proc(
             }
             switch len(value) {
             case 0:
-                append_elem(body, CheckedReturn{nil})
+                utils.debug_dynamic_array_append(body, CheckedReturn{nil})
             case 1:
                 v := expect_runtime_value(
                     s,
@@ -2175,7 +2181,7 @@ check_block :: proc(
                 if v == nil {
                     return nil, false
                 }
-                append_elem(body, CheckedReturn{v})
+                utils.debug_dynamic_array_append(body, CheckedReturn{v})
             case:
                 utils.diagnostic(
                     s.r,
@@ -2209,7 +2215,7 @@ check_block :: proc(
             }
 
             variable_ref := add_unnamed_variable(s, val_type, false)
-            append_elem(body, CheckedAssignment{variable_ref, val})
+            utils.debug_dynamic_array_append(body, CheckedAssignment{variable_ref, val})
 
             variant_has_branch := make([]bool, len(val_sum_type.m.keys))
             variant_branch_positions := make([]utils.Pos, len(val_sum_type.m.keys))
@@ -2288,13 +2294,16 @@ check_block :: proc(
                     }
                 }
 
-                body := make([dynamic]CheckedStatement)
+                body := utils.to_debug_value([dynamic]CheckedStatement{})
                 variables, block_ok := check_block(s, branch.body, &body, generic_args)
                 if !block_ok {
                     return nil, false
                 }
 
-                branches[variant.index] = CheckedMatchBranch{CheckedBlock{variables, body[:]}, var}
+                branches[variant.index] = CheckedMatchBranch {
+                    CheckedBlock{variables, body.v[:]},
+                    var,
+                }
                 variant_has_branch[variant.index] = true
                 variant_branch_positions[variant.index] = branch.label.pos
             }
@@ -2314,11 +2323,11 @@ check_block :: proc(
             if unhandled_variants {
                 return nil, false
             }
-            append_elem(body, CheckedMatch{variable_ref, branches})
+            utils.debug_dynamic_array_append(body, CheckedMatch{variable_ref, branches})
 
         }
 
-        utils.debug("length of body is %d", len(body))
+        utils.debug("length of body is %d", len(body.v))
     }
     variables := s.scopes[len(s.scopes) - 1].variables
     return variables.type[:len(variables)], true
@@ -2732,7 +2741,7 @@ check_function_call :: proc(
     s: ^CheckerState,
     pos: utils.Pos,
     call: CallWithBrackets,
-    body: ^[dynamic]CheckedStatement,
+    body: ^utils.DebugValue([dynamic]CheckedStatement),
     expected_return_types: []ExpectedType,
     generic_args: map[string]Type,
     loc := #caller_location,
@@ -3266,7 +3275,7 @@ start_checking_type :: proc(
 
 CheckValueArgs :: struct {
     // Used if the value is a runtime value
-    body:                        ^[dynamic]CheckedStatement,
+    body:                        ^utils.DebugValue([dynamic]CheckedStatement),
 
     // TODO: Update the compiler so all type information flows from source to
     // destination and remove this field and
@@ -3298,7 +3307,7 @@ index_type :: Type.Int // TODO: Maybe uInt should be used instead
 check_index :: proc(
     s: ^CheckerState,
     u: Unit,
-    body: ^[dynamic]CheckedStatement,
+    body: ^utils.DebugValue([dynamic]CheckedStatement),
     generic_args: map[string]Type,
 ) -> CheckedIndex {
     start, end, is_range := try_split_by(u, .Colon)
@@ -3526,7 +3535,7 @@ check_initial_value :: proc(
                 }
 
                 // Check key
-                body := make([dynamic]CheckedStatement)
+                body := utils.to_debug_value([dynamic]CheckedStatement{})
                 key_value := check_initial_value(
                     s,
                     arg.pos,
@@ -3541,7 +3550,7 @@ check_initial_value :: proc(
                     utils.diagnostic(s.r, arg.pos, "Key must be comptile-time known value")
                     return nil
                 }
-                assert(len(body) == 0)
+                assert(len(body.v) == 0)
                 key := string(key_comptime.(StringLiteralValue))
                 if key in compile_time_items || key in runtime_items {
                     utils.diagnostic(
@@ -3747,7 +3756,7 @@ check_array_index_derivation_subset :: proc(
     s: ^CheckerState,
     pos: utils.Pos,
     args: []Unit,
-    body: ^[dynamic]CheckedStatement,
+    body: ^utils.DebugValue([dynamic]CheckedStatement),
     generic_args: map[string]Type,
 ) -> ArrayElementAccess {
     if len(args) != 1 {
@@ -3766,7 +3775,7 @@ check_derivation_subset :: proc(
     derivation_base_type: Type,
     unit: UnitWithPos,
     generic_args: map[string]Type,
-    body: ^[dynamic]CheckedStatement,
+    body: ^utils.DebugValue([dynamic]CheckedStatement),
 ) -> (
     utils.DoubleDynamic(DerivationSubsetElement),
     Type,
@@ -3951,7 +3960,7 @@ check_derivation_alteration :: proc(
     join_method_pos: utils.Pos,
     unit: Unit,
     value_type: Type,
-    body: ^[dynamic]CheckedStatement,
+    body: ^utils.DebugValue([dynamic]CheckedStatement),
     generic_args: map[string]Type,
 ) -> DerivationAlteration {
     #partial switch join_method {
@@ -4114,7 +4123,14 @@ check_anonymous_func_head :: proc(
     checked_ref := CheckedFuncRef{len(s.checked_functions)}
     append(
         &s.checked_functions,
-        CheckedFunction{type, ref, generic_args, nil, nil, inline_func_fields},
+        CheckedFunction {
+            type,
+            ref,
+            generic_args,
+            nil,
+            utils.to_debug_value([]CheckedStatement{}),
+            inline_func_fields,
+        },
     )
     return Func{checked_ref, lambda_args}, type
 }
@@ -4157,13 +4173,13 @@ check_anonymous_func_body :: proc(s: ^CheckerState, ref: CheckedFuncRef) -> bool
     append(&s.scopes, Scope{})
     defer pop_scope(s)
     // TODO: Check that the function always returns if it has a return type
-    body := make([dynamic]CheckedStatement)
+    body := utils.to_debug_value([dynamic]CheckedStatement{})
     variables, block_ok := check_block(s, func.body, &body, generic_args)
     if !block_ok {
         return false
     }
     s.checked_functions[ref.index].variables = variables
-    s.checked_functions[ref.index].body = body[:]
+    s.checked_functions[ref.index].body = utils.debug_dynamic_array_to_slice(body)
     return true
 }
 
@@ -4196,7 +4212,7 @@ check_global_value_without_generic :: proc(
             return global.v
         }
     }
-    body: [dynamic]CheckedStatement = nil
+    body := utils.to_debug_value([dynamic]CheckedStatement{})
     early_exit_if_value_is_type: TypeKey = GlobalType{ref}
     type: Type = .Unknown
     old_scope_state := s.scope_state
@@ -4224,7 +4240,7 @@ check_global_value_without_generic :: proc(
         global.v = CheckedGlobalValue{.Invalid, nil}
         return global.v
     }
-    assert(len(body) == 0)
+    assert(len(body.v) == 0)
     if type == .Invalid {
         assert(comptime_value == nil)
     }

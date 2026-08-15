@@ -658,7 +658,7 @@ emit_javascript :: proc(
             emit_variable(&s.b, compiler.VariableRef{1, uint(i)})
         }
         strings.write_string(&s.b, ") => {")
-        emit_js_block(&s, 2, func.variables, func.body)
+        emit_js_block(&s, 2, func.variables, func.body.v)
         strings.write_string(&s.b, "};")
     }
 

@@ -47,6 +47,17 @@ get_call_stack_on_debug :: proc(loc := #caller_location) -> CallStackOnDebug {
     }
 }
 
+DebugValue :: struct(T: typeid) {
+    v:          T,
+    created_at: CallStackOnDebug,
+    mutated_at: CallStackOnDebug,
+}
+
+to_debug_value :: proc(v: $T, loc := #caller_location) -> DebugValue(T) {
+    call_stack := get_call_stack_on_debug(loc)
+    return DebugValue(T){v, call_stack, call_stack}
+}
+
 @(deferred_in_out = call_finished)
 call :: proc(loc: runtime.Source_Code_Location, func_name: string, enable_debug: bool = false) {
     when ODIN_DEBUG {

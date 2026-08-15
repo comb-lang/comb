@@ -685,7 +685,7 @@ emit_c :: proc(
     for func, index in checked_funcs {
         emit_function_head(&s, index, func.type)
         strings.write_byte(&s.b, '{')
-        emit_c_block(&s, 2, func.variables, func.body)
+        emit_c_block(&s, 2, func.variables, func.body.v)
         strings.write_byte(&s.b, '}')
     }
 

@@ -39,7 +39,12 @@ KeyToIndex :: struct(K: typeid) {
     keys:  []Key(K),
 }
 
-make_key_to_index :: proc(a: ^Arena, $T: typeid/KeyToIndex($K)) -> KeyToIndex(K) {
+make_key_to_index :: proc(
+    a: ^Arena,
+    $T: typeid/KeyToIndex($K),
+    loc := #caller_location,
+) -> KeyToIndex(K) {
+    call(loc, "make_key_to_index", "")
     return KeyToIndex(K) {
         arena_make(a, []Index, 0, resizable = true),
         arena_make(a, []Key(K), 0, resizable = true),

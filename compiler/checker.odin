@@ -3307,9 +3307,11 @@ check_initial_value :: proc(
         tag_name := value.tag[0].ident
         expect_camel_case(s, "the tag name", TextAndPos{tag_name, value.tag[0].pos})
 
-        variant_type: Maybe(Type) = nil
+        variant_type: Maybe(Type) = ---
+        payload: ^CheckedValue = ---
         if value.value == nil {
-            panic("TODO")
+            variant_type = nil
+            payload = nil
         } else {
             checked_type := Type.Any
             checked := check_initial_value(
@@ -3322,10 +3324,28 @@ check_initial_value :: proc(
                 return utils.to_debug_value(CheckedValue(nil))
             }
             variant_type = checked_type
+            payload = new_clone(checked.v)
         }
 
-        utils.diagnostic(s.r, pos, "TODO: Handle tag unit")
-        return utils.to_debug_value(CheckedValue(nil))
+        sum_type_m := utils.make_key_to_index(s.a, utils.KeyToIndex(string))
+        i, r := utils.lookup_or_insert(&sum_type_m, tag_name, utils.string_to_index_procs)
+        assert(i.index == 0 && r == .Inserted)
+        utils.fix_key_to_index(sum_type_m)
+
+        sum_type_payloads := utils.arena_make_multi(s.a, utils.Multi(Maybe(Type)), 1)
+        sum_type_payloads.d[0] = variant_type
+        sum_type := create_type(&s.types, SumType{sum_type_m, sum_type_payloads}).type
+
+        return utils.to_debug_value(
+            finish_checking_value(
+                s,
+                pos,
+                a.type,
+                SumTypeInitinitialisation{sum_type, 0, payload},
+                sum_type,
+                "",
+            ),
+        )
 
     case StructUnit:
         if len(value.elements) == 0 {
@@ -3353,7 +3373,7 @@ check_initial_value :: proc(
                 utils.diagnostic(
                     s.r,
                     element.pos,
-                    "Elements in `{}` must be like `name: Type` or `name = type`",
+                    "Elements in `{{}}` must be like `name: Type` or `name = type`",
                 )
                 return utils.to_debug_value(CheckedValue(nil))
             }
@@ -3485,6 +3505,7 @@ check_initial_value :: proc(
             utils.make_key_to_index(s.a, utils.KeyToIndex(string)),
             utils.arena_make_multi(s.a, utils.Multi(Maybe(Type)), len(value.elements)),
         }
+        defer utils.fix_key_to_index(sum_type.m)
         ok := true
         for elem in value.elements {
             tag_unit, is_tag_unit := elem.first_unit.(TagUnit)

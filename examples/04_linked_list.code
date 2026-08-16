@@ -4,16 +4,16 @@ LinkedList[T] = <
 >
 
 insert[T] = |list: LinkedList[T], number: T| -> LinkedList[T] {
-    return :NotEmpty {head: number, tail: list}
+    return :NotEmpty {head = number, tail = list}
 }
 
 reverse[T] = |list: LinkedList[T], end: LinkedList[T]| -> LinkedList[T] {
     match list {
-        _: .Empty {
+        .Empty {
             return end
         }
         not_empty: .NotEmpty {
-            return reverse[T](not_empty.tail, .NotEmpty(not_empty.head, end))
+            return reverse[T](not_empty.tail, :NotEmpty {head = not_empty.head, tail = end})
         }
     }
 }

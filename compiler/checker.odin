@@ -125,7 +125,7 @@ CheckedFunctionCall :: struct {
 StructTypeInitFunc :: struct {
     return_type: Type,
 }
-SumTypeInitinitialisation :: struct {
+SumTypeInitialisation :: struct {
     sum_type:      Type,
     variant_index: u32,
     payload:       ^CheckedValue, // May be `nil`
@@ -238,7 +238,7 @@ CheckedValue :: union {
     CheckedJoinedValues,
     CheckedFunctionCall,
     StructTypeInitFunc,
-    SumTypeInitinitialisation,
+    SumTypeInitialisation,
     CheckedIndexedAccess,
     CheckedOrderedHashMapAccess,
     CheckedFieldAccess,
@@ -731,15 +731,14 @@ ToString :: struct {
 }
 
 CheckedMatchBranch :: struct {
+    pos:       utils.Pos,
     block:     CheckedBlock,
-    value_var: union {
-        VariableRef,
-    }, // May be nil
+    value_var: Maybe(VariableRef), // May be nil
 }
 
 CheckedMatch :: struct {
     value:    VariableRef,
-    branches: []CheckedMatchBranch, // The branch index is the variant index
+    branches: map[u32]CheckedMatchBranch, // The key is the tag name index
 }
 
 CheckedAssignment :: struct {
@@ -1120,13 +1119,21 @@ get_func_type :: proc(
 
 type_is_subset :: proc(
     s: ^CheckerState,
-    type: Type,
-    superset: Type,
+    type_unsimplified: Type,
+    superset_unsimplified: Type,
     loc := #caller_location,
 ) -> bool {
-    utils.call(loc, "type_is_subset", "")
-    utils.debug("type: %v", get_type(s.types, type))
-    utils.debug("superset: %v", get_type(s.types, superset))
+    when ODIN_DEBUG {
+        utils.call(
+            loc,
+            "type_is_subset",
+            "type: %v, superset: %v",
+            get_type(s.types, type_unsimplified),
+            get_type(s.types, superset_unsimplified),
+        )
+    }
+    type := simplify_type(s, type_unsimplified)
+    superset := simplify_type(s, superset_unsimplified)
     if type == superset {
         return true
     }
@@ -1149,15 +1156,29 @@ type_is_subset :: proc(
     case:
         return false
     case SumType:
-        for _, i in superset_value.m.keys {
-            if superset_value.payloads.d[i] == type {
-                return true
+        type_value, is_sum_type := get_type(s.types, type).key.(SumType)
+        if !is_sum_type {
+            return false
+        }
+        for tag_variant_index, tag_payload in type_value.payloads {
+            if tag_variant_index not_in superset_value.payloads {
+                return false
+            }
+            type_payload, type_has_payload := tag_payload.(Type)
+            superset_payload, superset_has_payload := superset_value.payloads[tag_variant_index].(Type)
+            if type_has_payload != superset_has_payload {
+                return false
+            }
+            if !type_has_payload {
+                continue
+            }
+            if type_is_subset(s, type_payload, superset_payload) == false {
+                return false
             }
         }
-        return false
+        return true
     case GenericTypeValue, GlobalType:
-        assert(superset_type.value.type != .Unknown)
-        return type_is_subset(s, type, superset_type.value.type)
+        panic("Unreachable")
     }
 }
 
@@ -1388,13 +1409,13 @@ build_type_string :: proc(
         case SumType:
             strings.write_byte(b, '<')
             first_variant := true
-            for variant, i in tv.m.keys {
+            for tag_variant_index, tag_payload in tv.payloads {
                 if !first_variant {
                     strings.write_string(b, ", ")
                 }
                 strings.write_byte(b, ':')
-                strings.write_string(b, variant.key)
-                if payload, has_payload := tv.payloads.d[i].(Type); has_payload {
+                strings.write_string(b, types.sum_type_tags.keys[tag_variant_index].key)
+                if payload, has_payload := tag_payload.(Type); has_payload {
                     strings.write_byte(b, ' ')
                     build_type_string(
                         types,
@@ -2200,14 +2221,12 @@ check_block :: proc(
             variable_ref := add_unnamed_variable(s, val_type, false)
             utils.debug_dynamic_array_append(body, CheckedAssignment{variable_ref, val})
 
-            variant_has_branch := make([]bool, len(val_sum_type.m.keys))
-            variant_branch_positions := make([]utils.Pos, len(val_sum_type.m.keys))
-
-            branches := utils.arena_make(s.a, []CheckedMatchBranch, len(val_sum_type.m.keys))
+            branches := make(map[u32]CheckedMatchBranch)
             for branch in value.branches {
                 append_elem(&s.scopes, Scope{})
                 defer pop_scope(s)
 
+                // BEFORE MERGE TODO: Update so syntax is like `:TagName payload` or just `:TagName`
                 branch_type: Unit = ---
                 variable_name: ^Unit = nil
                 if split, ok := try_split_by(branch.label, .Colon).(SuccessfulSplit); ok {
@@ -2231,32 +2250,34 @@ check_block :: proc(
                 }
 
                 variant_name := type_variable.segments[1].ident
-                variant := utils.lookup(val_sum_type.m, variant_name, utils.string_to_index_procs)
-                if variant == utils.does_not_exist {
+                variant := utils.lookup(
+                    s.types.sum_type_tags,
+                    variant_name,
+                    utils.string_to_index_procs,
+                )
+                if variant == utils.does_not_exist || variant.index not_in val_sum_type.payloads {
                     utils.diagnostic(
                         s.r,
                         branch_type.pos,
-                        "The sum type `%s` does not have the variant `.%s`",
+                        "The sum type `%s` does not have the variant `:%s`",
                         type_to_string(s, val_type),
                         variant_name,
                     )
                     return nil, false
                 }
 
-                if variant_has_branch[variant.index] {
+                if variant.index in branches {
                     utils.diagnostic(
                         s.r,
                         branch_type.pos,
                         "The variant `.%s` already has a branch defined at %v",
                         variant_name,
-                        variant_branch_positions[variant.index],
+                        branches[variant.index].pos,
                     )
                     return nil, false
                 }
 
-                var: union {
-                        VariableRef,
-                    } = nil
+                var: Maybe(VariableRef) = nil
                 if variable_name != nil {
                     ident, is_ident := variable_name.first_unit.(IdentNode)
                     if !is_ident ||
@@ -2266,7 +2287,7 @@ check_block :: proc(
                         utils.diagnostic(s.r, variable_name.pos, "Expected " + plain_ident_normal)
                         return nil, false
                     }
-                    payload, has_payload := val_sum_type.payloads.d[variant.index].(Type)
+                    payload, has_payload := val_sum_type.payloads[variant.index].(Type)
                     if !has_payload {
                         utils.diagnostic(
                             s.r,
@@ -2289,26 +2310,23 @@ check_block :: proc(
                 }
 
                 branches[variant.index] = CheckedMatchBranch {
+                    branch.label.pos,
                     CheckedBlock{variables, body.v[:]},
                     var,
                 }
-                variant_has_branch[variant.index] = true
-                variant_branch_positions[variant.index] = branch.label.pos
             }
 
-            unhandled_variants := false
-            for has_branch, i in variant_has_branch {
-                if !has_branch {
-                    utils.diagnostic(
-                        s.r,
-                        stmt.position,
-                        "Unhandled variant `.%s`",
-                        val_sum_type.m.keys[i].key,
-                    )
-                    unhandled_variants = true
+            if len(branches) < len(val_sum_type.payloads) {
+                for tag_variant_index in val_sum_type.payloads {
+                    if tag_variant_index not_in val_sum_type.payloads {
+                        utils.diagnostic(
+                            s.r,
+                            stmt.position,
+                            "Unhandled variant `:%s`",
+                            s.types.sum_type_tags.keys[tag_variant_index].key,
+                        )
+                    }
                 }
-            }
-            if unhandled_variants {
                 return nil, false
             }
             utils.debug_dynamic_array_append(body, CheckedMatch{variable_ref, branches})
@@ -3327,21 +3345,22 @@ check_initial_value :: proc(
             payload = new_clone(checked.v)
         }
 
-        sum_type_m := utils.make_key_to_index(s.a, utils.KeyToIndex(string))
-        i, r := utils.lookup_or_insert(&sum_type_m, tag_name, utils.string_to_index_procs)
-        assert(i.index == 0 && r == .Inserted)
-        utils.fix_key_to_index(sum_type_m)
+        i, _ := utils.lookup_or_insert(
+            &s.types.sum_type_tags,
+            tag_name,
+            utils.string_to_index_procs,
+        )
 
-        sum_type_payloads := utils.arena_make_multi(s.a, utils.Multi(Maybe(Type)), 1)
-        sum_type_payloads.d[0] = variant_type
-        sum_type := create_type(&s.types, SumType{sum_type_m, sum_type_payloads}).type
+        sum_type_payloads := make(map[u32]Maybe(Type))
+        sum_type_payloads[i.index] = variant_type
+        sum_type := create_type(&s.types, SumType{sum_type_payloads}).type
 
         return utils.to_debug_value(
             finish_checking_value(
                 s,
                 pos,
                 a.type,
-                SumTypeInitinitialisation{sum_type, 0, payload},
+                SumTypeInitialisation{sum_type, i.index, payload},
                 sum_type,
                 "",
             ),
@@ -3500,12 +3519,8 @@ check_initial_value :: proc(
         if a.early_exit_if_value_is_type != nil {
             return utils.to_debug_value(finish_checking_early_return_type(s, pos, a))
         }
-        variant_positions := utils.arena_make(s.a, []utils.Pos, len(value.elements))
-        sum_type := SumType {
-            utils.make_key_to_index(s.a, utils.KeyToIndex(string)),
-            utils.arena_make_multi(s.a, utils.Multi(Maybe(Type)), len(value.elements)),
-        }
-        defer utils.fix_key_to_index(sum_type.m)
+        variant_positions := make(map[u32]utils.Pos)
+        sum_type := SumType{make(map[u32]Maybe(Type))}
         ok := true
         for elem in value.elements {
             tag_unit, is_tag_unit := elem.first_unit.(TagUnit)
@@ -3526,12 +3541,12 @@ check_initial_value :: proc(
                 "the name of a sum type variant",
                 TextAndPos{tag_unit.tag[0].ident, tag_unit.tag[0].pos},
             )
-            index, result := utils.lookup_or_insert(
-                &sum_type.m,
+            index, _ := utils.lookup_or_insert(
+                &s.types.sum_type_tags,
                 tag_unit.tag[0].ident,
                 utils.string_to_index_procs,
             )
-            if result == .LookedUp {
+            if index.index in sum_type.payloads {
                 utils.diagnostic(
                     s.r,
                     tag_unit.tag[0].pos,
@@ -3542,13 +3557,15 @@ check_initial_value :: proc(
                 ok = false
                 continue
             }
-            if tag_unit.value != nil {
+            if tag_unit.value == nil {
+                sum_type.payloads[index.index] = nil
+            } else {
                 payload := check_initial_type(s, tag_unit.value^, a.generic_args)
                 if payload == .Invalid {
                     ok = false
                     continue
                 }
-                sum_type.payloads.d[index.index] = payload
+                sum_type.payloads[index.index] = payload
             }
         }
         if !ok {

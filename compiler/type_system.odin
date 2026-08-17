@@ -39,9 +39,6 @@ Type :: enum u32 {
     // }
     HttpRequest,
 
-    // {body: String}
-    HttpResponseBody,
-
     // TODO: Add more response types:
     // - Ico
     // - Gif
@@ -56,9 +53,9 @@ Type :: enum u32 {
     // - Wasm
     //
     // <
-    //   .Plain{body: String},
-    //   .Css{body: String},
-    //   .Html{body: String},
+    //   :Plain String,
+    //   :Css String,
+    //   :Html String,
     // >
     HttpResponse,
 
@@ -139,13 +136,23 @@ TypeKey :: union {
 fix_types :: proc(t: Types) {
     utils.fix_key_to_index(t.m)
     utils.fix_resizable_multi(t.values)
+    utils.fix_key_to_index(t.sum_type_tags)
 }
 
 create_types :: proc(a: ^utils.Arena) -> Types {
     out := Types {
         utils.make_key_to_index(a, utils.KeyToIndex(TypeKey)),
         utils.arena_make_multi(a, utils.Multi(TypeValue), 0, resizable = true),
+        utils.make_key_to_index(a, utils.KeyToIndex(string)),
     }
+
+    plain_tag, _ := utils.lookup_or_insert(
+        &out.sum_type_tags,
+        "Plain",
+        utils.string_to_index_procs,
+    )
+    css_tag, _ := utils.lookup_or_insert(&out.sum_type_tags, "Css", utils.string_to_index_procs)
+    html_tag, _ := utils.lookup_or_insert(&out.sum_type_tags, "Html", utils.string_to_index_procs)
 
     array_with_string_type := utils.arena_make(a, []Type, 1)
     array_with_string_type[0] = .String
@@ -298,34 +305,12 @@ create_types :: proc(a: ^utils.Arena) -> Types {
         create_type(&out, StructType{http_request_map, utils.array_to_multi(http_request_types)}).type,
     )
 
-    http_response_body_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
-    i, _ = utils.lookup_or_insert(&http_response_body_map, "body", utils.string_to_index_procs)
-    assert(i.index == 0)
-    utils.fix_key_to_index(http_response_body_map)
+    http_response_types := make(map[u32]Maybe(Type))
+    http_response_types[plain_tag.index] = .String
+    http_response_types[css_tag.index] = .String
+    http_response_types[html_tag.index] = .String
 
-    assert(
-        .HttpResponseBody ==
-        create_type(&out, StructType{http_response_body_map, utils.array_to_multi(array_with_string_type)}).type,
-    )
-
-    http_response_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
-    i, _ = utils.lookup_or_insert(&http_response_map, "Plain", utils.string_to_index_procs)
-    assert(i.index == 0)
-    i, _ = utils.lookup_or_insert(&http_response_map, "Css", utils.string_to_index_procs)
-    assert(i.index == 1)
-    i, _ = utils.lookup_or_insert(&http_response_map, "Html", utils.string_to_index_procs)
-    assert(i.index == 2)
-    utils.fix_key_to_index(http_response_map)
-
-    http_response_types := utils.arena_make(a, []Maybe(Type), 3)
-    http_response_types[0] = .HttpResponseBody
-    http_response_types[1] = .HttpResponseBody
-    http_response_types[2] = .HttpResponseBody
-
-    assert(
-        .HttpResponse ==
-        create_type(&out, SumType{http_response_map, utils.array_to_multi(http_response_types)}).type,
-    )
+    assert(.HttpResponse == create_type(&out, SumType{http_response_types}).type)
 
     assert(
         .HttpRequestHandler ==
@@ -374,8 +359,9 @@ TypeValue :: struct {
 }
 
 Types :: struct {
-    m:      utils.KeyToIndex(TypeKey),
-    values: utils.Multi(TypeValue),
+    m:             utils.KeyToIndex(TypeKey),
+    values:        utils.Multi(TypeValue),
+    sum_type_tags: utils.KeyToIndex(string),
 }
 
 GotType :: struct {
@@ -450,11 +436,9 @@ hash_struct_type :: proc(value: StructType) -> u32 {
 
 hash_sum_type :: proc(value: SumType) -> u32 {
     result: u32
-    for variant, i in value.m.keys {
-        for c in variant.key {
-            result ~= u32(c)
-        }
-        type, is_type := value.payloads.d[i].(Type)
+    for tag_index, tag_payload in value.payloads {
+        result ~= tag_index
+        type, is_type := tag_payload.(Type)
         if is_type {
             result ~= u32(type)
         }
@@ -546,14 +530,14 @@ struct_types_are_equal :: proc(a: StructType, b: StructType) -> bool {
 }
 
 sum_types_are_equal :: proc(a: SumType, b: SumType) -> bool {
-    if len(a.m.keys) != len(b.m.keys) {
+    if len(a.payloads) != len(b.payloads) {
         return false
     }
-    for a_key, i in a.m.keys {
-        if a_key.key != b.m.keys[i].key {
+    for a_tag_index, a_tag_payload in a.payloads {
+        if a_tag_index not_in b.payloads {
             return false
         }
-        if a.payloads.d[i] != b.payloads.d[i] {
+        if a_tag_payload != b.payloads[a_tag_index] {
             return false
         }
     }

@@ -111,6 +111,7 @@ run_lsp :: proc() {
         case Exit:
             panic("Unexpected exit message while running LSP")
         case Shutdown:
+            utils.cleanup_files_cache(lsp_state.files_cache)
             utils.cleanup_arena(&lsp_state.temp_arena, expect_empty = false, delete_blocks = true)
             utils.cleanup_arena(
                 &lsp_state.lifetime_arena,

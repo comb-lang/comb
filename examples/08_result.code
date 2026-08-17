@@ -1,32 +1,32 @@
 // TODO: Implement the result type in standard library
 Result[Ok, Err] = <
-  Ok{value: Ok},
-  Err{value: Err},
+  :Ok Ok,
+  :Err Err,
 >
 
 Animal = <
-  Cat,
-  Dog,
-  Horse,
-  Tiger,
-  Rabbit,
+  :Cat,
+  :Dog,
+  :Horse,
+  :Tiger,
+  :Rabbit,
 >
 
 // TODO: Be able to automatically generate serialisation and deserialisation functions
 
 str_to_animal = |name: String| -> Result[Animal, String] {
 	if name == "cat" {
-		return .Ok(.Cat())
+		return :Ok :Cat
 	} else if name == "dog" {
-		return .Ok(.Dog())
+		return :Ok :Dog
 	} else if name == "horse" {
-		return .Ok(.Horse())
+		return :Ok :Horse
 	} else if name == "tiger" {
-		return .Ok(.Tiger())
+		return :Ok :Tiger
 	} else if name == "rabbit" {
-		return .Ok(.Rabbit())
+		return :Ok :Rabbit
 	} else {
-		return .Err("Unrecognized animal name `" & name & "`")
+		return :Err ("Unrecognized animal name `" & name & "`")
 	}
 }
 
@@ -54,10 +54,10 @@ main = || -> Int {
     name = readline("Enter the name of an animal: ")
 	match str_to_animal(name) {
 	    animal: .Ok {
-			println("You entered the animal " & animal_to_str(animal.value))
+			println("You entered the animal " & animal_to_str(animal))
 		}
 		err: .Err {
-		    eprintln("Error: " & err.value)
+		    eprintln("Error: " & err)
 		}
 	}
 	return 0

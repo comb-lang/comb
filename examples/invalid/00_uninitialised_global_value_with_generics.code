@@ -1,6 +1,6 @@
 Result[Ok, Err] = <
-  Ok{value: Ok},
-  Err{value: Err},
+  :Ok Ok,
+  :Err Err,
 >
 
 debug[T] = |arg: T| -> T {

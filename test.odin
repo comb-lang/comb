@@ -490,10 +490,14 @@ example_09_hashmap :: proc(t: ^testing.T) {
 example_10_geometry :: proc(t: ^testing.T) {
     a: utils.Arena
     defer utils.cleanup_arena(&a, expect_empty = false)
-    ran := run_example_via_c(t, &a, #directory + "examples/10_geometry.code", "")
-    if ran == nil {return}
-    out := ran.(CompilationSuccessful)
-    testing.expect(t, out.compiler.stderr == c_warning)
+    out := interpret_example(
+        t,
+        &a,
+        FunctionRef{#directory + "examples/10_geometry.code", "main"},
+        "",
+    )
+    testing.expect(t, out.exit_code == 0)
+    testing.expect(t, out.compiler.stderr == "")
     testing.expect(t, out.program.stderr == "")
     e := utils.TestingTextExpecter{0, out.program.stdout, t}
     utils.expect_string(&e, "                              cc                              \n")
@@ -563,12 +567,11 @@ invalid_example_01_wrong_identifier_casing :: proc(t: ^testing.T) {
     file :: #directory + "examples/invalid/01_wrong_identifier_casing.code"
     a: utils.Arena
     defer utils.cleanup_arena(&a, expect_empty = false)
-    ran := run_example_via_c(t, &a, file, "")
-    if ran == nil {return}
-    out := ran.(CompilationSuccessful)
+    out := interpret_example(t, &a, FunctionRef{file, "main"}, "")
+    testing.expect(t, out.exit_code == 0)
     testing.expect(t, out.program.stderr == "")
     testing.expect(t, out.program.stdout == "Hello world\n")
-    testing.expect(t, out.compiler.stderr == c_warning)
+    testing.expect(t, out.compiler.stderr == "")
     e := utils.TestingTextExpecter{0, out.compiler.stdout, t}
     fmt.println(out.compiler.stdout)
     utils.expect_string(&e, "Reading `" + file + "`...\n")
@@ -596,7 +599,7 @@ invalid_example_01_wrong_identifier_casing :: proc(t: ^testing.T) {
     utils.expect_string(&e, ".")
     utils.expect_digits(&e)
     utils.expect_string(&e, " ms\n")
-    utils.expect_string(&e, "Emitting C code...\n")
+    utils.expect_string(&e, "Interpreting `main`...\n")
     utils.expect_done_message(&e)
     utils.expect_finished(&e)
 }

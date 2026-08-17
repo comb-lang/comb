@@ -24,9 +24,8 @@ SumUnit :: struct {
 }
 
 SumType :: struct {
-    m:        utils.KeyToIndex(string),
     // positions: utils.Multi(utils.Pos),
-    payloads: utils.Multi(Maybe(Type)),
+    payloads: map[u32]Maybe(Type),
 }
 
 IdentNode :: struct {

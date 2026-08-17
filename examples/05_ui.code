@@ -1,7 +1,7 @@
 UI[State] = <
-    Button {children: []UI[State], onclick: (State) -> State},
-    List {header: String, children: []UI[State]},
-    Text {text: String},
+    :Button {children: []UI[State], onclick: (State) -> State},
+    :List {header: String, children: []UI[State]},
+    :Text String,
 >
 
 nothing           = |s: String| -> String { return s }
@@ -11,10 +11,19 @@ set_text_to_text3 = |s: String| -> String { return "Text 3" }
 
 text_picker = |s: String| -> []UI[String] {
     return []UI[String](
-        .Text(s),
-        .Button([]UI[String](.Text("Text 1")), set_text_to_text1),
-        .Button([]UI[String](.Text("Text 2")), set_text_to_text2),
-        .Button([]UI[String](.Text("Text 3")), set_text_to_text3),
+        :Text s,
+        :Button {
+            children = []UI[String](:Text "Text 1"),
+            onclick = set_text_to_text1,
+        },
+        :Button {
+            children = []UI[String](:Text "Text 2"),
+            onclick = set_text_to_text2
+        },
+        :Button {
+            children = []UI[String](:Text "Text 3"),
+            onclick = set_text_to_text3
+        },
     )
 }
 
@@ -48,7 +57,7 @@ render_ui[T] = |ui: []UI[T], focussed_button_index: UInt, nesting: UInt, state: 
                 s$ = render_ui[T](list.children, focussed_button_index, nesting + 1, s$)
             }
             text: .Text {
-                println(text.text)
+                println(text)
             }
         }
     }

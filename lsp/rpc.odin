@@ -201,7 +201,7 @@ send_response :: proc(data: Response) {
     }
     json_str := utils.finish_building(builder)
     fmt.wprintf(lsp_state.writer, "Content-Length: %d\r\n\r\n%s", len(json_str), json_str)
-    fmt.wprintf(utils.debug_writer, "Sent message ```\n%s\n```", json_str)
+    fmt.wprintfln(utils.debug_writer, "Sent message ```\n%s\n```", json_str)
 }
 
 receive_request :: proc() -> Request {

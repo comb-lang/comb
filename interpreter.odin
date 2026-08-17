@@ -865,7 +865,7 @@ expect_int :: proc(f: f64) -> int {
 
 interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeValue {
     switch value in v {
-    case compiler.SumTypeInitinitialisation:
+    case compiler.SumTypeInitialisation:
         out := RuntimeSumType{value.sum_type, true, value.variant_index, nil}
         if value.payload != nil {
             out.payload = new_clone(interp_eval_value(s, value.payload^))

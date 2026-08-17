@@ -48,9 +48,9 @@ game_of_life = |s: [game_height][game_width]Bool| -> h.UI {
     for row in s {
 		for pixel in row {
 	        if pixel {
-		        grid_pixels$ = grid_pixels$ :: .Div("background: #FFFFFF;", []h.HtmlElem())
+		        grid_pixels$ = grid_pixels$ :: :Div {style = "background: #FFFFFF;", children = []h.HtmlElem()}
 	        } else {
-		        grid_pixels$ = grid_pixels$ :: .Div("background: #000000;", []h.HtmlElem())
+		        grid_pixels$ = grid_pixels$ :: :Div {style = "background: #000000;", children = []h.HtmlElem()}
 	        }
 		}
     }
@@ -59,11 +59,11 @@ game_of_life = |s: [game_height][game_width]Bool| -> h.UI {
         "grid-template-columns: repeat(" & game_width.to_str & ", 1fr);"
         "aspect-ratio: 1 / 1;"
 	ui_contents = []h.HtmlElem(
-        .Button([]h.HtmlElem(
-			.Text("Run tick")),
-			|| -> h.UI { return game_of_life(run_tick(s)) },
-		),
-        .Div(grid_style, grid_pixels$),
+        :Button {
+			children = []h.HtmlElem(:Text "Run tick"),
+			onclick = || -> h.UI { return game_of_life(run_tick(s)) },
+		},
+        :Div {style = grid_style, children = grid_pixels$},
     )
 	return {
 		page_title = main_title,

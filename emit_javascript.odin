@@ -250,7 +250,7 @@ emit_js_derivation :: proc(
 
 emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
     switch v in value {
-    case compiler.SumTypeInitinitialisation:
+    case compiler.SumTypeInitialisation:
         strings.write_string(&s.b, "{variant:")
         strings.write_uint(&s.b, uint(v.variant_index))
         if v.payload != nil {
@@ -464,9 +464,9 @@ emit_js_block_body :: proc(
             strings.write_string(&s.b, "switch (")
             emit_variable(&s.b, stmt.value)
             strings.write_string(&s.b, ".variant) {")
-            for branch, i in stmt.branches {
+            for tag_variant_index, branch in stmt.branches {
                 strings.write_string(&s.b, "case ")
-                strings.write_int(&s.b, i)
+                strings.write_uint(&s.b, uint(tag_variant_index))
                 strings.write_string(&s.b, ": {")
                 emit_js_block_head(s, nesting_level + 1, branch.block.variables)
                 if value_var, has_value_var := branch.value_var.(compiler.VariableRef);

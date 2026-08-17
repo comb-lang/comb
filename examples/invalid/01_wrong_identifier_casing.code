@@ -5,8 +5,8 @@
 // - There may be more, IDK ¯\_(ツ)_/¯
 
 result[ok, err] = <
-  ok{Value: ok},
-  err{Value: err},
+  :ok ok,
+  :err err,
 >
 
 Hello = || {

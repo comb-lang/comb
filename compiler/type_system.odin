@@ -369,7 +369,10 @@ GotType :: struct {
     value: TypeValue,
 }
 
-get_type :: proc(types: Types, t: Type) -> GotType {
+get_type :: proc(types: Types, t: Type, loc := #caller_location) -> GotType {
+    when ODIN_DEBUG {
+        utils.call(loc, "get_type", "")
+    }
     if t > Type.MaxIndex {
         return GotType{nil, TypeValue{}}
     }

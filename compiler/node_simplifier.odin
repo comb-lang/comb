@@ -109,6 +109,8 @@ to_checked_value :: proc(func: union {
     }
 }
 
+// BEFORE MERGE TODO: Remove `StructTypeInitFunc`
+// OLD(INITIALISING STRUCTS LIKE `StructType(fields...)`)
 create_checked_func_call :: proc(func: CheckedValue, args: []CheckedValue) -> union {
         CheckedFunctionCall,
         CompileTimeValue,

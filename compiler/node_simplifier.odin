@@ -85,7 +85,7 @@ create_joined_values :: proc(
 create_field_access :: proc(value: CheckedValue, field_index: u32) -> CheckedValue {
     #partial switch v in value {
     case CompileTimeValue:
-        return v.(CompileTimeStructInitialisation).args[field_index]
+        return v.(CompileTimeStructInitialisation).fields[field_index]
     case CheckedFunctionCall:
     // Cannot simplify something like `{a: 5, b: do_stuff()}.a` to `5` because the `do_stuff` call may cause side effects
     // TODO: Be able to make simplifications like this and preserve side effects
@@ -93,6 +93,19 @@ create_field_access :: proc(value: CheckedValue, field_index: u32) -> CheckedVal
     return CheckedFieldAccess{new_clone(value), field_index}
 }
 
+create_struct :: proc(struct_type: Type, fields: []CheckedValue) -> CheckedValue {
+    comptime_args := make([]CompileTimeValue, len(fields))
+    for field, i in fields {
+        comptime, is_comptime := field.(CompileTimeValue)
+        if is_comptime == false {
+            return StructInitialisation{struct_type, fields}
+        }
+        comptime_args[i] = comptime
+    }
+    return CompileTimeValue(CompileTimeStructInitialisation{struct_type, comptime_args})
+}
+
+/*
 to_checked_value :: proc(func: union {
         CheckedFunctionCall,
         CompileTimeValue,
@@ -109,7 +122,6 @@ to_checked_value :: proc(func: union {
     }
 }
 
-// BEFORE MERGE TODO: Remove `StructTypeInitFunc`
 // OLD(INITIALISING STRUCTS LIKE `StructType(fields...)`)
 create_checked_func_call :: proc(func: CheckedValue, args: []CheckedValue) -> union {
         CheckedFunctionCall,
@@ -129,6 +141,7 @@ create_checked_func_call :: proc(func: CheckedValue, args: []CheckedValue) -> un
     }
     return CheckedFunctionCall{new_clone(func), args}
 }
+*/
 
 iterate_array :: proc(
     loop_index: uint,

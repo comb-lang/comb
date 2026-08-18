@@ -6,14 +6,14 @@ const svgNS = "http://www.w3.org/2000/svg"
 
 function create_svg_elem(elem) {
   switch (elem.variant) {
-    case 0: {
+    case tag_indexes.Line: {
       const line = document.createElementNS(svgNS, "line")
-      line.setAttribute("x1", elem.field0)
-      line.setAttribute("y1", elem.field1)
-      line.setAttribute("x2", elem.field2)
-      line.setAttribute("y2", elem.field3)
-      line.setAttribute("stroke-width", elem.field4)
-      line.setAttribute("stroke", elem.field5)
+      line.setAttribute("x1", elem.paylaod.field0)
+      line.setAttribute("y1", elem.paylaod.field1)
+      line.setAttribute("x2", elem.paylaod.field2)
+      line.setAttribute("y2", elem.paylaod.field3)
+      line.setAttribute("stroke-width", elem.payload.field4)
+      line.setAttribute("stroke", elem.payload.field5)
       return line
     }
   }
@@ -21,33 +21,33 @@ function create_svg_elem(elem) {
 
 function create_html_elem(elem) {
   switch (elem.variant) {
-    case 0: {
+    case tag_indexes.Button: {
       const button = document.createElement("button")
       button.onclick = () => {
-        ui = elem.field1()
+        ui = elem.payload.field1()
         render_ui()
       }
-      for (const child of elem.field0) {
+      for (const child of elem.payload.field0) {
         button.appendChild(create_html_elem(child))
       }
       return button
     }
-    case 1: {
+    case tag_indexes.Div: {
       const div = document.createElement("div")
-      div.setAttribute("style", elem.field0)
-      for (const child of elem.field1) {
+      div.setAttribute("style", elem.payload.field0)
+      for (const child of elem.payload.field1) {
         div.appendChild(create_html_elem(child))
       }
       return div
     }
-    case 2: {
-      return document.createTextNode(elem.field0)
+    case tag_indexes.Text: {
+      return document.createTextNode(elem.payload)
     }
-    case 3: {
+    case tag_indexes.Svg: {
       const svg = document.createElementNS(svgNS, "svg")
-      svg.setAttribute("style", elem.field0)
-      svg.setAttribute("viewBox", `0 0 ${elem.field1} ${elem.field2}`)
-      for (const child of elem.field3) {
+      svg.setAttribute("style", elem.payload.field0)
+      svg.setAttribute("viewBox", `0 0 ${elem.payload.field1} ${elem.payload.field2}`)
+      for (const child of elem.payload.field3) {
         svg.appendChild(create_svg_elem(child))
       }
       return svg

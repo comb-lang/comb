@@ -48,18 +48,19 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: compiler.CompileTimeV
             strings.write_uint(&s.b, uint(comptime))
         }
     case compiler.CompileTimeStructInitialisation:
-        strings.write_string(&s.b, "init_Type")
-        strings.write_uint(&s.b, uint(comptime.func.return_type))
-        strings.write_byte(&s.b, '(')
-        first_arg := true
-        for arg in comptime.args {
-            if first_arg == false {
+        strings.write_byte(&s.b, '{')
+        first_field := true
+        for field, i in comptime.fields {
+            if first_field == false {
                 strings.write_byte(&s.b, ',')
             }
-            emit_js_comptime_value(s, arg)
-            first_arg = false
+            strings.write_string(&s.b, "field")
+            strings.write_int(&s.b, i)
+            strings.write_byte(&s.b, ':')
+            emit_js_comptime_value(s, field)
+            first_field = false
         }
-        strings.write_byte(&s.b, ')')
+        strings.write_byte(&s.b, '}')
 
     case compiler.Func:
         strings.write_string(&s.b, "func")
@@ -145,7 +146,6 @@ emit_js_runtime_value :: proc(b: ^strings.Builder, value: RuntimeValue) {
         strings.write_string(b, v ? "true" : "false")
     case compiler.CastFunction,
          RuntimeIntOrderedHashMap,
-         compiler.StructTypeInitFunc,
          compiler.BuiltinFunction,
          SetHttpServerHandler,
          HttpServerListenAndServe:
@@ -250,6 +250,21 @@ emit_js_derivation :: proc(
 
 emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
     switch v in value {
+    case compiler.StructInitialisation:
+        strings.write_byte(&s.b, '{')
+        first_field := true
+        for field, i in v.fields {
+            if first_field == false {
+                strings.write_byte(&s.b, ',')
+            }
+            strings.write_string(&s.b, "field")
+            strings.write_int(&s.b, i)
+            strings.write_byte(&s.b, ':')
+            emit_js_value(s, field)
+            first_field = false
+        }
+        strings.write_byte(&s.b, '}')
+
     case compiler.SumTypeInitialisation:
         strings.write_string(&s.b, "{variant:")
         strings.write_uint(&s.b, uint(v.variant_index))
@@ -333,9 +348,12 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
         }
     case compiler.CheckedFunctionCall:
         emit_js_func_call(s, v)
+    /*
+    // OLD
     case compiler.StructTypeInitFunc:
         strings.write_string(&s.b, "init_Type")
         strings.write_uint(&s.b, uint(v.return_type))
+        */
     case compiler.BooleanNotValue:
         strings.write_byte(&s.b, '(')
         strings.write_byte(&s.b, '!')
@@ -583,6 +601,19 @@ emit_javascript :: proc(
         "}" +
         "function map_update(map, key, func) {return new Map(map).set(key, func(map.get(key)))}",
     )
+
+    strings.write_string(&s.b, "const tag_indexes = {")
+    first_tag := true
+    for tag, i in types.sum_type_tags.keys {
+        if first_tag == false {
+            strings.write_byte(&s.b, ',')
+        }
+        strings.write_string(&s.b, tag.key)
+        strings.write_byte(&s.b, ':')
+        strings.write_int(&s.b, i)
+        first_tag = false
+    }
+    strings.write_string(&s.b, "};")
 
     for _, index in types.m.keys {
         emit_js_global_type(&s, index)

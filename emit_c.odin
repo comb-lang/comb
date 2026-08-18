@@ -77,6 +77,8 @@ emit_c_func_call :: proc(s: ^CEmitterState, c: compiler.CheckedFunctionCall) {
 
 emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.CompileTimeValue) {
     switch comptime in value {
+    case compiler.CompileTimeStructInitialisation:
+        panic("TODO")
     case compiler.CompileTimeArray:
         panic("TODO")
     case compiler.CompileTimeOrderedHashMapInitialisation:
@@ -86,7 +88,8 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.CompileTimeValu
     case compiler.BuiltinFunction:
         strings.write_string(&s.b, "builtin")
         strings.write_uint(&s.b, uint(comptime))
-    case compiler.CompileTimeStructInitialisation:
+    /*
+    case compiler.StructInitialisation:
         strings.write_string(&s.b, "init_Type")
         strings.write_uint(&s.b, uint(comptime.func.return_type))
         strings.write_string(&s.b, "(")
@@ -99,6 +102,7 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.CompileTimeValu
             first_arg = false
         }
         strings.write_string(&s.b, ")")
+        */
     case compiler.Func:
         // TODO: Handle comptime.lambda_args
         strings.write_string(&s.b, "func")
@@ -140,6 +144,8 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.CompileTimeValu
 
 emit_c_value :: proc(s: ^CEmitterState, v: compiler.CheckedValue) {
     switch value in v {
+    case compiler.StructInitialisation:
+        panic("TODO")
     case compiler.SumTypeInitialisation:
         strings.write_string(&s.b, "init_Type")
         strings.write_uint(&s.b, uint(value.sum_type))
@@ -218,9 +224,6 @@ emit_c_value :: proc(s: ^CEmitterState, v: compiler.CheckedValue) {
     //        emit_c_value(s, v)
     //    }
     //    strings.write_byte(&s.b, '}')
-    case compiler.StructTypeInitFunc:
-        strings.write_string(&s.b, "init_Type")
-        strings.write_uint(&s.b, uint(value.return_type))
     case compiler.BooleanNotValue:
         strings.write_byte(&s.b, '(')
         strings.write_byte(&s.b, '!')

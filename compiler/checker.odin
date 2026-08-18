@@ -124,9 +124,6 @@ CheckedFunctionCall :: struct {
     function: ^CheckedValue,
     args:     []CheckedValue,
 }
-StructTypeInitFunc :: struct {
-    return_type: Type,
-}
 SumTypeInitialisation :: struct {
     sum_type:      Type,
     variant_index: u32,
@@ -190,8 +187,12 @@ ImportedFile :: struct {
 // }
 UninitialisedOrderedHashMapType :: struct {}
 CompileTimeStructInitialisation :: struct {
-    func: StructTypeInitFunc,
-    args: []CompileTimeValue,
+    struct_type: Type,
+    fields:      []CompileTimeValue,
+}
+StructInitialisation :: struct {
+    struct_type: Type,
+    fields:      []CheckedValue,
 }
 CastFunction :: struct {
     type: Type,
@@ -239,7 +240,7 @@ CheckedValue :: union {
     BooleanNotValue,
     CheckedJoinedValues,
     CheckedFunctionCall,
-    StructTypeInitFunc,
+    StructInitialisation,
     SumTypeInitialisation,
     CheckedIndexedAccess,
     CheckedOrderedHashMapAccess,
@@ -3436,12 +3437,7 @@ check_initial_value :: proc(
             struct_type :=
                 create_type(&s.types, StructType{fields.m, utils.array_to_multi(arg_types)}).type
             return utils.to_debug_value(
-                CheckValueResult {
-                    to_checked_value(
-                        create_checked_func_call(StructTypeInitFunc{struct_type}, arg_values),
-                    ),
-                    struct_type,
-                },
+                CheckValueResult{create_struct(struct_type, arg_values), struct_type},
             )
         case .Unknown:
             panic("Unreachable")

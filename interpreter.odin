@@ -24,7 +24,6 @@ RuntimeValue :: union {
     RuntimeStringOrderedHashMap,
     RuntimeIntOrderedHashMap,
     RuntimeStruct,
-    compiler.StructTypeInitFunc,
     RuntimeSumType,
     RuntimeFunc,
     compiler.BuiltinFunction,
@@ -55,10 +54,13 @@ get_value_type :: proc(s: InterpState, value: RuntimeValue) -> compiler.Type {
         return v.type
     case RuntimeStruct:
         return v.type
+    /*
+    // OLD(INITIALISING STRUCTS LIKE `StructType(fields...)`)
     case compiler.StructTypeInitFunc:
         return_types := make([]compiler.Type, 1)
         return_types[0] = v.return_type
         return compiler.create_type(&s.types, compiler.FuncType{nil, return_types}).type
+        */
     case RuntimeSumType:
         return v.type
     case RuntimeFunc:
@@ -203,8 +205,11 @@ interp_execute_function :: proc(s: InterpState, c: compiler.CheckedFunctionCall)
     }
 
     #partial switch val in fn_val {
+    /*
+    // OLD(INITIALISING STRUCTS LIKE `StructType(fields...)`)
     case compiler.StructTypeInitFunc:
         return RuntimeStruct{true, args, val.return_type}
+    */
     case compiler.CastFunction:
         assert(len(args) == 1)
         got_type := get_value_type(s, args[0])
@@ -552,7 +557,6 @@ interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> Runtim
          bool,
          RuntimeFunc,
          compiler.BuiltinFunction,
-         compiler.StructTypeInitFunc,
          HttpServerListenAndServe,
          SetHttpServerHandler,
          compiler.CastFunction:
@@ -751,11 +755,11 @@ interp_eval_comptime_value :: proc(
     case compiler.BuiltinFunction:
         return comptime
     case compiler.CompileTimeStructInitialisation:
-        out_args := make([]RuntimeValue, len(comptime.args))
-        for arg, i in comptime.args {
-            out_args[i] = interp_eval_comptime_value(s, arg)
+        out_fields := make([]RuntimeValue, len(comptime.fields))
+        for field, i in comptime.fields {
+            out_fields[i] = interp_eval_comptime_value(s, field)
         }
-        return RuntimeStruct{true, out_args, comptime.func.return_type}
+        return RuntimeStruct{true, out_fields, comptime.struct_type}
     case compiler.Func:
         lambda_args := make(
             []RuntimeValue,
@@ -865,6 +869,12 @@ expect_int :: proc(f: f64) -> int {
 
 interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeValue {
     switch value in v {
+    case compiler.StructInitialisation:
+        out := RuntimeStruct{true, make([]RuntimeValue, len(value.fields)), value.struct_type}
+        for field, i in value.fields {
+            out.field_values[i] = interp_eval_value(s, field)
+        }
+        return out
     case compiler.SumTypeInitialisation:
         out := RuntimeSumType{value.sum_type, true, value.variant_index, nil}
         if value.payload != nil {
@@ -956,7 +966,6 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeVa
              compiler.BuiltinFunction,
              RuntimeStringOrderedHashMap,
              RuntimeIntOrderedHashMap,
-             compiler.StructTypeInitFunc,
              HttpServerListenAndServe,
              SetHttpServerHandler,
              compiler.CastFunction:
@@ -1047,6 +1056,8 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeVa
     case compiler.CheckedFunctionCall:
         return interp_execute_function(s, value)
 
+    /*
+    // OLD(INITIALISING STRUCTS LIKE `StructType(fields...)`)
     case compiler.StructTypeInitFunc:
         // struct_type := get_type(state.checked.types, value.type).(Struct(compiler.Type, compiler.Type))
         // fields := make([dynamic]RuntimeValue, len(struct_type.fields))
@@ -1055,6 +1066,7 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeVa
         // }
         // return RuntimeStruct{fields}
         return value
+        */
 
     case compiler.CheckedIndexedAccess:
         base := interp_eval_value(s, value.base^)

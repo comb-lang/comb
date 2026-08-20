@@ -63,7 +63,15 @@ plus_equal :: proc(longer: BigUint, shorter: BigUint, carry: bool) -> bool {
     return plus_equal(BigUint{longer.chunks[1:]}, BigUint{shorter.chunks[1:]}, a > max(u64) - b)
 }
 
-minus_equal :: proc(longer: BigUint, shorter: BigUint, carry: bool) -> bool {
+minus_equal :: proc(
+    longer: BigUint,
+    shorter: BigUint,
+    carry: bool,
+    loc := #caller_location,
+) -> bool {
+    when ODIN_DEBUG {
+        call(loc, "minus_equal", "")
+    }
     if len(shorter.chunks) == 0 {
         return carry
     }
@@ -90,7 +98,11 @@ add_uint :: proc(a: BigUint, b: BigUint) -> BigUint {
     return BigUint{out[:]}
 }
 
-sub_uint :: proc(bigger: BigUint, smaller: BigUint) -> BigUint {
+sub_uint :: proc(bigger: BigUint, smaller: BigUint, loc := #caller_location) -> BigUint {
+    when ODIN_DEBUG {
+        call(loc, "sub_uint", "")
+    }
+    assert(len(bigger.chunks) >= len(smaller.chunks))
     out := make([dynamic]u64, len(bigger.chunks))
     copy_slice(out[:], bigger.chunks)
     negative := minus_equal(BigUint{out[:]}, smaller, false)
@@ -113,48 +125,51 @@ CompareResult :: enum {
     Equal,
 }
 
+// Removes empty chunks
+@(private = "file")
+normalize :: proc(a: BigUint) -> BigUint {
+    chunks := a.chunks
+    for len(chunks) > 0 && chunks[len(chunks) - 1] > 0 {
+        chunks = chunks[0:len(chunks) - 1]
+    }
+    return BigUint{chunks}
+}
+
 compare_uint :: proc(a: BigUint, b: BigUint) -> CompareResult {
-    a_len := len(a.chunks)
-    for a_len > len(b.chunks) {
-        a_len -= 1
-        if a.chunks[a_len] > 0 {
-            return .FirstIsBigger
-        }
+    if len(a.chunks) > len(b.chunks) {
+        return .FirstIsBigger
+    } else if len(b.chunks) > len(a.chunks) {
+        return .SecondIsBigger
     }
-    b_len := len(b.chunks)
-    for b_len > len(a.chunks) {
-        b_len -= 1
-        if b.chunks[b_len] > 0 {
-            return .SecondIsBigger
-        }
-    }
-    assert(a_len == b_len)
-    pos := a_len - 1
-    for pos >= 0 {
+    for pos := len(a.chunks) - 1; pos >= 0; pos -= 1 {
         if a.chunks[pos] > b.chunks[pos] {
             return .FirstIsBigger
         } else if a.chunks[pos] < b.chunks[pos] {
             return .SecondIsBigger
         }
-        pos -= 1
     }
     return .Equal
 }
 
-add_int :: proc(a: BigInt, b: BigInt) -> BigInt {
+add_int :: proc(a: BigInt, b: BigInt, loc := #caller_location) -> BigInt {
+    when ODIN_DEBUG {
+        call(loc, "add_int", "")
+    }
     if a.is_negated == false && b.is_negated == false {
         return BigInt{false, add_uint(a.absolute_value, b.absolute_value)}
     } else if a.is_negated == true && b.is_negated == true {
         return BigInt{true, add_uint(a.absolute_value, b.absolute_value)}
     } else {
-        result := compare_uint(a.absolute_value, b.absolute_value)
+        a_abs := normalize(a.absolute_value)
+        b_abs := normalize(b.absolute_value)
+        result := compare_uint(a_abs, b_abs)
         switch result {
         case .Equal:
             return BigInt{false, BigUint{nil}}
         case .FirstIsBigger:
-            return BigInt{a.is_negated, sub_uint(a.absolute_value, b.absolute_value)}
+            return BigInt{a.is_negated, sub_uint(a_abs, b_abs)}
         case .SecondIsBigger:
-            return BigInt{b.is_negated, sub_uint(b.absolute_value, a.absolute_value)}
+            return BigInt{b.is_negated, sub_uint(b_abs, a_abs)}
         case:
             panic("unreachable")
         }
@@ -165,7 +180,10 @@ negate :: proc(value: BigInt) -> BigInt {
     return BigInt{!value.is_negated, value.absolute_value}
 }
 
-sub_int :: proc(a: BigInt, b: BigInt) -> BigInt {
+sub_int :: proc(a: BigInt, b: BigInt, loc := #caller_location) -> BigInt {
+    when ODIN_DEBUG {
+        call(loc, "sub_int", "")
+    }
     return add_int(a, negate(b))
 }
 

@@ -506,7 +506,7 @@ emit_js_block_body :: proc(
             strings.write_string(&s.b, ": while (true) {loop")
             strings.write_uint(&s.b, stmt.loop_index)
             strings.write_string(&s.b, "_body: do {")
-            emit_js_block(s, nesting_level + 1, nil, stmt.body)
+            emit_js_block(s, nesting_level + 1, nil, stmt.body.v)
             strings.write_string(&s.b, "} while (false)")
             emit_js_block(s, nesting_level + 1, nil, stmt.continue_code)
             strings.write_string(&s.b, "}}")

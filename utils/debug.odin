@@ -80,6 +80,10 @@ DebugValue :: struct(T: typeid) {
     mutated_at:    CallStackOnDebug,
 }
 
+slice :: proc(v: DebugValue([dynamic]$E)) -> DebugValue([]E) {
+    return DebugValue([]E){v.v[:], v.created_at, v.creation_info, v.mutated_at}
+}
+
 to_debug_value :: proc(
     v: $T,
     creation_info_format := "",

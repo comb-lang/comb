@@ -605,7 +605,7 @@ interp_exec_statement :: proc(state: InterpState, stmt: compiler.CheckedStatemen
 
             old_loop := state.current_loop
             state.current_loop = loop_index
-            interp_exec_block(state, s.body)
+            interp_exec_block(state, s.body.v)
             state.current_loop = old_loop
 
             switch op in state.control_flow_op {
@@ -925,7 +925,7 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeVa
             out[i] = RuntimeString{false, key}
         }
         return RuntimeArray {
-            compiler.create_type(&s.types, compiler.ArrayType{0, .String}).type,
+            compiler.create_type(&s.types, compiler.ArrayType{nil, .String}).type,
             true,
             out,
         }
@@ -936,7 +936,7 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeVa
             out[i] = f64(key)
         }
         return RuntimeArray {
-            compiler.create_type(&s.types, compiler.ArrayType{0, .Int}).type,
+            compiler.create_type(&s.types, compiler.ArrayType{nil, .Int}).type,
             true,
             out,
         }

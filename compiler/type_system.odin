@@ -206,7 +206,7 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     array_with_http_server := utils.arena_make(a, []Type, 1)
     array_with_http_server[0] = .HttpServer
 
-    assert(.DynamicArrayOfStrings == create_type(&out, ArrayType{0, .String}).type)
+    assert(.DynamicArrayOfStrings == create_type(&out, ArrayType{nil, .String}).type)
     assert(.StringToNil == create_type(&out, FuncType{array_with_string_type, nil}).type)
     assert(.StringStringToNil == create_type(&out, FuncType{array_with_2string_types, nil}).type)
     assert(
@@ -407,7 +407,8 @@ create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> C
 hash_type_value :: proc(value: TypeKey) -> u32 {
     switch v in value {
     case ArrayType:
-        return v.length ~ u32(v.item_type)
+        length := v.length == nil ? max(u32) : v.length.(u32)
+        return length ~ u32(v.item_type)
     case OrderedHashMapTypeWithStringKey:
         return u32(v.value_type) + 1
     case OrderedHashMapTypeWithIntKey:

@@ -378,11 +378,14 @@ maybe_parse_initial_unit :: proc(
         */
 
     case OpenSquareBracketToken:
-        args, args_ok := parse_units_until(s, is_close_square_bracket, "`]`").([]Unit)
-        if !args_ok {
+        elems, elems_ok := parse_units_until(s, is_close_square_bracket, "`]`").([]Unit)
+        if !elems_ok {
             return Failure{}
         }
-        get_next_token(s, false)
+        get_next_token(s, true)
+        return UnitWithoutPos(UnitsInSquareBrackets{elems})
+    /*
+        // OLD (creating arrays like []ItemType(elems...))
         unit_pos := s.last_token_pos
         switch unit in maybe_parse_initial_unit(s) {
         case:
@@ -390,7 +393,7 @@ maybe_parse_initial_unit :: proc(
         case Failure:
             return Failure{}
         case NothingToParse:
-            return UnitsInSquareBrackets{args}
+            return UnitsInSquareBrackets{elems}
         case UnitWithoutPos:
             // TODO: Update the syntax so that this exception to the parsed order of operations is not necersarry
             if _, is_open_square_bracket := s.last_token.(OpenSquareBracketToken);
@@ -407,11 +410,12 @@ maybe_parse_initial_unit :: proc(
                             unit_pos,
                         },
                     ),
-                    args,
+                    elems,
                 }
             }
-            return CallWithFrontedSquareBrackets{new_clone(UnitWithPos{unit, unit_pos}), args}
+            return CallWithFrontedSquareBrackets{new_clone(UnitWithPos{unit, unit_pos}), elems}
         }
+        */
     case IdentToken:
         get_next_token(s, true)
         return IdentNode{token, false}

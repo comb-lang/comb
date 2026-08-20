@@ -5,9 +5,16 @@ import "core:bufio"
 import "core:fmt"
 import "core:io"
 import "core:math/rand"
-import "core:os"
 import "core:strings"
 import "core:testing"
+
+pop_map :: proc(m: ^map[$K]$V) -> (K, V) {
+    for key, val in m {
+        delete_key(m, key)
+        return key, val
+    }
+    panic("Empty map")
+}
 
 Position :: struct {
     line: uint,

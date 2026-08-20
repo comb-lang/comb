@@ -24,10 +24,10 @@ SvgElem = <
 >
 
 HtmlElem = <
-    :Button {children: []HtmlElem, onclick: () -> UI},
-    :Div {style: String, children: []HtmlElem},
+    :Button {children: HtmlElem[], onclick: () -> UI},
+    :Div {style: String, children: HtmlElem[]},
     :Text String,
-    :Svg {style: String, width: UInt, height: UInt, contents: []SvgElem},
+    :Svg {style: String, width: UInt, height: UInt, contents: SvgElem[]},
 >
 
 Key = {
@@ -36,7 +36,7 @@ Key = {
 
 UI = {
     page_title: String,
-    ui_contents: []HtmlElem,
+    ui_contents: HtmlElem[],
     on_key_down: (Key) -> UI,
 }
 
@@ -52,7 +52,7 @@ Site = {
 reactive_page = |c: Compiler, ui: () -> UI| -> String {
     glue = #load "./html.js"
     // TODO: Be able to define the map something like `{"ui": ui()}`
-    map = OrderedHashMap[String, Any]["ui" = ui()]
+    map = OrderedHashMap[String, Any]("ui" = ui())
     // TODO: Add minification:
     // - Maybe there could be an argument with the type
     //   `<:Minify, :LeaveNames>` in the future

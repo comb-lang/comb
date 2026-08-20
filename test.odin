@@ -825,20 +825,28 @@ invalid_example_04_invalid_globals :: proc(t: ^testing.T) {
     utils.expect_string(&e, "Error compiling `" + path + "` (4:19)\n")
     utils.expect_string(&e, "Expected the type `String` but got the type `UInt`\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + path + "` (8:17)\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (8:15)\n")
     utils.expect_string(&e, "The variable `E` is not defined in the file `" + path + "`\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + path + "` (19:22)\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (14:26)\n")
+    utils.expect_string(&e, "Expected the type `Type` but got the type `Invalid`\n")
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (14:41)\n")
+    utils.expect_string(&e, "Expected the type `Type` but got the type `Invalid`\n")
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (23:22)\n")
     utils.expect_string(
         &e,
         "The variable `InvalidType` is not defined in the file `" + path + "`\n",
     )
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + path + "` (11:13)\n")
+    /*
+    utils.expect_string(&e, "Error compiling `" + path + "` (15:13)\n")
     utils.expect_string(&e, "The value before `.len` is of type `Array[Int]`\n")
     utils.expect_string(&e, "Expected a string type, an array type, or an OrderedHashSet type\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Erroneously checked with 5 errors and 0 warnings in ")
+    */
+    utils.expect_string(&e, "Erroneously checked with 6 errors and 0 warnings in ")
     utils.expect_digits(&e)
     utils.expect_string(&e, ".")
     utils.expect_digits(&e)

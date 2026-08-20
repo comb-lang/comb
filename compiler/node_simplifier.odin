@@ -1,7 +1,6 @@
 package compiler
 
 import "../utils"
-import "core:fmt"
 
 // This file may become an implementation of the node simplifier in a sea of nodes style optimizer
 // See https://github.com/seaofnodes/simple
@@ -22,7 +21,11 @@ create_joined_values :: proc(
     method: HierarchyUnitJoinMethod,
     val0: CheckedValue,
     val1: CheckedValue,
+    loc := #caller_location,
 ) -> CheckedValue {
+    when ODIN_DEBUG {
+        utils.call(loc, "create_joined_values", "")
+    }
     flip_values := false
     switch method {
     case .BooleanAnd, .BooleanOr:
@@ -45,7 +48,7 @@ create_joined_values :: proc(
          .StringConcat,
          .In: // TODO
     case .Append, .Concat, .Arrow:
-        panic(fmt.aprintf("Unreachable (%v)", method))
+        utils.panicf("Unreachable (%v)", method)
     case .Multiplication, .Division, .Addition, .Subtraction:
         comptime0, val0_is_comptime := val0.(CompileTimeValue)
         comptime1, val1_is_comptime := val1.(CompileTimeValue)
@@ -194,7 +197,7 @@ iterate_array :: proc(
         body_variables,
         loop_enter,
         continue_code,
-        utils.dynamic_to_fixed(body^),
+        utils.to_debug_value(utils.dynamic_to_fixed(body^)),
     }
 }
 
@@ -235,7 +238,7 @@ iterate_start_end_step :: proc(
         body_variables,
         loop_enter,
         loop_continue,
-        utils.dynamic_to_fixed(body^),
+        utils.to_debug_value(utils.dynamic_to_fixed(body^)),
     }
 }
 
@@ -247,7 +250,11 @@ iterate_ordered_hash_map :: proc(
     value_variable: VariableRef,
     body: ^utils.DoubleDynamic(CheckedStatement),
     body_variables: []Type,
+    loc := #caller_location,
 ) -> CheckedLoop {
+    when ODIN_DEBUG {
+        utils.call(loc, "iterate_ordered_hash_map", "")
+    }
     keys := KeysOfOrderedHashMapWithStringKey{new_clone(hash_map)} // TODO: Handle for Int keys
     utils.dynamic_insert(
         body,
@@ -266,6 +273,6 @@ iterate_ordered_hash_map :: proc(
         body,
         body_variables,
         keys,
-        ArrayType{0, .String},
+        ArrayType{nil, .String},
     )
 }

@@ -6,7 +6,7 @@ game_height = 15
 game_size = game_height * game_width
 main_title = "Conway's game of life"
 
-count_pixel_life = |s: [game_height][game_width]Bool, x: Int, y: Int| -> UInt {
+count_pixel_life = |s: Bool[game_width][game_height], x: Int, y: Int| -> UInt {
 	if x < 0 or x >= game_width or y < 0 or y >= game_height {
 		return 0
 	}
@@ -16,10 +16,10 @@ count_pixel_life = |s: [game_height][game_width]Bool, x: Int, y: Int| -> UInt {
 	return 0
 }
 
-run_tick = |s: [game_height][game_width]Bool| -> [game_height][game_width]Bool {
+run_tick = |s: Bool[game_width][game_height]| -> Bool[game_width][game_height] {
     f = false
-	r = [game_width]Bool(f, f, f, f, f, f, f, f, f, f, f, f, f, f, f)
-    re new_state$ = [game_height][game_width]Bool(r, r, r, r, r, r, r, r, r, r, r, r, r, r, r)
+	r = [f, f, f, f, f, f, f, f, f, f, f, f, f, f, f]
+    re new_state$ = [r, r, r, r, r, r, r, r, r, r, r, r, r, r, r]
     for row, y in s {
 		for was_alive, x in row {
 	        re surrounding_alive_pixels$ = 0
@@ -43,14 +43,18 @@ run_tick = |s: [game_height][game_width]Bool| -> [game_height][game_width]Bool {
     return new_state$
 }
 
-game_of_life = |s: [game_height][game_width]Bool| -> h.UI {
-    re grid_pixels$ = []h.HtmlElem()
+empty[T] = || -> T[] {
+	return []
+}
+
+game_of_life = |s: Bool[game_width][game_height]| -> h.UI {
+    re grid_pixels$ = empty[h.HtmlElem]()
     for row in s {
 		for pixel in row {
 	        if pixel {
-		        grid_pixels$ = grid_pixels$ :: :Div {style = "background: #FFFFFF;", children = []h.HtmlElem()}
+		        grid_pixels$ = grid_pixels$ :: :Div {style = "background: #FFFFFF;", children = []}
 	        } else {
-		        grid_pixels$ = grid_pixels$ :: :Div {style = "background: #000000;", children = []h.HtmlElem()}
+		        grid_pixels$ = grid_pixels$ :: :Div {style = "background: #000000;", children = []}
 	        }
 		}
     }
@@ -58,13 +62,13 @@ game_of_life = |s: [game_height][game_width]Bool| -> h.UI {
         "display: grid;"
         "grid-template-columns: repeat(" & game_width.to_str & ", 1fr);"
         "aspect-ratio: 1 / 1;"
-	ui_contents = []h.HtmlElem(
+	ui_contents = [
         :Button {
-			children = []h.HtmlElem(:Text "Run tick"),
+			children = [:Text "Run tick"],
 			onclick = || -> h.UI { return game_of_life(run_tick(s)) },
 		},
         :Div {style = grid_style, children = grid_pixels$},
-    )
+    ]
 	return {
 		page_title = main_title,
 		ui_contents = ui_contents,
@@ -72,27 +76,27 @@ game_of_life = |s: [game_height][game_width]Bool| -> h.UI {
 	}
 }
 
-pulsar_initial_state = [game_height][game_width]Bool(
-    [game_width]Bool(false, false, false, false, false, false, false, false, false, false, false, false, false, false, false),
-    [game_width]Bool(false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false),
-    [game_width]Bool(false, false, false, false, false, false, false, false, false, false, false, false, false, false, false),
-    [game_width]Bool(false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false),
-    [game_width]Bool(false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false),
-    [game_width]Bool(false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false),
-    [game_width]Bool(false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false),
-    [game_width]Bool(false, false, false, false, false, false, false, false, false, false, false, false, false, false, false),
-    [game_width]Bool(false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false),
-    [game_width]Bool(false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false),
-    [game_width]Bool(false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false),
-    [game_width]Bool(false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false),
-    [game_width]Bool(false, false, false, false, false, false, false, false, false, false, false, false, false, false, false),
-    [game_width]Bool(false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false),
-    [game_width]Bool(false, false, false, false, false, false, false, false, false, false, false, false, false, false, false),
-)
+pulsar_initial_state = [
+    [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],
+    [false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false],
+    [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],
+    [false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false],
+    [false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false],
+    [false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false],
+    [false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false],
+    [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],
+    [false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false],
+    [false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false],
+    [false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false],
+    [false, true,  false, false, false, false, true,  false, true,  false, false, false, false, true,  false],
+    [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],
+    [false, false, false, true,  true,  true,  false, false, false, true,  true,  true,  false, false, false],
+    [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],
+]
 
-site = {pages = OrderedHashMap[String, () -> h.UI][
+site = {pages = OrderedHashMap[String, () -> h.UI](
 	"/" = || -> h.UI { return game_of_life(pulsar_initial_state) },
-]}
+)}
 
 build = |c: Compiler| -> Int {
 	h.build_reactive_site(c, site, "gitignore_conways_game_of_life")

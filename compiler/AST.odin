@@ -122,7 +122,6 @@ UnitWithoutPos :: union #no_nil {
     FuncDefinitionRef,
     CallWithBrackets,
     CallWithSquareBrackets,
-    CallWithFrontedSquareBrackets,
     HierarchyJoinedUnits,
     IdentNode,
     Number,
@@ -230,7 +229,6 @@ Call :: struct {
 
 CallWithBrackets :: distinct Call // A(B, C, D)
 CallWithSquareBrackets :: distinct Call // A[B, C, D]
-CallWithFrontedSquareBrackets :: distinct Call // [B, C, D]A
 
 Iterator :: union {
     Unit,

@@ -38,7 +38,7 @@ from_uri :: proc(uri: string) -> string {
 @(private = "package")
 to_uri :: proc(path: string) -> string {
     replaced, _ := strings.replace_all(path, " ", "%20", context.temp_allocator)
-    return strings.join([]string{uri_prefix, path}, "", context.temp_allocator)
+    return strings.join([]string{uri_prefix, replaced}, "", context.temp_allocator)
 }
 
 @(private = "package")
@@ -145,7 +145,7 @@ run_lsp :: proc() {
 
         lsp_state.diagnostics.diagnostics_include_errors = false
         fmt.wprintln(utils.debug_writer, "Iterating diagnostics")
-        for key, diagnostics in lsp_state.diagnostics.diagnostics {
+        for key in lsp_state.diagnostics.diagnostics {
             lsp_state.diagnostics.diagnostics[key] = utils.arena_make(
                 &lsp_state.temp_arena,
                 []Diagnostic,

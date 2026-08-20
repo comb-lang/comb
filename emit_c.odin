@@ -371,7 +371,7 @@ emit_c_block_body :: proc(
             strings.write_byte(&s.b, '{')
             emit_c_block(s, nesting_level + 1, stmt.variables, stmt.enter)
             strings.write_string(&s.b, "while (1) {")
-            emit_c_block(s, nesting_level + 1, nil, stmt.body)
+            emit_c_block(s, nesting_level + 1, nil, stmt.body.v)
             strings.write_string(&s.b, "loop")
             strings.write_uint(&s.b, stmt.loop_index)
             strings.write_string(&s.b, "continue:")
@@ -482,7 +482,10 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
             strings.write_byte(&s.other_type_definitions, '{')
             emit_type(&s.other_type_definitions, "", type.item_type)
             strings.write_string(&s.other_type_definitions, " elems[")
-            strings.write_uint(&s.other_type_definitions, uint(type.length))
+            strings.write_uint(
+                &s.other_type_definitions,
+                type.length == nil ? 0 : uint(type.length.(u32)),
+            )
             strings.write_string(&s.other_type_definitions, "];};")
         } else {
             strings.write_string(&s.other_type_definitions, "{uint64_t length;")

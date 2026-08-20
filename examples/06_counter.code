@@ -12,12 +12,12 @@ increment_count = |s: CounterState| -> CounterState {
 }
 
 counter = |s: CounterState| -> h.UI {
-    contents = []h.HtmlElem(
+    contents = [
         :Button {
-            children = []h.HtmlElem(:Text ("The count is " & s.count.to_str)),
+            children = [:Text ("The count is " & s.count.to_str)],
             onclick = || -> h.UI { return counter(increment_count(s)) }, // TODO: Cleanup syntax
         },
-    )
+    ]
     return {
         page_title = "Counter",
         ui_contents = contents,
@@ -25,9 +25,9 @@ counter = |s: CounterState| -> h.UI {
     }
 }
 
-site = {pages = OrderedHashMap[String, () -> h.UI][
+site = {pages = OrderedHashMap[String, () -> h.UI](
     "/" = || -> h.UI {return counter(counter_initial_state)},
-]}
+)}
 
 build = |c: Compiler| -> Int {
     h.build_reactive_site(c, site, "gitignore_counter")

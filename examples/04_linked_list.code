@@ -1,19 +1,19 @@
 LinkedList[T] = <
     :Empty,
-    :NotEmpty {head: T, tail: LinkedList[T]},
+    NotEmpty: {head: T, tail: LinkedList[T]},
 >
 
 insert[T] = |list: LinkedList[T], number: T| -> LinkedList[T] {
-    return :NotEmpty {head = number, tail = list}
+    return NotEmpty: {head = number, tail = list}
 }
 
 reverse[T] = |list: LinkedList[T], end: LinkedList[T]| -> LinkedList[T] {
     match list {
-        .Empty {
+        :Empty {
             return end
         }
-        not_empty: .NotEmpty {
-            return reverse[T](not_empty.tail, :NotEmpty {head = not_empty.head, tail = end})
+        NotEmpty: not_empty {
+            return reverse[T](not_empty.tail, NotEmpty: {head = not_empty.head, tail = end})
         }
     }
 }
@@ -27,10 +27,10 @@ to_array[T] = |list: LinkedList[T]| -> T[] {
     re l$ = list
     while true {
         match l$ {
-            .Empty {
+            :Empty {
                 return array$
             }
-            not_empty: .NotEmpty {
+            NotEmpty: not_empty {
                 array$ = array$ :: not_empty.head
                 l$ = not_empty.tail
             }
@@ -42,10 +42,10 @@ foreach[T] = |list: LinkedList[T], func: (T) -> ()| {
     re l$ = list
     while true {
         match l$ {
-            .Empty {
+            :Empty {
                 return
             }
-            not_empty: .NotEmpty {
+            NotEmpty: not_empty {
                 func(not_empty.head)
                 l$ = not_empty.tail
             }

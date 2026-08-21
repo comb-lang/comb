@@ -11,6 +11,40 @@ plain_ident_base :: "n identifier with one segment and no `$` sign at the end"
 plain_ident_capitalised :: "A" + plain_ident_base
 plain_ident_normal :: "a" + plain_ident_base
 
+@(private = "file")
+expect_text_and_pos :: "Expected " + plain_ident_normal
+
+get_text_and_pos_from_ident :: proc(
+    r: utils.DiagnosticReporter,
+    t: #soa[]Ident,
+) -> Maybe(TextAndPos) {
+    if len(t) != 1 || t[0].has_dollar_at_end {
+        utils.diagnostic(r, t[0].pos, expect_text_and_pos)
+        return nil
+    }
+    return TextAndPos{t[0].ident, t[0].pos}
+}
+
+get_text_and_pos_from_unit_with_pos :: proc(
+    r: utils.DiagnosticReporter,
+    u: UnitWithPos,
+) -> Maybe(TextAndPos) {
+    ident, is_ident := u.unit.(IdentNode)
+    if !is_ident || ident.has_re_before {
+        utils.diagnostic(r, u.pos, expect_text_and_pos)
+        return nil
+    }
+    return get_text_and_pos_from_ident(r, ident.segments)
+}
+
+get_text_and_pos_from_unit :: proc(r: utils.DiagnosticReporter, u: Unit) -> Maybe(TextAndPos) {
+    if len(u.extra_units) == 0 {
+        return get_text_and_pos_from_unit_with_pos(r, UnitWithPos{u.first_unit, u.pos})
+    }
+    utils.diagnostic(r, u.pos, expect_text_and_pos)
+    return nil
+}
+
 get_file_index :: proc(
     files: []utils.CompilerFile,
     ref: ^utils.CompilerFile,
@@ -217,6 +251,8 @@ maybe_parse_initial_unit :: proc(
             return Failure{}
         }
         get_next_token(s, true)
+        return TagUnit{ident}
+    /*
         pos := s.last_token_pos
         switch unit in maybe_parse_initial_unit(s) {
         case:
@@ -228,6 +264,7 @@ maybe_parse_initial_unit :: proc(
         case UnitWithoutPos:
             return TagUnit{ident, new_clone(UnitWithPos{unit, pos})}
         }
+        */
 
     case ImportToken:
         get_next_token(s, false)

@@ -1,7 +1,7 @@
 UI[State] = <
-    :Button {children: UI[State][], onclick: (State) -> State},
-    :List {header: String, children: UI[State][]},
-    :Text String,
+    Button: {children: UI[State][], onclick: (State) -> State},
+    List: {header: String, children: UI[State][]},
+    Text: String,
 >
 
 nothing           = |s: String| -> String { return s }
@@ -11,17 +11,17 @@ set_text_to_text3 = |s: String| -> String { return "Text 3" }
 
 text_picker = |s: String| -> UI[String][] {
     return [
-        :Text s,
-        :Button {
-            children = [:Text "Text 1"],
+        Text: s,
+        Button: {
+            children = [Text: "Text 1"],
             onclick = set_text_to_text1,
         },
-        :Button {
-            children = [:Text "Text 2"],
+        Button: {
+            children = [Text: "Text 2"],
             onclick = set_text_to_text2
         },
-        :Button {
-            children = [:Text "Text 3"],
+        Button: {
+            children = [Text: "Text 3"],
             onclick = set_text_to_text3
         },
     ]
@@ -40,7 +40,7 @@ render_ui[T] = |ui: UI[T][], focussed_button_index: UInt, nesting: UInt, state: 
         }
         print("- ")
         match elem {
-            button: .Button {
+            Button: button {
                 if focussed_button_index == s$.button_index {
                     println("Focused button")
                     // ~s.focussed_button_onclick = button.onclick
@@ -52,11 +52,11 @@ render_ui[T] = |ui: UI[T][], focussed_button_index: UInt, nesting: UInt, state: 
                 s$ = s$ ~ .button_index = s$.button_index + 1
                 s$ = render_ui[T](button.children, focussed_button_index, nesting + 1, s$)
             }
-            list: .List {
+            List: list {
                 println(list.header)
                 s$ = render_ui[T](list.children, focussed_button_index, nesting + 1, s$)
             }
-            text: .Text {
+            Text: text {
                 println(text)
             }
         }

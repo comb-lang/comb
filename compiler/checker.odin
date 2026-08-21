@@ -1782,6 +1782,39 @@ try_split_by :: proc(
     return nil
 }
 
+GetTagResult :: struct {
+    tag_name: TextAndPos,
+    payload:  Maybe(Unit),
+}
+
+get_tag :: proc(r: utils.DiagnosticReporter, u: Unit) -> Maybe(GetTagResult) {
+    if len(u.extra_units) == 0 {
+        if tag, is_tag := u.first_unit.(TagUnit); is_tag {
+            tag_name, ok := get_text_and_pos_from_ident(r, tag.tag).(TextAndPos)
+            if !ok {return nil}
+            return GetTagResult{tag_name, nil}
+        }
+    } else if u.extra_units[0].join_method == .Colon {
+        tag_name, tag_name_ok := get_text_and_pos_from_unit_with_pos(
+            r,
+            UnitWithPos{u.first_unit, u.pos},
+        ).(TextAndPos)
+        if !tag_name_ok {
+            return nil
+        }
+        return GetTagResult {
+            tag_name,
+            Unit{u.extra_units[0].unit.pos, u.extra_units[0].unit.unit, u.extra_units[1:]},
+        }
+    }
+    utils.diagnostic(
+        r,
+        u.pos,
+        "Expected a tag like `:TagName` or `TagName: var_name` to create a sum type variant",
+    )
+    return nil
+}
+
 // The boolean returned is whether the block checked successfully
 check_block :: proc(
     s: ^CheckerState,
@@ -2293,42 +2326,23 @@ check_block :: proc(
                 append_elem(&s.scopes, Scope{})
                 defer pop_scope(s)
 
-                // BEFORE MERGE TODO: Update so syntax is like `:TagName payload` or just `:TagName`
-                branch_type: Unit = ---
-                variable_name: ^Unit = nil
-                if split, ok := try_split_by(branch.label, .Colon).(SuccessfulSplit); ok {
-                    variable_name = new_clone(split.before_split)
-                    branch_type = split.after_split
-                } else {
-                    branch_type = branch.label
-                }
-
-                type_variable, is_variable := branch_type.first_unit.(IdentNode)
-                if !is_variable ||
-                   len(type_variable.segments) != 2 ||
-                   type_variable.segments[0].ident != "" ||
-                   type_variable.has_re_before {
-                    utils.diagnostic(
-                        s.r,
-                        branch_type.pos,
-                        "Expected type variable without a generic type that starts with `.`",
-                    )
+                tag, tag_ok := get_tag(s.r, branch.label).(GetTagResult)
+                if !tag_ok {
                     return nil, false
                 }
 
-                variant_name := type_variable.segments[1].ident
                 variant := utils.lookup(
                     s.types.sum_type_tags,
-                    variant_name,
+                    tag.tag_name.text,
                     utils.string_to_index_procs,
                 )
                 if variant == utils.does_not_exist || variant.index not_in val_sum_type.payloads {
                     utils.diagnostic(
                         s.r,
-                        branch_type.pos,
-                        "The sum type `%s` does not have the variant `:%s`",
+                        tag.tag_name.pos,
+                        "The sum type `%s` does not have the variant `%s`",
                         type_to_string(s, res.type),
-                        variant_name,
+                        tag.tag_name.text,
                     )
                     return nil, false
                 }
@@ -2336,35 +2350,34 @@ check_block :: proc(
                 if variant.index in branches {
                     utils.diagnostic(
                         s.r,
-                        branch_type.pos,
-                        "The variant `.%s` already has a branch defined at %v",
-                        variant_name,
+                        tag.tag_name.pos,
+                        "The variant `%s` already has a branch defined at %v",
+                        tag.tag_name.text,
                         branches[variant.index].pos,
                     )
                     return nil, false
                 }
 
                 var: Maybe(VariableRef) = nil
-                if variable_name != nil {
-                    ident, is_ident := variable_name.first_unit.(IdentNode)
-                    if !is_ident ||
-                       len(ident.segments) != 1 ||
-                       ident.segments[0].has_dollar_at_end ||
-                       ident.has_re_before {
-                        utils.diagnostic(s.r, variable_name.pos, "Expected " + plain_ident_normal)
-                        return nil, false
-                    }
-                    payload, has_payload := val_sum_type.payloads[variant.index].(Type)
-                    if !has_payload {
+                if payload, has_payload := tag.payload.(Unit); has_payload {
+                    sum_type_payload, sum_type_has_payload := val_sum_type.payloads[variant.index].(Type)
+                    if !sum_type_has_payload {
                         utils.diagnostic(
                             s.r,
-                            ident.segments[0].pos,
+                            payload.pos,
                             "Cannot have variable for sum type variant with no payload",
                         )
                         return nil, false
                     }
-                    var_ok: bool = ---
-                    var, var_ok = add_variable(s, payload, ident.segments[0])
+                    var_name, var_ok := get_text_and_pos_from_unit(s.r, payload).(TextAndPos)
+                    if !var_ok {
+                        return nil, false
+                    }
+                    var, var_ok = add_variable(
+                        s,
+                        sum_type_payload,
+                        Ident{var_name.text, var_name.pos, false},
+                    )
                     if !var_ok {
                         return nil, false
                     }
@@ -2389,7 +2402,7 @@ check_block :: proc(
                         utils.diagnostic(
                             s.r,
                             stmt.position,
-                            "Unhandled variant `:%s`",
+                            "Unhandled variant `%s`",
                             s.types.sum_type_tags.keys[tag_variant_index].key,
                         )
                     }
@@ -3354,6 +3367,44 @@ check_index :: proc(
     return CheckedIndex{new_clone(start_index), new_clone(end_index)}
 }
 
+check_tag_value :: proc(
+    s: ^CheckerState,
+    tag_name: TextAndPos,
+    payload_unit: Maybe(Unit),
+    body: ^utils.DebugValue([dynamic]CheckedStatement),
+    generic_args: map[string]Type,
+) -> utils.DebugValue(CheckValueResult) {
+    expect_camel_case(s, "the tag name", tag_name)
+
+    variant_type: Maybe(Type) = ---
+    payload: ^CheckedValue = ---
+    if payload_unit == nil {
+        variant_type = nil
+        payload = nil
+    } else {
+        checked := check_value(s, payload_unit.(Unit), CheckValueArgs{body, generic_args, nil})
+        if checked.v.value == nil {
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+        variant_type = checked.v.type
+        payload = new_clone(checked.v.value)
+    }
+
+    i, _ := utils.lookup_or_insert(
+        &s.types.sum_type_tags,
+        tag_name.text,
+        utils.string_to_index_procs,
+    )
+
+    sum_type_payloads := make(map[u32]Maybe(Type))
+    sum_type_payloads[i.index] = variant_type
+    sum_type := create_type(&s.types, SumType{sum_type_payloads}).type
+
+    return utils.to_debug_value(
+        CheckValueResult{SumTypeInitialisation{sum_type, i.index, payload}, sum_type},
+    )
+}
+
 check_initial_value :: proc(
     s: ^CheckerState,
     pos: utils.Pos,
@@ -3367,46 +3418,11 @@ check_initial_value :: proc(
         return utils.to_debug_value(CheckValueResult{nil, .Invalid})
 
     case TagUnit:
-        if len(value.tag) != 1 {
-            utils.diagnostic(s.r, value.tag[0].pos, "Expected the tag to have one segment")
+        tag_name, tag_name_ok := get_text_and_pos_from_ident(s.r, value.tag).(TextAndPos)
+        if !tag_name_ok {
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
-        tag_name := value.tag[0].ident
-        expect_camel_case(s, "the tag name", TextAndPos{tag_name, value.tag[0].pos})
-
-        variant_type: Maybe(Type) = ---
-        payload: ^CheckedValue = ---
-        if value.value == nil {
-            variant_type = nil
-            payload = nil
-        } else {
-            checked := check_initial_value(
-                s,
-                value.value.pos,
-                value.value.unit,
-                CheckValueArgs{a.body, a.generic_args, nil},
-            )
-            if checked.v.value == nil {
-                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-            }
-            variant_type = checked.v.type
-            payload = new_clone(checked.v.value)
-        }
-
-        i, _ := utils.lookup_or_insert(
-            &s.types.sum_type_tags,
-            tag_name,
-            utils.string_to_index_procs,
-        )
-
-        sum_type_payloads := make(map[u32]Maybe(Type))
-        sum_type_payloads[i.index] = variant_type
-        sum_type := create_type(&s.types, SumType{sum_type_payloads}).type
-
-        return utils.to_debug_value(
-            CheckValueResult{SumTypeInitialisation{sum_type, i.index, payload}, sum_type},
-        )
-
+        return check_tag_value(s, tag_name, nil, a.body, a.generic_args)
     case StructUnit:
         if len(value.elements) == 0 {
             utils.diagnostic(
@@ -3554,44 +3570,32 @@ check_initial_value :: proc(
         sum_type := SumType{make(map[u32]Maybe(Type))}
         ok := true
         for elem in value.elements {
-            tag_unit, is_tag_unit := elem.first_unit.(TagUnit)
-            if len(elem.extra_units) != 0 ||
-               !is_tag_unit ||
-               len(tag_unit.tag) != 1 ||
-               tag_unit.tag[0].has_dollar_at_end {
-                utils.diagnostic(
-                    s.r,
-                    elem.pos,
-                    "Expected something like `:VariantName VariantType` to create a sum type variant",
-                )
+            tag, tag_ok := get_tag(s.r, elem).(GetTagResult)
+            if !tag_ok {
                 ok = false
                 continue
             }
-            expect_camel_case(
-                s,
-                "the name of a sum type variant",
-                TextAndPos{tag_unit.tag[0].ident, tag_unit.tag[0].pos},
-            )
+            expect_camel_case(s, "the name of a sum type variant", tag.tag_name)
             index, _ := utils.lookup_or_insert(
                 &s.types.sum_type_tags,
-                tag_unit.tag[0].ident,
+                tag.tag_name.text,
                 utils.string_to_index_procs,
             )
             if index.index in sum_type.payloads {
                 utils.diagnostic(
                     s.r,
-                    tag_unit.tag[0].pos,
+                    tag.tag_name.pos,
                     "The variant `%s` is already defined at %v in this sum type",
-                    tag_unit.tag[0].ident,
+                    tag.tag_name.text,
                     variant_positions[index.index],
                 )
                 ok = false
                 continue
             }
-            if tag_unit.value == nil {
+            if tag.payload == nil {
                 sum_type.payloads[index.index] = nil
             } else {
-                payload := check_initial_type(s, tag_unit.value^, a.generic_args)
+                payload := check_type(s, tag.payload.(Unit), a.generic_args)
                 if payload == .Invalid {
                     ok = false
                     continue
@@ -4299,6 +4303,21 @@ check_value :: proc(
 
     if len(v.extra_units) == 0 {
         return check_initial_value(s, v.pos, v.first_unit, a)
+    } else if v.extra_units[0].join_method == .Colon {
+        tag_name, tag_name_ok := get_text_and_pos_from_unit_with_pos(
+            s.r,
+            UnitWithPos{v.first_unit, v.pos},
+        ).(TextAndPos)
+        if !tag_name_ok {
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+        return check_tag_value(
+            s,
+            tag_name,
+            Unit{v.extra_units[0].unit.pos, v.extra_units[0].unit.unit, v.extra_units[1:]},
+            a.body,
+            a.generic_args,
+        )
     }
 
     res :=

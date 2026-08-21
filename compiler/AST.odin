@@ -110,8 +110,8 @@ InitialUnit :: union {
 */
 
 TagUnit :: struct {
-    tag:   IdentToken,
-    value: ^UnitWithPos, // May be `nil`
+    tag: IdentToken,
+    // value: ^UnitWithPos, // May be `nil`
 }
 
 UnitWithoutPos :: union #no_nil {

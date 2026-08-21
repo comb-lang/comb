@@ -1,7 +1,7 @@
 // TODO: Implement the result type in standard library
 Result[Ok, Err] = <
-  :Ok Ok,
-  :Err Err,
+  Ok: Ok,
+  Err: Err,
 >
 
 Animal = <
@@ -16,35 +16,35 @@ Animal = <
 
 str_to_animal = |name: String| -> Result[Animal, String] {
 	if name == "cat" {
-		return :Ok :Cat
+		return Ok: :Cat
 	} else if name == "dog" {
-		return :Ok :Dog
+		return Ok: :Dog
 	} else if name == "horse" {
-		return :Ok :Horse
+		return Ok: :Horse
 	} else if name == "tiger" {
-		return :Ok :Tiger
+		return Ok: :Tiger
 	} else if name == "rabbit" {
-		return :Ok :Rabbit
+		return Ok: :Rabbit
 	} else {
-		return :Err ("Unrecognized animal name `" & name & "`")
+		return Err: "Unrecognized animal name `" & name & "`"
 	}
 }
 
 animal_to_str = |animal: Animal| -> String {
 	match animal {
-		.Cat {
+		:Cat {
 			return "cat"
 		}
-		.Dog {
+		:Dog {
 			return "dog"
 		}
-		.Horse {
+		:Horse {
 			return "horse"
 		}
-		.Tiger {
+		:Tiger {
 		    return "tiger"
 		}
-		.Rabbit {
+		:Rabbit {
 			return "rabbit"
 		}
 	}
@@ -53,10 +53,10 @@ animal_to_str = |animal: Animal| -> String {
 main = || -> Int {
     name = readline("Enter the name of an animal: ")
 	match str_to_animal(name) {
-	    animal: .Ok {
+	    Ok: animal {
 			println("You entered the animal " & animal_to_str(animal))
 		}
-		err: .Err {
+		Err: err {
 		    eprintln("Error: " & err)
 		}
 	}

@@ -35,7 +35,10 @@ get_block_info :: proc(block: ^virtual.Memory_Block) -> ^ArenaBlockInfo {
     return (^ArenaBlockInfo)(block.base)
 }
 
-create_block :: proc(a: ^Arena) {
+create_block :: proc(a: ^Arena, loc := #caller_location) {
+    when ODIN_DEBUG {
+        call(loc, "create_block", "", enable_debug = debug_arena)
+    }
     block, err := virtual.memory_block_alloc(0, virtual.DEFAULT_ARENA_STATIC_RESERVE_SIZE)
     if err != nil {
         panic("Failed to allocate memory block")
@@ -70,6 +73,9 @@ alloc :: proc(
     zero: bool,
     loc: runtime.Source_Code_Location,
 ) -> rawptr {
+    when ODIN_DEBUG {
+        call(loc, "alloc", "", enable_debug = debug_arena)
+    }
     if a.last_resizable_block == nil {
         create_block(a)
     }
@@ -220,7 +226,9 @@ cleanup_arena :: proc(
     delete_blocks := true,
     loc := #caller_location,
 ) {
-    call(loc, "cleanup_arena", "")
+    when ODIN_DEBUG {
+        call(loc, "cleanup_arena", "", enable_debug = debug_arena)
+    }
     if expect_empty {
         assert(a.last_allocation == nil)
     } else {
@@ -274,5 +282,10 @@ cleanup_arena :: proc(
 
     for _, value in resizable_blocks {
         assert(value == .Visited)
+    }
+
+    if delete_blocks {
+        a.last_resizable_block = nil
+        a.last_block = nil
     }
 }

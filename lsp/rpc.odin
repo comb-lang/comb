@@ -57,7 +57,9 @@ Shutdown :: struct {
     using _: RequestData,
 }
 
-Exit :: struct {}
+Exit :: struct {
+    method: string,
+}
 
 DidChangeTextDocumentParams :: struct {
     text_document:   TextDocumentIdentifier `json:"textDocument"`,
@@ -79,7 +81,8 @@ TextDocumentPositionParams :: struct {
 }
 
 RequestData :: struct {
-    id: int,
+    id:     int,
+    method: string,
 }
 
 Response :: union {
@@ -152,7 +155,9 @@ InitializeParams :: struct {
     client_info:  Info `json:"clientInfo"`,
     capabilities: ClientCapabilities,
 }
-LspInitialized :: struct {}
+LspInitialized :: struct {
+    method: string,
+}
 
 TextDocumentSync :: enum {
     None        = 0,
@@ -204,7 +209,10 @@ send_response :: proc(data: Response) {
     fmt.wprintfln(utils.debug_writer, "Sent message ```\n%s\n```", json_str)
 }
 
-receive_request :: proc() -> Request {
+receive_request :: proc(loc := #caller_location) -> Request {
+    when ODIN_DEBUG {
+        utils.call(loc, "receive_request", "")
+    }
     LspInitialMessage :: struct {
         method: string,
     }

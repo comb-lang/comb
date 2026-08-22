@@ -443,19 +443,21 @@ no_generic_args :: map[string]Type{}
 
 check_struct_type :: proc(
     s: ^CheckerState,
-    type: OldStructUnit,
+    type_m: utils.KeyToIndex(string),
+    type_positions: utils.Multi(utils.Pos),
+    type_types: utils.Multi(Unit),
     generic_args: map[string]Type,
 ) -> Type {
-    field_types := utils.arena_make_multi(s.a, utils.Multi(Type), len(type.m.keys))
+    field_types := utils.arena_make_multi(s.a, utils.Multi(Type), len(type_m.keys))
     ok := true
-    for field, i in type.m.keys {
+    for field, i in type_m.keys {
         expect_snake_case(
             s,
             "the name of a struct field",
-            TextAndPos{field.key, type.positions.d[i]},
+            TextAndPos{field.key, type_positions.d[i]},
             can_have_dollar_postfix = false,
         )
-        field_types.d[i] = check_type(s, type.types.d[i], generic_args)
+        field_types.d[i] = check_type(s, type_types.d[i], generic_args)
         if field_types.d[i] == .Invalid {
             ok = false
         }
@@ -464,7 +466,7 @@ check_struct_type :: proc(
         return .Invalid
     }
 
-    created := create_type(&s.types, StructType{type.m, field_types})
+    created := create_type(&s.types, StructType{type_m, field_types})
     return created.type
 }
 
@@ -3432,12 +3434,10 @@ check_initial_value :: proc(
             )
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
-        fields := OldStructUnit {
-            utils.make_key_to_index(s.a, utils.KeyToIndex(string)),
-            utils.arena_make_multi(s.a, utils.Multi(utils.Pos), len(value.elements)),
-            utils.arena_make_multi(s.a, utils.Multi(Unit), len(value.elements)),
-        }
-        defer utils.fix_key_to_index(fields.m)
+        fields_map := utils.make_key_to_index(s.a, utils.KeyToIndex(string))
+        field_positions := utils.arena_make_multi(s.a, utils.Multi(utils.Pos), len(value.elements))
+        field_types := utils.arena_make_multi(s.a, utils.Multi(Unit), len(value.elements))
+        defer utils.fix_key_to_index(fields_map)
         kind: enum {
             Unknown,
             StructType,
@@ -3492,20 +3492,24 @@ check_initial_value :: proc(
             }
 
             name := ident.segments[0]
-            i, result := utils.lookup_or_insert(&fields.m, name.ident, utils.string_to_index_procs)
+            i, result := utils.lookup_or_insert(
+                &fields_map,
+                name.ident,
+                utils.string_to_index_procs,
+            )
             if result == .LookedUp {
                 utils.diagnostic(
                     s.r,
                     name.pos,
                     "There is already a field called `%s` defined in this struct at `%v`",
                     name.ident,
-                    fields.positions.d[i.index],
+                    field_positions.d[i.index],
                 )
                 return utils.to_debug_value(CheckValueResult{nil, .Invalid})
             }
 
-            fields.positions.d[i.index] = name.pos
-            fields.types.d[i.index] = split.after_split
+            field_positions.d[i.index] = name.pos
+            field_types.d[i.index] = split.after_split
         }
         switch kind {
         case .StructType:
@@ -3514,7 +3518,15 @@ check_initial_value :: proc(
             }
             return utils.to_debug_value(
                 CheckValueResult {
-                    CompileTimeValue(check_struct_type(s, fields, a.generic_args)),
+                    CompileTimeValue(
+                        check_struct_type(
+                            s,
+                            fields_map,
+                            field_positions,
+                            field_types,
+                            a.generic_args,
+                        ),
+                    ),
                     .Type,
                 },
             )
@@ -3522,10 +3534,10 @@ check_initial_value :: proc(
             arg_values := make([]CheckedValue, len(value.elements))
             arg_types := make([]Type, len(value.elements))
             ok := true
-            for _, i in fields.m.keys {
+            for _, i in fields_map.keys {
                 checked := check_value(
                     s,
-                    fields.types.d[i],
+                    field_types.d[i],
                     CheckValueArgs{a.body, a.generic_args, nil},
                 )
                 arg_types[i] = checked.v.type
@@ -3538,7 +3550,7 @@ check_initial_value :: proc(
                 return utils.to_debug_value(CheckValueResult{nil, .Invalid})
             }
             struct_type :=
-                create_type(&s.types, StructType{fields.m, utils.array_to_multi(arg_types)}).type
+                create_type(&s.types, StructType{fields_map, utils.array_to_multi(arg_types)}).type
             return utils.to_debug_value(
                 CheckValueResult{create_struct(struct_type, arg_values), struct_type},
             )
@@ -4060,12 +4072,6 @@ check_derivation_subset :: proc(
         case UnitsInSquareBrackets:
             args = u.elements
             unit_being_called = nil
-        /*
-        // BEFORE MERGE TODO
-        case CallWithFrontedSquareBrackets:
-            args = u.args
-            unit_being_called = u.unit_being_called
-        */
         case:
             utils.diagnostic(
                 s.r,
@@ -4684,8 +4690,21 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]utils.Pos
         return key
     }
     if key > .MaxIndex {
-        // BEFORE MERGE TODO: A list like `[-3, 0]` should have the type `[]Int`
-        return .Any
+        out := Type.UInt
+        for k in args {
+            #partial switch simplify_type(s, k) {
+            case .UInt:
+            case .Int:
+                if out == .UInt {
+                    out = .Int
+                }
+            case .Float:
+                out = .Float
+            case:
+                return .Any
+            }
+        }
+        return out
     }
     switch type in get_type(s.types, key).key {
     case SumType:

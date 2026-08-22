@@ -6,13 +6,6 @@ StructUnit :: struct {
     elements: []Unit,
 }
 
-// BEFORE MERGE TODO: Remove this
-OldStructUnit :: struct {
-    m:         utils.KeyToIndex(string),
-    positions: utils.Multi(utils.Pos),
-    types:     utils.Multi(Unit),
-}
-
 StructType :: struct {
     m:     utils.KeyToIndex(string),
     // positions: utils.Multi(utils.Pos),

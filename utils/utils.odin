@@ -70,8 +70,8 @@ override_close_handler :: proc(
     }
 }
 
-panicf :: proc(format: string, args: ..any) -> ! {
-    panic(fmt.aprintf(format, ..args))
+panicf :: proc(format: string, args: ..any, loc := #caller_location) -> ! {
+    panic(fmt.aprintf(format, ..args), loc)
 }
 
 reader_stream_proc :: proc(
@@ -336,13 +336,16 @@ expect_string :: proc(
 }
 
 expect_string2 :: proc(r: ^bufio.Reader, expected: string, loc := #caller_location) {
+    when ODIN_DEBUG {
+        call(loc, "expect_string2", "")
+    }
     got := make([]byte, len(expected))
     defer delete(got)
     n := 0
     for n < len(expected) {
         num_read, err := bufio.reader_read(r, got)
         if num_read == 0 {
-            panicf("Failed to read: %v", err)
+            panicf("Call stack:\n%vFailed to read: %v", get_call_stack_on_debug(), err)
         }
         assert(err == nil || err == .EOF)
         expect_string_helper(expected[n:n + num_read], string(got[:num_read]), loc, nil)

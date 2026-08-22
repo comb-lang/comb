@@ -596,7 +596,7 @@ main :: proc() {
         print_help(0)
     case "lsp":
         expect_args_finished("lsp")
-        lsp.run_lsp()
+        lsp.run_lsp(io.Reader(os.to_stream(os.stdin)), io.Writer(os.to_stream(os.stdout)))
         return
     case:
         fmt.eprintfln("Unexpected command `%s`", os.args[1])

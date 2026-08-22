@@ -6,10 +6,14 @@ package main
 //       the same behavior in all the tests
 
 import "compiler"
+import "core:encoding/json"
 import "core:fmt"
+import "core:io"
 import "core:os"
 import "core:path/filepath"
+import "core:strings"
 import "core:testing"
+import "lsp"
 import "utils"
 
 CompilationFailed :: struct {
@@ -919,6 +923,48 @@ invalid_example_07_uses_compiletime_value_at_runtime :: proc(t: ^testing.T) {
     utils.expect_digits(&e)
     utils.expect_string(&e, " ms\n")
     utils.expect_finished(&e)
+}
+
+@(test)
+lsp_test :: proc(t: ^testing.T) {
+    send_request :: proc(a: ^utils.Arena, b: ^strings.Builder, r: lsp.Request) {
+        builder := utils.make_builder(a)
+        opt := json.Marshal_Options{}
+        json.marshal_to_writer(builder, r, &opt)
+        built := utils.finish_building(builder)
+        fmt.sbprintf(b, "Content-Length: %d\r\n\r\n%s", len(built), built)
+    }
+
+    get_text_document :: proc(path: string) -> lsp.TextDocumentItem {
+        data, err := os.read_entire_file(path, context.allocator)
+        assert(err == nil)
+        return lsp.TextDocumentItem{lsp.to_uri(path), "comb", 0, string(data)}
+    }
+
+    a: utils.Arena
+    b := strings.builder_make()
+    send_request(
+        &a,
+        &b,
+        lsp.LspInitialize{lsp.RequestData{0, "initialize"}, lsp.InitializeParams{}},
+    )
+    send_request(&a, &b, lsp.LspInitialized{"initialized"})
+    send_request(
+        &a,
+        &b,
+        lsp.DidOpenTextDocumentNotification {
+            lsp.Notification{lsp.jsonrpc, "textDocument/didOpen"},
+            lsp.DidOpenTextDocumentParams {
+                get_text_document(#directory + "examples/00_fizzbuzz.code"),
+            },
+        },
+    )
+    send_request(&a, &b, lsp.Shutdown{lsp.RequestData{0, "shutdown"}})
+    send_request(&a, &b, lsp.Exit{"exit"})
+
+    // TODO: Check the output in `output_collector`
+    output_collector := utils.make_builder(&a)
+    lsp.run_lsp(utils.make_reader(&a, strings.to_string(b)), output_collector)
 }
 
 // TODO: Add a fuzz test where the code that gets compiled never has any syntax errors

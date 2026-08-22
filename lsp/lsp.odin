@@ -35,7 +35,6 @@ from_uri :: proc(uri: string) -> string {
     return out
 }
 
-@(private = "package")
 to_uri :: proc(path: string) -> string {
     replaced, _ := strings.replace_all(path, " ", "%20", context.temp_allocator)
     return strings.join([]string{uri_prefix, replaced}, "", context.temp_allocator)
@@ -44,8 +43,8 @@ to_uri :: proc(path: string) -> string {
 @(private = "package")
 lsp_state: LspState
 
-run_lsp :: proc() {
-    lsp_state.writer = io.Writer(os.to_stream(os.stdout))
+run_lsp :: proc(input_reader: io.Reader, output_writer: io.Writer) {
+    lsp_state.writer = output_writer
 
     temp_dir, err := os.temp_dir(context.allocator)
     if err != nil {
@@ -68,7 +67,7 @@ run_lsp :: proc() {
     defer io.flush(utils.debug_writer)
 
     reader_buf: [1024]byte
-    bufio.reader_init_with_buf(&lsp_state.reader, io.Reader(os.to_stream(os.stdin)), reader_buf[:])
+    bufio.reader_init_with_buf(&lsp_state.reader, input_reader, reader_buf[:])
 
     lsp_state.files_cache = utils.empty_files_cache(&lsp_state.lifetime_arena)
 
@@ -112,7 +111,7 @@ run_lsp :: proc() {
             panic("Unexpected exit message while running LSP")
         case Shutdown:
             utils.cleanup_files_cache(lsp_state.files_cache)
-            utils.cleanup_arena(&lsp_state.temp_arena, expect_empty = false, delete_blocks = true)
+            utils.cleanup_arena(&lsp_state.temp_arena, expect_empty = false, delete_blocks = false)
             utils.cleanup_arena(
                 &lsp_state.lifetime_arena,
                 expect_empty = false,
@@ -120,7 +119,10 @@ run_lsp :: proc() {
             )
             free_all(context.temp_allocator)
             send_response(ShutdownResponse{ResponseData{jsonrpc, m.id}, nil})
-            _ = receive_request().(Exit)
+            _, is_exit := receive_request().(Exit)
+            assert(is_exit)
+            utils.cleanup_arena(&lsp_state.temp_arena, expect_empty = false, delete_blocks = true)
+            fmt.wprintln(utils.debug_writer, "Finished LSP server")
             return
         case DidSaveTextDocumentNotification:
         case DidOpenTextDocumentNotification:

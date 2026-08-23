@@ -4693,8 +4693,12 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]utils.Pos
     if len(args) == 0 {
         return key
     }
-    if key > .MaxIndex {
-        out := Type.UInt
+    simplified := simplify_type(s, key)
+    if simplified.type > .MaxIndex {
+        out := simplified.type
+        if out != .Int && out != .UInt && out != .Float {
+            return .Any
+        }
         for k in args {
             #partial switch simplify_type(s, k).type {
             case .UInt:
@@ -4710,14 +4714,14 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]utils.Pos
         }
         return out
     }
-    switch type in simplify_type(s, key).key {
+    switch type in simplified.key {
     case SumType:
         variants := make(map[u32]Maybe(map[Type]utils.Pos))
         out, should_return := add_sum_type(s, &variants, type, pos).(Type)
         if should_return {
             return out
         }
-        for k in args {
+        for k, pos in args {
             sum_type, is_sum_type := simplify_type(s, k).key.(SumType)
             if !is_sum_type {
                 return .Any
@@ -4740,13 +4744,69 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]utils.Pos
         }
         return create_type(&s.types, sum_type).type
     case StructType:
-        panic("TODO")
+        fields := type.m
+        field_types := make([]map[Type]utils.Pos, len(fields.keys))
+        for type, i in utils.multi_to_array(type.types, len(type.m.keys)) {
+            field_types[i][type] = pos
+        }
+
+        for key, pos in args {
+            struct_type, is_struct_type := simplify_type(s, key).key.(StructType)
+            if !is_struct_type {
+                return .Any
+            }
+            if len(struct_type.m.keys) != len(fields.keys) {
+                return .Any
+            }
+            for field_key, i in fields.keys {
+                if field_key.key != struct_type.m.keys[i].key {
+                    return .Any
+                }
+                field_types[i][struct_type.types.d[i]] = pos
+            }
+        }
+
+        finalized_field_types := utils.arena_make_multi(s.a, utils.Multi(Type), len(fields.keys))
+        for &field_type, i in field_types {
+            finalized_field_types.d[i] = find_most_specific_supertype(s, &field_type)
+        }
+
+        return create_type(&s.types, StructType{fields, finalized_field_types}).type
     case FuncType:
-        panic("TODO")
+        // TODO: Implement a function like `find_most_general_subtype` for the function arguments
+        // TODO: Implement this branch
+        return .Any
     case ArrayType:
-        panic("TODO")
+        length: Maybe(u32) = type.length
+        item_types := make(map[Type]utils.Pos)
+        if type.length == nil || type.length.(u32) != 0 {
+            item_types[type.item_type] = pos
+        }
+
+        for key, pos in args {
+            array_type, is_array_type := simplify_type(s, key).key.(ArrayType)
+            if !is_array_type {
+                return .Any
+            }
+
+            if length != nil {
+                if array_type.length == nil || array_type.length.(u32) != length.(u32) {
+                    length = nil
+                }
+            }
+
+            if array_type.length == nil || array_type.length.(u32) != 0 {
+                item_types[array_type.item_type] = pos
+            }
+        }
+
+        out := create_type(
+            &s.types,
+            ArrayType{length, find_most_specific_supertype(s, &item_types)},
+        )
+        return out.type
     case OrderedHashMapTypeWithStringKey, OrderedHashMapTypeWithIntKey:
-        panic("TODO")
+        panic("TODO") // BEFORE MERGE TODO
     case GlobalType, GenericTypeValue:
         panic("Unreachable (should be handled by `simplify_type`)")
     case:

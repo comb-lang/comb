@@ -958,7 +958,12 @@ initialise_global_type_without_generic :: proc(
 }
 */
 
-simplify_type :: proc(s: ^CheckerState, type: Type, loc := #caller_location) -> Type {
+SimplifiedType :: struct {
+    type: Type,
+    key:  TypeKey,
+}
+
+simplify_type :: proc(s: ^CheckerState, type: Type, loc := #caller_location) -> SimplifiedType {
     utils.call(loc, "simplify_type", "")
     utils.print_arg("type", type)
     cur_type := type
@@ -969,12 +974,12 @@ simplify_type :: proc(s: ^CheckerState, type: Type, loc := #caller_location) -> 
             cur_type = got.value.type
             assert(cur_type != .Unknown)
         case nil:
-            return cur_type
+            return SimplifiedType{cur_type, nil}
         case:
             if got.value.type != .Unknown {
                 utils.panicf("got.value.type == %v", got.value.type)
             }
-            return cur_type
+            return SimplifiedType{cur_type, got.key}
         }
     }
 }
@@ -996,10 +1001,10 @@ get_sum_type :: proc(
     utils.print_arg("pos", pos)
     utils.print_arg("type", type)
     simplified := simplify_type(s, type)
-    sum_type, is_sum_type := get_type(s.types, simplified).key.(SumType)
+    sum_type, is_sum_type := simplified.key.(SumType)
     if is_sum_type {
         utils.debug("returned SumType(StructType) is %#v", sum_type)
-        return sum_type, simplified, true
+        return sum_type, simplified.type, true
     }
     if p, ok := pos.(utils.Pos); ok {
         utils.diagnostic(
@@ -1021,7 +1026,7 @@ get_struct_type :: proc(
     bool,
 ) {
     simplified := simplify_type(s, type)
-    struct_type, is_struct_type := get_type(s.types, simplified).key.(StructType)
+    struct_type, is_struct_type := simplified.key.(StructType)
     if is_struct_type {
         return struct_type, true
     }
@@ -1081,10 +1086,10 @@ get_func_type :: proc(
         )
     }
     */
-    if func, is_func := get_type(s.types, simplified).key.(FuncType); is_func {
+    if func, is_func := simplified.key.(FuncType); is_func {
         return func
     }
-    if simplified == .Unknown && value != nil {
+    if simplified.type == .Unknown && value != nil {
         // TODO: Also have this better error message for other functions:
         // - `get_struct_type`
         // - `get_sum_type`
@@ -1142,29 +1147,28 @@ type_is_subset :: proc(
     }
     type := simplify_type(s, type_unsimplified)
     superset := simplify_type(s, superset_unsimplified)
-    if type == superset {
+    if type.type == superset.type {
         return true
     }
-    if superset == .Any {
+    if superset.type == .Any {
         return true
     }
-    if superset == .Float {
-        return type == .Int || type == .UInt
+    if superset.type == .Float {
+        return type.type == .Int || type.type == .UInt
     }
-    if superset == .Int {
-        return type == .UInt
+    if superset.type == .Int {
+        return type.type == .UInt
     }
-    if superset > .MaxIndex {
+    if superset.type > .MaxIndex {
         return false
     }
-    superset_type := get_type(s.types, superset)
-    #partial switch superset_value in superset_type.key {
+    #partial switch superset_value in superset.key {
     case nil:
         panic("Unreachable")
     case:
         return false
     case ArrayType:
-        type_value, is_array_type := get_type(s.types, type).key.(ArrayType)
+        type_value, is_array_type := type.key.(ArrayType)
         if !is_array_type {
             return false
         }
@@ -1176,7 +1180,7 @@ type_is_subset :: proc(
         }
         return false
     case StructType:
-        type_value, is_struct_type := get_type(s.types, type).key.(StructType)
+        type_value, is_struct_type := type.key.(StructType)
         if !is_struct_type {
             return false
         }
@@ -1193,7 +1197,7 @@ type_is_subset :: proc(
         }
         return true
     case SumType:
-        type_value, is_sum_type := get_type(s.types, type).key.(SumType)
+        type_value, is_sum_type := type.key.(SumType)
         if !is_sum_type {
             return false
         }
@@ -1585,7 +1589,7 @@ get_array_type :: proc(
     bool,
 ) {
     type := simplify_type(s, type_unsimplified)
-    if out, is_array := get_type(s.types, type).key.(ArrayType); is_array {
+    if out, is_array := type.key.(ArrayType); is_array {
         return out, true
     }
     utils.diagnostic(
@@ -2009,7 +2013,7 @@ check_block :: proc(
                 if !runtime_value_ok(s, iter.pos, v.value) {
                     return nil, false
                 }
-                #partial switch t in get_type(s.types, simplify_type(s, v.type)).key {
+                #partial switch t in simplify_type(s, v.type).key {
                 case ArrayType:
                     array_item_type := t.item_type
                     if value.variables[2].text != "" {
@@ -2673,12 +2677,12 @@ check_var_ref :: proc(
         extra_segment := segments[i]
         if extra_segment.ident == "len" {
             simplified := simplify_type(s, out_type)
-            if simplified == .String {
+            if simplified.type == .String {
                 out_type = .UInt
                 out = LengthOfString{new_clone(out)}
                 continue
             }
-            #partial switch type in get_type(s.types, simplified).key {
+            #partial switch type in simplified.key {
             case ArrayType:
                 out_type = .UInt
                 out = length_of_array(type, out)
@@ -3021,7 +3025,7 @@ check_joined_unit_value :: proc(
             return CheckValueResult{nil, .Invalid}
         }
         val0_expected_type := Type.Invalid
-        #partial switch t in get_type(s.types, simplify_type(s, val1.type)).key {
+        #partial switch t in simplify_type(s, val1.type).key {
         case OrderedHashMapTypeWithIntKey:
             val0_expected_type = .Int
         case OrderedHashMapTypeWithStringKey:
@@ -3096,7 +3100,7 @@ check_joined_unit_value :: proc(
             return CheckValueResult{nil, .Invalid}
         }
         t_simplified := simplify_type(s, val0.type)
-        if t_simplified == .String {
+        if t_simplified.type == .String {
             str_comp: CheckedValue = StringsAreEqual{new_clone(val0.value), new_clone(val1)}
             if value.join_method == .IsNotEqual {
                 return CheckValueResult{create_not(str_comp), .Bool}
@@ -3650,7 +3654,7 @@ check_initial_value :: proc(
         if being_called.value == nil {
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
-        being_called.type = simplify_type(s, being_called.type)
+        being_called.type = simplify_type(s, being_called.type).type
         if being_called.type == .Unknown {
             checked_args := make([]Type, len(value.args))
             ok := true
@@ -3678,9 +3682,9 @@ check_initial_value :: proc(
                 }
                 key := simplify_type(s, checked_args[0])
                 type_key: TypeKey
-                if key == .String {
+                if key.type == .String {
                     type_key = OrderedHashMapTypeWithStringKey{checked_args[1]}
-                } else if key == .Int {
+                } else if key.type == .Int {
                     type_key = OrderedHashMapTypeWithIntKey{checked_args[1]}
                 } else {
                     utils.diagnostic(
@@ -3837,13 +3841,13 @@ check_initial_value :: proc(
             // still be able to use the dervation syntax to create an ordered
             // hashmap value, so maybe all this code is unnecersarry
             type := simplify_type(s, value_being_called.v.value.(CompileTimeValue).(Type))
-            type_value, ok := get_type(s.types, type).key.(OrderedHashMapTypeWithStringKey)
+            type_value, ok := type.key.(OrderedHashMapTypeWithStringKey)
             if !ok {
                 utils.diagnostic(
                     s.r,
                     value.unit_being_called.pos,
                     "Got the type `%s`\nExpected an ordered hash map with a string key type (TODO: Support ordered hash maps with i64 key) for hash map creation",
-                    type_to_string(s, type),
+                    type_to_string(s, type.type),
                 )
                 return utils.to_debug_value(CheckValueResult{nil, .Invalid})
             }
@@ -3927,23 +3931,23 @@ check_initial_value :: proc(
                 return utils.to_debug_value(
                     CheckValueResult {
                         CompileTimeOrderedHashMapInitialisation {
-                            type,
+                            type.type,
                             compile_time_items,
                             order[:],
                         },
-                        type,
+                        type.type,
                     },
                 )
             }
             return utils.to_debug_value(
                 CheckValueResult {
                     OrderedHashMapInitialisation {
-                        type,
+                        type.type,
                         compile_time_items,
                         runtime_items,
                         order[:],
                     },
-                    type,
+                    type.type,
                 },
             )
         }
@@ -4041,7 +4045,7 @@ check_derivation_subset :: proc(
         if type == .Invalid {
             return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
         }
-        array_type, is_array := get_type(s.types, simplify_type(s, type)).key.(ArrayType)
+        array_type, is_array := simplify_type(s, type).key.(ArrayType)
         if !is_array {
             utils.diagnostic(
                 s.r,
@@ -4064,7 +4068,7 @@ check_derivation_subset :: proc(
         utils.dynamic_append_elem(&subset, subset_elem)
         return subset, array_type.item_type
     }
-    #partial switch t in get_type(s.types, simplify_type(s, derivation_base_type)).key {
+    #partial switch t in simplify_type(s, derivation_base_type).key {
     case ArrayType:
         args: []Unit = ---
         unit_being_called: ^UnitWithPos = ---
@@ -4161,7 +4165,7 @@ check_derivation_subset :: proc(
         out_type := t.types.d[field_index.index]
         for i := 2; i < len(field.segments); i += 1 {
             field_name = field.segments[i]
-            struct_type, is_struct := get_type(s.types, simplify_type(s, out_type)).key.(StructType)
+            struct_type, is_struct := simplify_type(s, out_type).key.(StructType)
             if !is_struct {
                 utils.diagnostic(
                     s.r,
@@ -4692,7 +4696,7 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]utils.Pos
     if key > .MaxIndex {
         out := Type.UInt
         for k in args {
-            #partial switch simplify_type(s, k) {
+            #partial switch simplify_type(s, k).type {
             case .UInt:
             case .Int:
                 if out == .UInt {
@@ -4706,7 +4710,7 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]utils.Pos
         }
         return out
     }
-    switch type in get_type(s.types, key).key {
+    switch type in simplify_type(s, key).key {
     case SumType:
         variants := make(map[u32]Maybe(map[Type]utils.Pos))
         out, should_return := add_sum_type(s, &variants, type, pos).(Type)
@@ -4714,7 +4718,7 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]utils.Pos
             return out
         }
         for k in args {
-            sum_type, is_sum_type := get_type(s.types, k).key.(SumType)
+            sum_type, is_sum_type := simplify_type(s, k).key.(SumType)
             if !is_sum_type {
                 return .Any
             }
@@ -4739,14 +4743,12 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]utils.Pos
         panic("TODO")
     case FuncType:
         panic("TODO")
-    case GlobalType:
-        panic("TODO")
     case ArrayType:
         panic("TODO")
     case OrderedHashMapTypeWithStringKey, OrderedHashMapTypeWithIntKey:
         panic("TODO")
-    case GenericTypeValue:
-        panic("TODO")
+    case GlobalType, GenericTypeValue:
+        panic("Unreachable (should be handled by `simplify_type`)")
     case:
         panic("Unreachable")
     }

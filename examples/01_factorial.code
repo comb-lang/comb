@@ -1,9 +1,9 @@
-factorial = |n: UInt| -> UInt {
+factorial = fn (n: UInt) -> UInt {
     if n <= 1 {return 1}
     return n * factorial(expect_uint(n-1))
 }
 
-main = || -> Int {
+main = fn () -> Int {
     num = factorial(5)
     println(num.to_str)
     return 0

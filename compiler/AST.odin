@@ -67,7 +67,7 @@ UnitsInSquareBrackets :: struct {
 FuncDefinitionRef :: struct {
     // an index into:
     // - `ParserState.function_defs`
-    // - `ParsedProject.function_defs`
+    // - `ParserOutput.function_defs`
     index: uint,
 }
 

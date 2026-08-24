@@ -48,6 +48,7 @@ ElseToken :: struct {} // else
 ImportToken :: struct {} // import
 ReturnToken :: struct {} // return
 YieldToken :: struct {} // yield
+FnToken :: struct {} // fn
 LoopControlFlowKind :: enum {
     Continue,
     Break,
@@ -110,6 +111,7 @@ TokenContents :: union {
     ImportToken,
     ReturnToken,
     YieldToken,
+    FnToken,
     AndToken,
     OrToken,
     MatchToken,
@@ -211,6 +213,8 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
         fmt.wprint(fi.writer, "the keyword `return`")
     case YieldToken:
         fmt.wprint(fi.writer, "the keyword `yield`")
+    case FnToken:
+        fmt.wprint(fi.writer, "the keyword `fn`")
     case LoopControlFlowToken:
         switch value.kind {
         case .Continue:
@@ -258,9 +262,9 @@ is_close_square_bracket :: proc(t: TokenContents) -> bool {
     return is_close_square_bracket
 }
 
-is_close_angle_bracket :: proc(t: TokenContents) -> bool {
-    _, is_close_angle_bracket := t.(CloseAngleBracketToken)
-    return is_close_angle_bracket
+is_bar_token :: proc(t: TokenContents) -> bool {
+    _, is_bar_token := t.(BarToken)
+    return is_bar_token
 }
 
 TokenizerState :: struct {
@@ -311,12 +315,16 @@ wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
     for c in state.parser_context {
         io.write_string(w, "While parsing ")
         switch c.kind {
-        case .StructFieldType:
-            io.write_string(w, "the type of a struct field")
-        case .StructType:
-            io.write_string(w, "the type of a struct")
-        case .FuncDefinition:
-            io.write_string(w, "a function definition")
+        case .ValuesInCurlyBraces:
+            io.write_string(w, "values in `{}`")
+        case .ValuesInBrackets:
+            io.write_string(w, "values in `()`")
+        case .ValuesInSquareBrackets:
+            io.write_string(w, "values in `[]`")
+        case .ValuesInBars:
+            io.write_string(w, "values in `||`")
+        case .Block:
+            io.write_string(w, "a block")
         case:
             panic("Unreachable")
         }
@@ -388,7 +396,7 @@ get_next_token :: proc(
 ) {
     utils.call(loc, "get next token", "", enable_debug = utils.debug_tokenizer)
     defer {
-        utils.debug("last token set to %v", state.last_token)
+        utils.debug("last token set to %v at %v", state.last_token, state.last_token_pos)
     }
     utils.clear_dynamic(&state.last_token_descriptions_of_other_possible_tokens)
     if skip(state, utils.is_nothing_char).reached_end_of_file {
@@ -543,6 +551,8 @@ get_next_token :: proc(
             state.last_token = ReturnToken{}
         case "yield":
             state.last_token = YieldToken{}
+        case "fn":
+            state.last_token = FnToken{}
         case "continue":
             state.last_token = LoopControlFlowToken{.Continue}
         case "break":

@@ -2,14 +2,14 @@ u = import "std/utils.code"
 
 // Curried concat function
 // TODO: Infer function return type
-concat[T] = |a: T[]| -> (T[]) -> T[] {
-	return |b: T[]| -> T[] {
+concat[T] = fn (a: T[]) -> (T[]) -> T[] {
+	return fn (b: T[]) -> T[] {
 		return a ++ b
 	}
 }
 
 // TODO: Be able to convert arrays to strings automatically
-array_to_str = |a: Int[]| -> String {
+array_to_str = fn (a: Int[]) -> String {
 	re out$ = "["
 	// TODO: Cleanup syntax: `out$ = out$ & ...` => something like `out &= ...`
 	for elem, i in a {
@@ -22,7 +22,7 @@ array_to_str = |a: Int[]| -> String {
 	return out$
 }
 
-main = || -> Int {
+main = fn () -> Int {
 	my_concatanater = concat[Int]([1, 2, 3])
 	result1 = my_concatanater([4, 5])
 	result2 = my_concatanater([6, 7, 8, 9])

@@ -57,9 +57,11 @@ get_file_index :: proc(
 ParsingContext :: struct {
     pos:  utils.Pos,
     kind: enum {
-        StructFieldType,
-        StructType,
-        FuncDefinition,
+        ValuesInCurlyBraces,
+        Block,
+        ValuesInBars,
+        ValuesInBrackets,
+        ValuesInSquareBrackets,
     },
 }
 
@@ -220,14 +222,14 @@ maybe_parse_initial_unit :: proc(
             &s.last_token_descriptions_of_other_possible_tokens,
             "`true`",
             "`false`",
-            "`|` to create a lambda function value",
+            "`fn` to create a lambda function value",
             "`(` to create a tuple of values or types",
             "a digits token",
             "a string literal",
             "a character literal",
             "a marker token (# followed by one or more alphanumerics)",
             "a name",
-            "`<` to create a sum type",
+            "`|` to create a sum type",
             "`[` to create an array type",
             "`{` to create a struct type",
             "`re`",
@@ -295,6 +297,11 @@ maybe_parse_initial_unit :: proc(
         return UnitWithoutPos(Import{file_ref})
 
     case OpenBracketToken:
+        utils.append_dynamic(
+            &s.parser_context,
+            ParsingContext{s.last_token_pos, .ValuesInBrackets},
+        )
+        defer utils.pop_dynamic(&s.parser_context)
         elements, ok := parse_units_until(s, is_close_bracket, "`)` to end the tuple").([]Unit)
         if !ok {
             return Failure{}
@@ -311,6 +318,11 @@ maybe_parse_initial_unit :: proc(
     //     return Unit{type_pos, DynamicUnit(new_clone(type))}, other_possible_tokens, true
 
     case OpenBraceToken:
+        utils.append_dynamic(
+            &s.parser_context,
+            ParsingContext{s.last_token_pos, .ValuesInCurlyBraces},
+        )
+        defer utils.pop_dynamic(&s.parser_context)
         elements, ok := parse_units_until(s, is_close_brace, "`}` to end the struct").([]Unit)
         if !ok {
             return Failure{}
@@ -318,8 +330,10 @@ maybe_parse_initial_unit :: proc(
         get_next_token(s, true)
         return UnitWithoutPos(StructUnit{elements})
 
-    case OpenAngleBracketToken:
-        elems, elems_ok := parse_units_until(s, is_close_angle_bracket, "`>`").([]Unit)
+    case BarToken:
+        utils.append_dynamic(&s.parser_context, ParsingContext{s.last_token_pos, .ValuesInBars})
+        defer utils.pop_dynamic(&s.parser_context)
+        elems, elems_ok := parse_units_until(s, is_bar_token, "`|`").([]Unit)
         if !elems_ok {
             return Failure{}
         }
@@ -415,6 +429,11 @@ maybe_parse_initial_unit :: proc(
         */
 
     case OpenSquareBracketToken:
+        utils.append_dynamic(
+            &s.parser_context,
+            ParsingContext{s.last_token_pos, .ValuesInSquareBrackets},
+        )
+        defer utils.pop_dynamic(&s.parser_context)
         elems, elems_ok := parse_units_until(s, is_close_square_bracket, "`]`").([]Unit)
         if !elems_ok {
             return Failure{}
@@ -543,7 +562,7 @@ maybe_parse_initial_unit :: proc(
         get_next_token(s, true)
         return UnitWithoutPos(Char(token))
 
-    case BarToken:
+    case FnToken:
         func, ok := parse_function_def(s)
         if !ok {
             return Failure{}
@@ -1053,6 +1072,8 @@ parse_managed_variable :: proc(s: ^ParserState) -> (VariableDest, bool) {
 
 // Does not include the `{`
 parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
+    utils.append_dynamic(&s.parser_context, ParsingContext{s.last_token_pos, .Block})
+    defer utils.pop_dynamic(&s.parser_context)
     out := [dynamic]Statement{}
     get_next_token(s, true)
     for {
@@ -1399,8 +1420,17 @@ parse_variable_management_after_first_var :: proc(
 
 // The boolean returned is whether the function passed successfully
 parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
-    utils.append_dynamic(&s.parser_context, ParsingContext{s.last_token_pos, .FuncDefinition})
-    defer utils.pop_dynamic(&s.parser_context)
+    get_next_token(s, false)
+    _, is_open_bracket_token := s.last_token.(OpenBracketToken)
+    if !is_open_bracket_token {
+        utils.append_dynamic(
+            &s.last_token_descriptions_of_other_possible_tokens,
+            "`(` to specify the arguments to the function",
+        )
+        wrong_token_err(s)
+        return FunctionDefinition{}, false
+    }
+
     args := make(#soa[dynamic]FunctionArg)
     loop: for {
         arg: FunctionArg
@@ -1409,13 +1439,13 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
         utils.append_dynamic_elems(
             &s.last_token_descriptions_of_other_possible_tokens,
             "an identifier with one segment for the name of a normal function argument",
-            "`|`",
+            "`)`",
         )
         #partial switch token in s.last_token {
         case:
             wrong_token_err(s)
             return FunctionDefinition{}, false
-        case BarToken:
+        case CloseBracketToken:
             break loop
         case IdentToken:
             if len(token) != 1 {
@@ -1447,13 +1477,13 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
             utils.append_dynamic_elems(
                 &s.last_token_descriptions_of_other_possible_tokens,
                 "`,`",
-                "`|`",
+                "`)`",
             )
             wrong_token_err(s)
             return FunctionDefinition{}, false
         case CommaToken:
             continue
-        case BarToken:
+        case CloseBracketToken:
             break loop
         }
     }

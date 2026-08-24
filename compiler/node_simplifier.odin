@@ -53,13 +53,13 @@ create_joined_values :: proc(
         comptime0, val0_is_comptime := val0.(CompileTimeValue)
         comptime1, val1_is_comptime := val1.(CompileTimeValue)
         if val0_is_comptime && val1_is_comptime {
-            num0 := comptime0.(NumberValue)
-            num1 := comptime1.(NumberValue)
+            num0 := comptime0.(utils.NumberValue)
+            num1 := comptime1.(utils.NumberValue)
             if num0.fraction_part == "" && num1.fraction_part == "" {
                 n0 := utils.BigInt{num0.is_negated, num0.whole_part}
                 n1 := utils.BigInt{num1.is_negated, num1.whole_part}
                 ok :: proc(b: utils.BigInt) -> CheckedValue {
-                    return CompileTimeValue(NumberValue{b.is_negated, b.absolute_value, ""})
+                    return CompileTimeValue(utils.NumberValue{b.is_negated, b.absolute_value, ""})
                 }
                 #partial switch method {
                 case .Multiplication:
@@ -158,7 +158,7 @@ iterate_array :: proc(
     loop_enter := make([]CheckedStatement, 1)
     loop_enter[0] = CheckedAssignment {
         index_variable,
-        CompileTimeValue(NumberValue{false, utils.uint_zero, ""}),
+        CompileTimeValue(utils.NumberValue{false, utils.uint_zero, ""}),
     }
 
     if_block := make([]CheckedStatement, 1)
@@ -189,7 +189,7 @@ iterate_array :: proc(
         create_joined_values(
             .Addition,
             index_variable,
-            CompileTimeValue(NumberValue{false, utils.big_uint_from_u64(1), ""}),
+            CompileTimeValue(utils.NumberValue{false, utils.big_uint_from_u64(1), ""}),
         ),
     }
     return CheckedLoop {
@@ -255,7 +255,7 @@ iterate_ordered_hash_map :: proc(
     when ODIN_DEBUG {
         utils.call(loc, "iterate_ordered_hash_map", "")
     }
-    keys := KeysOfOrderedHashMapWithStringKey{new_clone(hash_map)} // TODO: Handle for Int keys
+    keys := KeysOfOrderedHashMap{new_clone(hash_map)}
     utils.dynamic_insert(
         body,
         CheckedAssignment {

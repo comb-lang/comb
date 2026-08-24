@@ -7,26 +7,22 @@ gigabyte = 1000 * megabyte
 
 Array[Elem] = E[] // `E` should be `Elem`
 
-empty[T] = || -> T[] {
-	return []
-}
-
-add = |a: Array[Int], b: Array[Int]| -> Array[Int] {
+add = fn (a: Array[Int], b: Array[Int]) -> Array[Int] {
 	u.assert(a.len == b.len)
-	re out$ = empty[Int]()
+	re out$ = u.empty_array[Int]()
 	for a_elem, i in a {
 		out$ = out$ :: a_elem + b[i]
 	}
 	return out$
 }
 
-invalid_func = || -> InvalidType {}
+invalid_func = fn () -> InvalidType {}
 
-uses_invalid_func = || {
+uses_invalid_func = fn () {
 	_ = invalid_func()
 }
 
-main = || -> Int {
+main = fn () -> Int {
 	u.assert(1000 * kilobyte == megabyte)
 	return 0
 }

@@ -1,13 +1,135 @@
 // TODO: Include these utils in some standard library
-// You should not have to define `assert` in every program you write that uses assert
-assert = |cond: Bool| {
+// TODO: Be able to iterate over the characters in a string like `for c in string { ... }`
+// You should not have to define these functions in every program you write that uses them
+
+assert = fn (cond: Bool) {
 	assert_with_message(cond, "Assert failed")
 }
 
-assert_with_message = |cond: Bool, message: String| {
+assert_with_message = fn (cond: Bool, message: String) {
 	if cond == false {
 		eprintln(message)
 		unreachable
+	}
+}
+
+negate = fn (a: Float) -> Float {
+	// TODO: Do not require 0
+	return 0 - a
+}
+
+pow = fn (a: Float, b$: UInt) -> Float {
+	re out$ = 1.0
+	while b$ > 0 {
+	    out$ = out$ * a
+		b$ = expect_uint(b$ - 1)
+	}
+	return out$
+}
+
+empty_map[T] = fn () -> T {
+	return OrderedHashMap()
+}
+
+empty_array[T] = fn () -> T[] {
+	return []
+}
+
+Result[O, E] = |
+	Ok: O,
+	Err: E,
+|
+
+map_ok[O, O2, E] = fn (r: Result[O, E], f: (O) -> O2) -> Result[O2, E] {
+	match r {
+		Ok: o {
+			return Ok: f(o)
+		}
+		Err: e {
+			return Err: e
+		}
+	}
+}
+
+split_first = fn (str: String, by: Char) -> {before: String, after: String} {
+	for i in 0..<str.len {
+		if str[i] == by {
+			return {before = str[0:i], after = str[i+1:str.len]}
+		}
+	}
+	return {before = str, after = ""}
+}
+
+// TODO: Maybe this could be defined like `Result[V, {}]` in the future
+Maybe[V] = |
+    Some: V,
+	:None,
+|
+
+// TODO: Be able to implement this better
+// - Be able to use `c - '0'`
+// - Be able to use `'0' <= c && c <= '9'`
+char_to_num = fn (c: Char) -> Maybe[UInt] {
+	if c == '0' { return Some: 0 }
+	if c == '1' { return Some: 1 }
+	if c == '2' { return Some: 2 }
+	if c == '3' { return Some: 3 }
+	if c == '4' { return Some: 4 }
+	if c == '5' { return Some: 5 }
+	if c == '6' { return Some: 6 }
+	if c == '7' { return Some: 7 }
+	if c == '8' { return Some: 8 }
+	if c == '9' { return Some: 9 }
+	return :None
+}
+
+string_to_uint = fn (str: String) -> Result[UInt, String] {
+	if str == "" {
+		return Err: "Empty string"
+	}
+	re out$ = 0
+	for i in 0..<str.len {
+		match char_to_num(str[i]) {
+			Some: digit {
+				out$ = out$ * 10
+				out$ = out$ + digit
+			}
+			:None {
+				return Err: "Unexpected non-digit character '" & str[i:i] & "'"
+			}
+		}
+	}
+	return Ok: out$
+}
+
+string_to_float = fn (str: String) -> Result[Float, String] {
+	if str == "" {
+		return Err: "Empty string"
+	}
+	if str[0] == '-' {
+		return map_ok[Float, Float, String](string_to_float(str[1:str.len]), negate)
+	}
+	if str[0] == '+' {
+		return string_to_float(str[1:str.len])
+	}
+	split = split_first(str, '.')
+	match string_to_uint(split.before) {
+		Err: e {
+			return Err: e
+		}
+		Ok: whole_part {
+			if split.after == "" {
+				return Ok: whole_part
+			}
+			match string_to_uint(split.after) {
+				Err: e {
+					return Err: e
+				}
+				Ok: fraction_part {
+					return Ok: whole_part + (fraction_part / pow(10, split.after.len))
+				}
+			} 
+		}
 	}
 }
 

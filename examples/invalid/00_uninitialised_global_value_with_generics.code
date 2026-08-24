@@ -1,14 +1,14 @@
-Result[Ok, Err] = <
+Result[Ok, Err] = |
   Ok: Ok,
   Err: Err,
->
+|
 
-debug[T] = |arg: T| -> T {
+debug[T] = fn (arg: T) -> T {
 	println(arg.to_str)
 	return arg
 }
 
-main = || -> Int {
+main = fn () -> Int {
   // TODO: Cleanup syntax
   result = debug[Int](debug[Int](42) * debug[Int](64))
 

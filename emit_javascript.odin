@@ -29,9 +29,7 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: compiler.CompileTimeV
     case compiler.CompileTimeOrderedHashMapInitialisation:
         strings.write_string(&s.b, "new Map()")
         for key in comptime.order {
-            strings.write_string(&s.b, ".set(\"")
-            strings.write_string(&s.b, key)
-            strings.write_string(&s.b, "\", ")
+            emit_hashmap_key(&s.b, key)
             emit_js_comptime_value(s, comptime.value[key])
             strings.write_byte(&s.b, ')')
         }
@@ -95,7 +93,7 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: compiler.CompileTimeV
         strings.write_byte(&s.b, '"')
     case compiler.BoolValue:
         strings.write_string(&s.b, comptime ? "true" : "false")
-    case compiler.NumberValue:
+    case utils.NumberValue:
         if comptime.is_negated {
             strings.write_byte(&s.b, '-')
         }
@@ -106,6 +104,21 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: compiler.CompileTimeV
         }
     }
 
+}
+
+emit_hashmap_key :: proc(b: ^strings.Builder, key: compiler.HashMapKey) {
+    strings.write_string(b, ".set(")
+    switch k in key {
+    case string:
+        strings.write_byte(b, '"')
+        strings.write_string(b, k)
+        strings.write_byte(b, '"')
+    case f64:
+        strings.write_f64(b, k, 'f')
+    case:
+        panic("Unreachable")
+    }
+    strings.write_string(b, ", ")
 }
 
 // TODO: Deduplicate code between `emit_js_runtime_value` and `emit_js_value` / `emit_js_comptime_value`
@@ -145,7 +158,6 @@ emit_js_runtime_value :: proc(b: ^strings.Builder, value: RuntimeValue) {
     case bool:
         strings.write_string(b, v ? "true" : "false")
     case compiler.CastFunction,
-         RuntimeIntOrderedHashMap,
          compiler.BuiltinFunction,
          SetHttpServerHandler,
          HttpServerListenAndServe:
@@ -158,12 +170,10 @@ emit_js_runtime_value :: proc(b: ^strings.Builder, value: RuntimeValue) {
             emit_js_runtime_value(b, v.payload^)
         }
         strings.write_byte(b, '}')
-    case RuntimeStringOrderedHashMap:
+    case RuntimeOrderedHashMap:
         strings.write_string(b, "new Map()")
         for key in v.order {
-            strings.write_string(b, ".set(\"")
-            strings.write_string(b, key)
-            strings.write_string(b, "\", ")
+            emit_hashmap_key(b, key)
             emit_js_runtime_value(b, v.hashmap[key])
             strings.write_byte(b, ')')
         }
@@ -279,9 +289,7 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
     case compiler.OrderedHashMapInitialisation:
         strings.write_string(&s.b, "new Map()")
         for key in v.order {
-            strings.write_string(&s.b, ".set(\"")
-            strings.write_string(&s.b, key)
-            strings.write_string(&s.b, "\", ")
+            emit_hashmap_key(&s.b, key)
             if key in v.compile_time_values {
                 emit_js_comptime_value(s, v.compile_time_values[key])
             } else {
@@ -306,9 +314,7 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
             strings.write_byte(&s.b, ',')
         }
         strings.write_byte(&s.b, ']')
-    case compiler.KeysOfOrderedHashMapWithStringKey:
-        emit_js_map_keys_func(s, v.hash_map^)
-    case compiler.KeysOfOrderedHashMapWithIntKey:
+    case compiler.KeysOfOrderedHashMap:
         emit_js_map_keys_func(s, v.hash_map^)
     case compiler.CheckedOrderedHashMapAccess:
         strings.write_string(&s.b, "Map.prototype.get.call(")
@@ -329,9 +335,7 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
     case compiler.LengthOfArray:
         emit_js_value(s, v.array^)
         strings.write_string(&s.b, ".length")
-    case compiler.LengthOfOrderedHashMapWithStringKey:
-        panic("TODO")
-    case compiler.LengthOfOrderedHashMapWithIntKey:
+    case compiler.LengthOfOrderedHashMap:
         panic("TODO")
     case compiler.CheckedIndexedAccess:
         emit_js_value(s, v.base^)
@@ -418,8 +422,7 @@ emit_js_global_type :: proc(s: ^GeneralEmitterState, index: int) {
     defer delete(name)
     switch t in s.types.m.keys[index].key {
     case compiler.GlobalType:
-    case compiler.OrderedHashMapTypeWithStringKey:
-    case compiler.OrderedHashMapTypeWithIntKey:
+    case compiler.OrderedHashMapType:
     case compiler.ArrayType:
     case compiler.FuncType:
     case compiler.GenericTypeValue:

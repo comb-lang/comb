@@ -29,11 +29,17 @@ ArrayType :: struct {
     item_type: Type,
 }
 
-OrderedHashMapTypeWithStringKey :: struct {
-    value_type: Type,
+HashMapKeyType :: enum u32 {
+    String  = u32(Type.String),
+    Int     = u32(Type.Int),
+    UInt    = u32(Type.UInt),
+    Float   = u32(Type.Float),
+    Unknown = u32(Type.Unknown),
+    Any     = u32(Type.Any),
 }
 
-OrderedHashMapTypeWithIntKey :: struct {
+OrderedHashMapType :: struct {
+    key_type:   HashMapKeyType,
     value_type: Type,
 }
 
@@ -136,16 +142,10 @@ LengthOfString :: struct {
 LengthOfArray :: struct {
     array: ^CheckedValue,
 }
-LengthOfOrderedHashMapWithStringKey :: struct {
+LengthOfOrderedHashMap :: struct {
     hash_map: ^CheckedValue,
 }
-LengthOfOrderedHashMapWithIntKey :: struct {
-    hash_map: ^CheckedValue,
-}
-KeysOfOrderedHashMapWithStringKey :: struct {
-    hash_map: ^CheckedValue,
-}
-KeysOfOrderedHashMapWithIntKey :: struct {
+KeysOfOrderedHashMap :: struct {
     hash_map: ^CheckedValue,
 }
 CheckedOrderedHashMapAccess :: struct {
@@ -174,11 +174,6 @@ StringsAreEqual :: struct {
     str0: ^CheckedValue,
     str1: ^CheckedValue,
 }
-NumberValue :: struct {
-    is_negated:    bool,
-    whole_part:    utils.BigUint,
-    fraction_part: string,
-}
 ImportedFile :: struct {
     file_index: uint,
 }
@@ -200,14 +195,14 @@ CastFunction :: struct {
 }
 CompileTimeOrderedHashMapInitialisation :: struct {
     type:  Type,
-    value: map[string]CompileTimeValue,
-    order: []string,
+    value: map[HashMapKey]CompileTimeValue,
+    order: []HashMapKey,
 }
 OrderedHashMapInitialisation :: struct {
     type:                Type,
-    compile_time_values: map[string]CompileTimeValue,
-    runtime_values:      map[string]CheckedValue,
-    order:               []string,
+    compile_time_values: map[HashMapKey]CompileTimeValue,
+    runtime_values:      map[HashMapKey]CheckedValue,
+    order:               []HashMapKey,
 }
 CompileTimeArray :: struct {
     type:     Type,
@@ -216,7 +211,7 @@ CompileTimeArray :: struct {
 CompileTimeValue :: union {
     CompileTimeArray,
     StringLiteralValue,
-    NumberValue,
+    utils.NumberValue,
     BoolValue,
     Type,
     GlobalValueWithGenericRef, // For an uninitialised global value with generics
@@ -249,10 +244,8 @@ CheckedValue :: union {
     // CheckedJsFunctionCall,
     LengthOfArray,
     LengthOfString,
-    LengthOfOrderedHashMapWithStringKey,
-    LengthOfOrderedHashMapWithIntKey,
-    KeysOfOrderedHashMapWithStringKey,
-    KeysOfOrderedHashMapWithIntKey,
+    LengthOfOrderedHashMap,
+    KeysOfOrderedHashMap,
     StringsAreEqual,
     ArrayLiteral,
     CheckedDerivation,
@@ -547,7 +540,7 @@ check_array_type :: proc(
             )
             return ArrayType{}, false
         }
-        number := compile_time_value.(NumberValue)
+        number := compile_time_value.(utils.NumberValue)
         assert(len(body.v) == 0)
         assert(number.fraction_part == "")
         length, ok := utils.big_uint_to_u32(number.whole_part)
@@ -1167,6 +1160,21 @@ type_is_subset :: proc(
         panic("Unreachable")
     case:
         return false
+    case OrderedHashMapType:
+        if type.type == .EmptyOrderedHashMap {
+            return true
+        }
+        type_value, is_ordered_hashmap_type := type.key.(OrderedHashMapType)
+        if !is_ordered_hashmap_type {
+            return false
+        }
+        if !type_is_subset(s, Type(type_value.key_type), Type(superset_value.key_type)) {
+            return false
+        }
+        if !type_is_subset(s, type_value.value_type, superset_value.value_type) {
+            return false
+        }
+        return true
     case ArrayType:
         type_value, is_array_type := type.key.(ArrayType)
         if !is_array_type {
@@ -1223,7 +1231,7 @@ type_is_subset :: proc(
     }
 }
 
-guess_number_type :: proc(n: NumberValue) -> Type {
+guess_number_type :: proc(n: utils.NumberValue) -> Type {
     // TODO: Check that `n` is in range
     if n.fraction_part != "" {
         return .Float
@@ -1438,6 +1446,8 @@ build_type_string :: proc(
         strings.write_string(b, "Invalid")
     case .Unknown:
         strings.write_string(b, "Unknown")
+    case .EmptyOrderedHashMap:
+        strings.write_string(b, "EmptyOrderedHashMap")
     case .ImportedFile:
         strings.write_string(b, "ImportedFile")
     case .Type:
@@ -1452,16 +1462,16 @@ build_type_string :: proc(
         case StructType:
             build_struct_string(types, globals_without_generic, globals_with_generic, b, tv)
         case SumType:
-            strings.write_byte(b, '<')
+            strings.write_byte(b, '|')
             first_variant := true
             for tag_variant_index, tag_payload in tv.payloads {
                 if !first_variant {
                     strings.write_string(b, ", ")
                 }
-                strings.write_byte(b, ':')
-                strings.write_string(b, types.sum_type_tags.keys[tag_variant_index].key)
+                tag_variant_name := types.sum_type_tags.keys[tag_variant_index].key
                 if payload, has_payload := tag_payload.(Type); has_payload {
-                    strings.write_byte(b, ' ')
+                    strings.write_string(b, tag_variant_name)
+                    strings.write_string(b, ": ")
                     build_type_string(
                         types,
                         globals_without_generic,
@@ -1469,10 +1479,13 @@ build_type_string :: proc(
                         b,
                         payload,
                     )
+                } else {
+                    strings.write_byte(b, ':')
+                    strings.write_string(b, tag_variant_name)
                 }
                 first_variant = false
             }
-            strings.write_byte(b, '>')
+            strings.write_byte(b, '|')
         case GenericTypeValue:
             strings.write_string(b, globals_with_generic[tv.global.index].name)
             strings.write_byte(b, '[')
@@ -1521,18 +1534,16 @@ build_type_string :: proc(
                 }
                 strings.write_byte(b, ')')
             }
-        case OrderedHashMapTypeWithIntKey:
-            strings.write_string(b, "OrderedHashMap[Int, ")
+        case OrderedHashMapType:
+            strings.write_string(b, "OrderedHashMap[")
             build_type_string(
                 types,
                 globals_without_generic,
                 globals_with_generic,
                 b,
-                tv.value_type,
+                Type(tv.key_type),
             )
-            strings.write_string(b, "]")
-        case OrderedHashMapTypeWithStringKey:
-            strings.write_string(b, "OrderedHashMap[String, ")
+            strings.write_string(b, ", ")
             build_type_string(
                 types,
                 globals_without_generic,
@@ -2059,10 +2070,10 @@ check_block :: proc(
                         ),
                     )
                     break outer
-                case OrderedHashMapTypeWithStringKey:
+                case OrderedHashMapType:
                     key, key_ok := add_variable(
                         s,
-                        .String,
+                        Type(t.key_type),
                         Ident{value.variables[0].text, value.variables[0].pos, false},
                     )
                     value_var, value_var_ok := add_variable(
@@ -2137,7 +2148,9 @@ check_block :: proc(
                 )
                 step: CheckedValue = ---
                 if iter.step == nil {
-                    step = CompileTimeValue(NumberValue{false, utils.big_uint_from_u64(1), ""})
+                    step = CompileTimeValue(
+                        utils.NumberValue{false, utils.big_uint_from_u64(1), ""},
+                    )
                 } else {
                     step = check_value_of_type(
                         s,
@@ -2546,9 +2559,6 @@ check_var_ref_start :: proc(
     if builtin := get_builtin(segments[0].ident); builtin.value != nil {
         return builtin.value, builtin.type, 1
     }
-    if segments[0].ident == "OrderedHashMap" {
-        return CompileTimeValue(UninitialisedOrderedHashMapType{}), .Unknown, 1
-    }
     /*
     if ref.segments[0].ident == "compiler" {
         compiler_funcs :: "`compiler.emit_js_code`"
@@ -2687,13 +2697,9 @@ check_var_ref :: proc(
                 out_type = .UInt
                 out = length_of_array(type, out)
                 continue
-            case OrderedHashMapTypeWithIntKey:
+            case OrderedHashMapType:
                 out_type = .UInt
-                out = LengthOfOrderedHashMapWithIntKey{new_clone(out)}
-                continue
-            case OrderedHashMapTypeWithStringKey:
-                out_type = .UInt
-                out = LengthOfOrderedHashMapWithStringKey{new_clone(out)}
+                out = LengthOfOrderedHashMap{new_clone(out)}
                 continue
             }
             utils.diagnostic(
@@ -3024,14 +3030,8 @@ check_joined_unit_value :: proc(
            !runtime_value_ok(s, value.unit1.pos, val1.value) {
             return CheckValueResult{nil, .Invalid}
         }
-        val0_expected_type := Type.Invalid
-        #partial switch t in simplify_type(s, val1.type).key {
-        case OrderedHashMapTypeWithIntKey:
-            val0_expected_type = .Int
-        case OrderedHashMapTypeWithStringKey:
-            val0_expected_type = .String
-        }
-        if val0_expected_type == .Invalid {
+        hash_map_type, is_hash_map_type := simplify_type(s, val1.type).key.(OrderedHashMapType)
+        if !is_hash_map_type {
             utils.diagnostic(
                 s.r,
                 value.unit1.pos,
@@ -3040,7 +3040,7 @@ check_joined_unit_value :: proc(
             )
             return CheckValueResult{nil, .Invalid}
         }
-        if !expect_exact_type(s, value.unit0.pos, val0_expected_type, val0.type, "") {
+        if !expect_exact_type(s, value.unit0.pos, Type(hash_map_type.key_type), val0.type, "") {
             return CheckValueResult{nil, .Invalid}
         }
         out: CheckedValue = CheckedJoinedValues{.In, new_clone(val0.value), new_clone(val1.value)}
@@ -3411,6 +3411,189 @@ check_tag_value :: proc(
     )
 }
 
+HashMapKey :: union {
+    string,
+    f64,
+}
+
+CheckedKeyValuePair :: struct {
+    key:      HashMapKey,
+    key_type: HashMapKeyType,
+    value:    CheckValueResult,
+}
+
+// Returns `nil` on failure
+check_key_value_pair :: proc(
+    s: ^CheckerState,
+    arg: Unit,
+    body: ^utils.DebugValue([dynamic]CheckedStatement),
+    generic_args: map[string]Type,
+) -> Maybe(CheckedKeyValuePair) {
+    // Check structure
+    if len(arg.extra_units) == 0 {
+        utils.diagnostic(
+            s.r,
+            arg.pos,
+            "Expected `key = value` so there needs to be a `= value` after this",
+            len(arg.extra_units),
+        )
+        return nil
+    }
+    if arg.extra_units[0].join_method != .Assign {
+        utils.diagnostic(
+            s.r,
+            arg.extra_units[0].join_method_pos,
+            "Expected `key = value`, so the first join method should be `=`\nGot join method `%v`",
+            arg.extra_units[0].join_method,
+        )
+        return nil
+    }
+
+    // Check key
+    key_body := utils.to_debug_value([dynamic]CheckedStatement{})
+    key_value := check_initial_value(
+        s,
+        arg.pos,
+        arg.first_unit,
+        CheckValueArgs{&key_body, generic_args, nil},
+    )
+    if key_value.v.value == nil {
+        return nil
+    }
+    key_comptime, is_comptime := key_value.v.value.(CompileTimeValue)
+    if !is_comptime {
+        utils.diagnostic(s.r, arg.pos, "Key must be comptile-time known value")
+        return nil
+    }
+    assert(len(key_body.v) == 0)
+    key: HashMapKey = nil
+    key_type := HashMapKeyType.Unknown
+    #partial switch simplify_type(s, key_value.v.type).type {
+    case .Int, .UInt, .Float:
+        number_value := key_comptime.(utils.NumberValue)
+        k, ok := utils.number_value_to_f64(number_value).(f64)
+        if !ok {
+            return nil
+        }
+        key = k
+        key_type = HashMapKeyType(guess_number_type(number_value))
+    case .String:
+        key = string(key_comptime.(StringLiteralValue))
+        key_type = .String
+    case:
+        utils.diagnostic(
+            s.r,
+            arg.pos,
+            "Expected the type `String`, `Int`, `UInt`, or `Float` for hash map key\nGot the type `%s`",
+            type_to_string(s, key_value.v.type),
+        )
+        return nil
+    }
+
+    // Check value
+    value := check_value(
+        s,
+        Unit{arg.extra_units[0].unit.pos, arg.extra_units[0].unit.unit, arg.extra_units[1:]},
+        CheckValueArgs{body, generic_args, nil},
+    )
+    if !runtime_value_ok(s, arg.extra_units[0].unit.pos, value.v.value) {
+        return nil
+    }
+    return CheckedKeyValuePair{key, key_type, value.v}
+}
+
+check_ordered_hashmap_initialisation :: proc(
+    s: ^CheckerState,
+    args: []Unit,
+    body: ^utils.DebugValue([dynamic]CheckedStatement),
+    generic_args: map[string]Type,
+) -> utils.DebugValue(CheckValueResult) {
+    if len(args) == 0 {
+        return utils.to_debug_value(
+            CheckValueResult {
+                CompileTimeValue(
+                    CompileTimeOrderedHashMapInitialisation{.EmptyOrderedHashMap, nil, nil},
+                ),
+                .EmptyOrderedHashMap,
+            },
+        )
+    }
+    // TODO: This function could expect 0 args, and you would
+    // still be able to use the dervation syntax to create an ordered
+    // hashmap value, so maybe all this code is unnecersarry
+    /*
+    type := simplify_type(s, value_being_called.v.value.(CompileTimeValue).(Type))
+    type_value, ok := type.key.(OrderedHashMapType)
+    if !ok {
+        utils.diagnostic(
+            s.r,
+            value.unit_being_called.pos,
+            "Got the type `%s`\nExpected an ordered hash map type for hash map creation",
+            type_to_string(s, type.type),
+        )
+        return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+    }
+    */
+    compile_time_items: map[HashMapKey]CompileTimeValue
+    runtime_items: map[HashMapKey]CheckedValue
+    order := make([dynamic]HashMapKey)
+    value_types: map[Type]utils.Pos
+    key_types: map[Type]utils.Pos
+    for arg in args {
+        pair, ok := check_key_value_pair(s, arg, body, generic_args).(CheckedKeyValuePair)
+        if !ok {
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+        value_types[pair.value.type] = arg.pos
+        key_types[Type(pair.key_type)] = arg.pos
+        if pair.key in compile_time_items || pair.key in runtime_items {
+            utils.diagnostic(
+                s.r,
+                arg.pos,
+                "The key `%v` is already specified in this map",
+                pair.key,
+            )
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+        if comptime, is_comptime := pair.value.value.(CompileTimeValue); is_comptime {
+            compile_time_items[pair.key] = comptime
+        } else {
+            runtime_items[pair.key] = pair.value.value
+        }
+        append_elem(&order, pair.key)
+    }
+    out_type := create_type(
+        &s.types,
+        OrderedHashMapType {
+            HashMapKeyType(find_most_specific_supertype(s, &key_types)),
+            find_most_specific_supertype(s, &value_types),
+        },
+    )
+    if len(runtime_items) == 0 {
+        return utils.to_debug_value(
+            CheckValueResult {
+                CompileTimeOrderedHashMapInitialisation {
+                    out_type.type,
+                    compile_time_items,
+                    order[:],
+                },
+                out_type.type,
+            },
+        )
+    }
+    return utils.to_debug_value(
+        CheckValueResult {
+            OrderedHashMapInitialisation {
+                out_type.type,
+                compile_time_items,
+                runtime_items,
+                order[:],
+            },
+            out_type.type,
+        },
+    )
+}
+
 check_initial_value :: proc(
     s: ^CheckerState,
     pos: utils.Pos,
@@ -3682,15 +3865,14 @@ check_initial_value :: proc(
                 }
                 key := simplify_type(s, checked_args[0])
                 type_key: TypeKey
-                if key.type == .String {
-                    type_key = OrderedHashMapTypeWithStringKey{checked_args[1]}
-                } else if key.type == .Int {
-                    type_key = OrderedHashMapTypeWithIntKey{checked_args[1]}
-                } else {
+                #partial switch key.type {
+                case .String, .Int, .UInt, .Float, .Any:
+                    type_key = OrderedHashMapType{HashMapKeyType(key.type), checked_args[1]}
+                case:
                     utils.diagnostic(
                         s.r,
                         pos,
-                        "The key of an `OrderedHashMap` must be a `String` or an `Int`\nGot the key `%s`\nTODO: Support `OrderedHashMap`s with keys other than `String`s and `Int`s",
+                        "The key of an `OrderedHashMap` must be either `String`, `Int`, `UInt`, `Float` or `Any`\nGot the key `%s`\nTODO: Support more `OrderedHashMap` keys",
                         type_to_string(s, checked_args[0]),
                     )
                     return utils.to_debug_value(CheckValueResult{nil, .Type})
@@ -3776,14 +3958,12 @@ check_initial_value :: proc(
                     index.end_index == nil ? t.item_type : being_called.type,
                 },
             )
-        case OrderedHashMapTypeWithIntKey:
-            panic("TODO")
-        case OrderedHashMapTypeWithStringKey:
+        case OrderedHashMapType:
             key_value := check_value_of_type(
                 s,
                 value.args[0],
                 CheckValueArgs{a.body, a.generic_args, nil},
-                .String,
+                Type(t.key_type),
             )
             if !runtime_value_ok(s, value.args[0].pos, key_value) {
                 return utils.to_debug_value(CheckValueResult{nil, .Invalid})
@@ -3836,120 +4016,12 @@ check_initial_value :: proc(
         if value_being_called.v.value == nil {
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
-        if value_being_called.v.type == .Type {
-            // TODO: This function could expect 0 args, and you would
-            // still be able to use the dervation syntax to create an ordered
-            // hashmap value, so maybe all this code is unnecersarry
-            type := simplify_type(s, value_being_called.v.value.(CompileTimeValue).(Type))
-            type_value, ok := type.key.(OrderedHashMapTypeWithStringKey)
-            if !ok {
-                utils.diagnostic(
-                    s.r,
-                    value.unit_being_called.pos,
-                    "Got the type `%s`\nExpected an ordered hash map with a string key type (TODO: Support ordered hash maps with i64 key) for hash map creation",
-                    type_to_string(s, type.type),
-                )
-                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        if comptime, is_comptime := value_being_called.v.value.(CompileTimeValue); is_comptime {
+            _, is_ordered_hash_map := comptime.(UninitialisedOrderedHashMapType)
+            if is_ordered_hash_map {
+                assert(value_being_called.v.type == .Unknown)
+                return check_ordered_hashmap_initialisation(s, value.args, a.body, a.generic_args)
             }
-            compile_time_items: map[string]CompileTimeValue
-            runtime_items: map[string]CheckedValue
-            order := make([dynamic]string)
-            for arg in value.args {
-                // Check structure
-                if len(arg.extra_units) == 0 {
-                    utils.diagnostic(
-                        s.r,
-                        arg.pos,
-                        "Expected `key = value` so there needs to be a `= value` after this",
-                        len(arg.extra_units),
-                    )
-                    return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-                }
-                if arg.extra_units[0].join_method != .Assign {
-                    utils.diagnostic(
-                        s.r,
-                        arg.extra_units[0].join_method_pos,
-                        "Expected `key = value`, so the first join method is `=`\nGot join method `%v`",
-                        arg.extra_units[0].join_method,
-                    )
-                    return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-                }
-
-                // Check key
-                body := utils.to_debug_value([dynamic]CheckedStatement{})
-                key_value := check_initial_value_of_type(
-                    s,
-                    UnitWithPos{arg.first_unit, arg.pos},
-                    CheckValueArgs{&body, a.generic_args, nil},
-                    .String,
-                )
-                if key_value == nil {
-                    return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-                }
-                key_comptime, is_comptime := key_value.(CompileTimeValue)
-                if !is_comptime {
-                    utils.diagnostic(s.r, arg.pos, "Key must be comptile-time known value")
-                    return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-                }
-                assert(len(body.v) == 0)
-                key := string(key_comptime.(StringLiteralValue))
-                if key in compile_time_items || key in runtime_items {
-                    utils.diagnostic(
-                        s.r,
-                        arg.pos,
-                        "The key `%s` is already specified in this map",
-                        key,
-                    )
-                    return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-                }
-
-                // Check value
-                value := check_value_of_type(
-                    s,
-                    Unit {
-                        arg.extra_units[0].unit.pos,
-                        arg.extra_units[0].unit.unit,
-                        arg.extra_units[1:],
-                    },
-                    CheckValueArgs{a.body, a.generic_args, nil},
-                    type_value.value_type,
-                )
-                if value == nil {
-                    return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-                }
-
-                // Insert
-                if value_comptime, value_is_comptime := value.(CompileTimeValue);
-                   value_is_comptime {
-                    compile_time_items[key] = value_comptime
-                } else {
-                    runtime_items[key] = value
-                }
-                append_elem(&order, key)
-            }
-            if len(runtime_items) == 0 {
-                return utils.to_debug_value(
-                    CheckValueResult {
-                        CompileTimeOrderedHashMapInitialisation {
-                            type.type,
-                            compile_time_items,
-                            order[:],
-                        },
-                        type.type,
-                    },
-                )
-            }
-            return utils.to_debug_value(
-                CheckValueResult {
-                    OrderedHashMapInitialisation {
-                        type.type,
-                        compile_time_items,
-                        runtime_items,
-                        order[:],
-                    },
-                    type.type,
-                },
-            )
         }
         call, call_ok := check_function_call(
             s,
@@ -3992,7 +4064,7 @@ check_initial_value :: proc(
         case:
             panic("Unreachable")
         }
-        n := NumberValue{value.is_negated, whole_part, fraction_part}
+        n := utils.NumberValue{value.is_negated, whole_part, fraction_part}
         return utils.to_debug_value(CheckValueResult{CompileTimeValue(n), guess_number_type(n)})
 
     case String:
@@ -4000,7 +4072,7 @@ check_initial_value :: proc(
         return utils.to_debug_value(CheckValueResult{out, .String})
 
     case Char:
-        out := CompileTimeValue(NumberValue{false, utils.big_uint_from_u64(u64(value)), ""})
+        out := CompileTimeValue(utils.NumberValue{false, utils.big_uint_from_u64(u64(value)), ""})
         return utils.to_debug_value(CheckValueResult{out, .Char})
     }
 }
@@ -4105,7 +4177,7 @@ check_derivation_subset :: proc(
             utils.dynamic_append_elem(&elems, subset_elem)
             return elems, t.item_type
         }
-    case OrderedHashMapTypeWithStringKey:
+    case OrderedHashMapType:
         unit_in_square_brackets, ok := unit.unit.(UnitsInSquareBrackets)
         if !ok {
             utils.diagnostic(
@@ -4129,7 +4201,7 @@ check_derivation_subset :: proc(
             s,
             unit_in_square_brackets.elements[0],
             CheckValueArgs{body, generic_args, nil},
-            .String,
+            Type(t.key_type),
         )
         if key == nil {
             return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
@@ -4576,7 +4648,7 @@ check_global_value_without_generic :: proc(
 
 length_of_array :: proc(type: ArrayType, value: CheckedValue) -> CheckedValue {
     if length, has_length := type.length.(u32); has_length {
-        return CompileTimeValue(NumberValue{false, utils.big_uint_from_u64(u64(length)), ""})
+        return CompileTimeValue(utils.NumberValue{false, utils.big_uint_from_u64(u64(length)), ""})
     }
     return LengthOfArray{new_clone(value)}
 }
@@ -4805,8 +4877,34 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]utils.Pos
             ArrayType{length, find_most_specific_supertype(s, &item_types)},
         )
         return out.type
-    case OrderedHashMapTypeWithStringKey, OrderedHashMapTypeWithIntKey:
-        panic("TODO") // BEFORE MERGE TODO
+    case OrderedHashMapType:
+        key_types: map[Type]utils.Pos
+        value_types: map[Type]utils.Pos
+
+        key_types[Type(type.key_type)] = pos
+        value_types[type.value_type] = pos
+
+        for key, pos in args {
+            simplified := simplify_type(s, key)
+            if simplified.type == .EmptyOrderedHashMap {
+                continue
+            }
+            ordered_hashmap_type, is_ordered_hash_map := simplified.key.(OrderedHashMapType)
+            if !is_ordered_hash_map {
+                return .Any
+            }
+            key_types[Type(ordered_hashmap_type.key_type)] = pos
+            value_types[ordered_hashmap_type.value_type] = pos
+        }
+
+        out := create_type(
+            &s.types,
+            OrderedHashMapType {
+                HashMapKeyType(find_most_specific_supertype(s, &key_types)),
+                find_most_specific_supertype(s, &value_types),
+            },
+        )
+        return out.type
     case GlobalType, GenericTypeValue:
         panic("Unreachable (should be handled by `simplify_type`)")
     case:

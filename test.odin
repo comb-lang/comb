@@ -475,13 +475,13 @@ example_08_result :: proc(t: ^testing.T) {
 }
 
 @(test)
-example_09_hashmap :: proc(t: ^testing.T) {
+example_09_ordered_hashmap_by_string :: proc(t: ^testing.T) {
     a: utils.Arena
     defer utils.cleanup_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
         &a,
-        FunctionRef{#directory + "examples/09_hashmap.code", "main"},
+        FunctionRef{#directory + "examples/09_ordered_hashmap_by_string.code", "main"},
         "add\nbanana\nadd\napple\nadd\nbanana\nremove\napple\nexit\n",
     )
     testing.expect(t, ran.exit_code == 0)
@@ -832,13 +832,13 @@ invalid_example_04_invalid_globals :: proc(t: ^testing.T) {
     utils.expect_string(&e, "Error compiling `" + path + "` (8:15)\n")
     utils.expect_string(&e, "The variable `E` is not defined in the file `" + path + "`\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + path + "` (14:26)\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (10:29)\n")
     utils.expect_string(&e, "Expected the type `Type` but got the type `Invalid`\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + path + "` (14:41)\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (10:44)\n")
     utils.expect_string(&e, "Expected the type `Type` but got the type `Invalid`\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + path + "` (23:22)\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (19:25)\n")
     utils.expect_string(
         &e,
         "The variable `InvalidType` is not defined in the file `" + path + "`\n",
@@ -965,6 +965,55 @@ lsp_test :: proc(t: ^testing.T) {
     // TODO: Check the output in `output_collector`
     output_collector := utils.make_builder(&a)
     lsp.run_lsp(utils.make_reader(&a, strings.to_string(b)), output_collector)
+}
+
+@(test)
+example_14_ordered_hashmap_by_number :: proc(t: ^testing.T) {
+    a: utils.Arena
+    defer utils.cleanup_arena(&a, expect_empty = false)
+    ran := interpret_example(
+        t,
+        &a,
+        FunctionRef{#directory + "examples/14_ordered_hashmap_by_number.code", "main"},
+        "1\n2.5\n15\n2.5\ninvalid\n4.5.\nexit\n",
+    )
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.compiler.stderr == "")
+    testing.expect(t, ran.program.stderr == "")
+    e := utils.TestingTextExpecter{0, ran.program.stdout, t}
+    utils.expect_string(&e, "No cache entries\n")
+    utils.expect_string(
+        &e,
+        "Enter a number to perform a cache lookup or `exit` to exit: 1.000: {doubled = 2.000, halved = 0.500}\n",
+    )
+    utils.expect_string(
+        &e,
+        "Enter a number to perform a cache lookup or `exit` to exit: 1.000: {doubled = 2.000, halved = 0.500}\n",
+    )
+    utils.expect_string(&e, "2.500: {doubled = 5.000, halved = 1.250}\n")
+    utils.expect_string(
+        &e,
+        "Enter a number to perform a cache lookup or `exit` to exit: 1.000: {doubled = 2.000, halved = 0.500}\n",
+    )
+    utils.expect_string(&e, "2.500: {doubled = 5.000, halved = 1.250}\n")
+    utils.expect_string(&e, "15.000: {doubled = 30.000, halved = 7.500}\n")
+    utils.expect_string(
+        &e,
+        "Enter a number to perform a cache lookup or `exit` to exit: Already in cache\n",
+    )
+    utils.expect_string(&e, "1.000: {doubled = 2.000, halved = 0.500}\n")
+    utils.expect_string(&e, "2.500: {doubled = 5.000, halved = 1.250}\n")
+    utils.expect_string(&e, "15.000: {doubled = 30.000, halved = 7.500}\n")
+    utils.expect_string(
+        &e,
+        "Enter a number to perform a cache lookup or `exit` to exit: Failed to convert to float: Unexpected non-digit character ''\n",
+    )
+    utils.expect_string(
+        &e,
+        "Enter a number to perform a cache lookup or `exit` to exit: Failed to convert to float: Unexpected non-digit character ''\n",
+    )
+    utils.expect_string(&e, "Enter a number to perform a cache lookup or `exit` to exit: ")
+    utils.expect_finished(&e)
 }
 
 // TODO: Add a fuzz test where the code that gets compiled never has any syntax errors

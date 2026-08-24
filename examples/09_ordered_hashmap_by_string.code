@@ -1,8 +1,10 @@
+u = import "std/utils.code"
+
 // TODO: Improve C emitter so that this also works when compiled via C
 
 Shopping = OrderedHashMap[String, UInt]
 
-view = |shopping: Shopping| {
+view = fn (shopping: Shopping) {
     re num_printed$ = 0
 	for item_name, item_quantity in shopping {
 	    if item_quantity > 0 {
@@ -15,14 +17,14 @@ view = |shopping: Shopping| {
 	}
 }
 
-main = || -> Int {
+main = fn () -> Int {
     println("Available commands:")
 	println("`exit` - exit")
 	println("`add` - add to shopping list")
 	println("`remove` - remove from shopping list")
 	save_cursor_pos()
 
-    re shopping$ = Shopping()
+    re shopping$ = u.empty_map[Shopping]()
     while true {
 		restore_cursor_pos()
 		clear_after_cursor()

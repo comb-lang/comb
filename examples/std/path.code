@@ -1,6 +1,6 @@
 // Removes extra slashes before and after a path
 // Replaces an empty path with `index`
-normalize_path = |p: String| -> String {
+normalize_path = fn (p: String) -> String {
     if p.len == 0 {
         return "index"
     }
@@ -13,7 +13,7 @@ normalize_path = |p: String| -> String {
     return p
 }
 
-dir = |p: String| -> String {
+dir = fn (p: String) -> String {
     re index$ = p.len - 1
     while index$ >= 0 {
         if p[index$] == '/' {

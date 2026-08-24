@@ -1,12 +1,13 @@
 h = import "std/html.code"
 http = import "std/http.code"
+u = import "std/utils.code"
 
 game_width = 15
 game_height = 15
 game_size = game_height * game_width
 main_title = "Conway's game of life"
 
-count_pixel_life = |s: Bool[game_width][game_height], x: Int, y: Int| -> UInt {
+count_pixel_life = fn (s: Bool[game_width][game_height], x: Int, y: Int) -> UInt {
 	if x < 0 or x >= game_width or y < 0 or y >= game_height {
 		return 0
 	}
@@ -16,7 +17,7 @@ count_pixel_life = |s: Bool[game_width][game_height], x: Int, y: Int| -> UInt {
 	return 0
 }
 
-run_tick = |s: Bool[game_width][game_height]| -> Bool[game_width][game_height] {
+run_tick = fn (s: Bool[game_width][game_height]) -> Bool[game_width][game_height] {
     f = false
 	r = [f, f, f, f, f, f, f, f, f, f, f, f, f, f, f]
     re new_state$ = [r, r, r, r, r, r, r, r, r, r, r, r, r, r, r]
@@ -43,12 +44,8 @@ run_tick = |s: Bool[game_width][game_height]| -> Bool[game_width][game_height] {
     return new_state$
 }
 
-empty[T] = || -> T[] {
-	return []
-}
-
-game_of_life = |s: Bool[game_width][game_height]| -> h.UI {
-    re grid_pixels$ = empty[h.HtmlElem]()
+game_of_life = fn (s: Bool[game_width][game_height]) -> h.UI {
+    re grid_pixels$ = u.empty_array[h.HtmlElem]()
     for row in s {
 		for pixel in row {
 	        if pixel {
@@ -66,14 +63,14 @@ game_of_life = |s: Bool[game_width][game_height]| -> h.UI {
 	ui_contents = [
         Button: {
 			children = [Text: "Run tick"],
-			onclick = || -> h.UI { return game_of_life(run_tick(s)) },
+			onclick = fn () -> h.UI { return game_of_life(run_tick(s)) },
 		},
         Div: {style = grid_style, children = grid_pixels$},
     ]
 	return {
 		page_title = main_title,
 		ui_contents = ui_contents,
-		on_key_down = |_: h.Key| -> h.UI { return game_of_life(s) },
+		on_key_down = fn (_: h.Key) -> h.UI { return game_of_life(s) },
 	}
 }
 
@@ -95,17 +92,17 @@ pulsar_initial_state = [
     [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],
 ]
 
-site = {pages = OrderedHashMap[String, () -> h.UI](
-	"/" = || -> h.UI { return game_of_life(pulsar_initial_state) },
+site = {pages = OrderedHashMap(
+	"/" = fn () -> h.UI { return game_of_life(pulsar_initial_state) },
 )}
 
-build = |c: Compiler| -> Int {
+build = fn (c: Compiler) -> Int {
 	h.build_reactive_site(c, site, "gitignore_conways_game_of_life")
     return 0
 }
 
 // TODO: Add unit test for this
-serve = |c: Compiler| -> Int {
+serve = fn (c: Compiler) -> Int {
 	server = http.get_http_server(c.cache, "server")
     h.serve_reactive_site(c, server, site)
 	return 0

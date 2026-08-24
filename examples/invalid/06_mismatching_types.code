@@ -3,11 +3,11 @@ Pos = {
   y: UInt,
 }
 
-other_pos = || -> Pos {
+other_pos = fn () -> Pos {
   return {x = 3, y = 1}
 }
 
-main = || -> Int {
+main = fn () -> Int {
   re pos$ = other_pos()
   pos$ = {x = 0, y = 0}
   pos$ = "hi"

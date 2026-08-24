@@ -1,0 +1,59 @@
+u = import "std/utils.code"
+
+CacheEntry = {
+	doubled: Float,
+	halved: Float,
+}
+
+calculate_cache_entry = fn (num: Float) -> CacheEntry {
+	return {doubled = num * 2, halved = num / 2}
+}
+
+Cache = OrderedHashMap[Float, CacheEntry]
+
+get_command = fn () -> |AddNumber: Float, :Exit| {
+	command = readline("Enter a number to perform a cache lookup or `exit` to exit: ")
+	if command == "exit" {
+		return :Exit
+	}
+	match u.string_to_float(command) {
+		Err: e {
+			println("Failed to convert to float: " & e)
+			return get_command()
+		}
+		Ok: num {
+			return AddNumber: num
+		}
+	}
+}
+
+view = fn (cache: Cache) {
+	re num_printed$ = 0
+	for number, cache_entry in cache {
+		println(number.to_str & ": {doubled = " & cache_entry.doubled.to_str & ", halved = " & cache_entry.halved.to_str & "}")
+		num_printed$ = num_printed$ + 1
+	}
+	if num_printed$ == 0 {
+		println("No cache entries")
+	}
+}
+
+main = fn () -> Int {
+    re cache$ = u.empty_map[Cache]()
+	while true {
+		view(cache$)
+		match get_command() {
+			:Exit {
+				return 0
+			}
+			AddNumber: num {
+				if num in cache$ {
+					println("Already in cache")
+				} else {
+					cache$ = cache$ ~ [num] = calculate_cache_entry(num)
+				}
+			}
+		}
+	}
+	return 0
+}

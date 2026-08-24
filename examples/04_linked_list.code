@@ -1,13 +1,15 @@
-LinkedList[T] = <
+u = import "std/utils.code"
+
+LinkedList[T] = |
     :Empty,
     NotEmpty: {head: T, tail: LinkedList[T]},
->
+|
 
-insert[T] = |list: LinkedList[T], number: T| -> LinkedList[T] {
+insert[T] = fn (list: LinkedList[T], number: T) -> LinkedList[T] {
     return NotEmpty: {head = number, tail = list}
 }
 
-reverse[T] = |list: LinkedList[T], end: LinkedList[T]| -> LinkedList[T] {
+reverse[T] = fn (list: LinkedList[T], end: LinkedList[T]) -> LinkedList[T] {
     match list {
         :Empty {
             return end
@@ -18,12 +20,8 @@ reverse[T] = |list: LinkedList[T], end: LinkedList[T]| -> LinkedList[T] {
     }
 }
 
-empty[T] = || -> T[] {
-    return []
-}
-
-to_array[T] = |list: LinkedList[T]| -> T[] {
-    re array$ = empty[T]()
+to_array[T] = fn (list: LinkedList[T]) -> T[] {
+    re array$ = u.empty_array[T]()
     re l$ = list
     while true {
         match l$ {
@@ -38,7 +36,7 @@ to_array[T] = |list: LinkedList[T]| -> T[] {
     }
 }
 
-foreach[T] = |list: LinkedList[T], func: (T) -> ()| {
+foreach[T] = fn (list: LinkedList[T], func: (T) -> ()) {
     re l$ = list
     while true {
         match l$ {
@@ -53,15 +51,15 @@ foreach[T] = |list: LinkedList[T], func: (T) -> ()| {
     }
 }
 
-empty_list[T] = || -> LinkedList[T] {
+empty_list[T] = fn () -> LinkedList[T] {
     return :Empty
 }
 
-debug_number = |number: Int| {
+debug_number = fn (number: Int) {
     println(number.to_str)
 }
 
-main = || -> Int {
+main = fn () -> Int {
     // TODO: Support pipe
     // l =
 	//     .Empty

@@ -1,6 +1,6 @@
 u = import "../std/utils.code"
 
-main = || -> Int {
+main = fn () -> Int {
 	// Reassignable declared first
 	re hello$ = "hello1"
 	u.assert(hello$ == "hello1")

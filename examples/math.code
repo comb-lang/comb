@@ -1,15 +1,15 @@
 // `dynamic` means that the compiler does not know the maximum size of part of a type
 // this means that the type cannot be stored on the CMS alone
-MathToken : <
-	Plus{pos: U64},
-	Minus{pos: U64},
-	Multiply{pos: U64},
-	Divide{pos: U64},
-	OpenBracket{pos: U64},
-	CloseBracket{pos: U64},
-	Integer{pos: U64, value: Int},
-	Float{pos: U64, value: Float},
-	Error{pos: U64, msg: String},
+MathToken = <
+	Plus: {pos: U64},
+	Minus: {pos: U64},
+	Multiply: {pos: U64},
+	Divide: {pos: U64},
+	OpenBracket: {pos: U64},
+	CloseBracket: {pos: U64},
+	Integer: {pos: U64, value: Int},
+	Float: {pos: U64, value: Float},
+	Error: {pos: U64, msg: String},
 >
 
 get_next_token = |math: String, ~pos: U64| -> MathToken {
@@ -42,18 +42,18 @@ get_next_token = |math: String, ~pos: U64| -> MathToken {
 	}
 }
 
-ParsedMathElem : <
-    Addition,
-	Subtraction,
-	Multiplication,
-	Division,
-	Negation,
-	Integer{value: Int},
-	Float{value: Float},
-	Empty,
+ParsedMathElem = <
+    :Addition,
+	:Subtraction,
+	:Multiplication,
+	:Division,
+	:Negation,
+	Integer: Int,
+	Float: Float,
+	:Empty,
 >
 
-ParsedMath : []ParsedMathElem
+ParsedMath = ParsedMathElem[]
 
 //parse_math = |math: String, ~pos: U64| -> +ParsedMath {
 //	+token = get_next_token(math, ~pos)

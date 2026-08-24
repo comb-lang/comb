@@ -1,20 +1,20 @@
 // TODO: Implement the result type in standard library
-Result[Ok, Err] = <
+Result[Ok, Err] = |
   Ok: Ok,
   Err: Err,
->
+|
 
-Animal = <
+Animal = |
   :Cat,
   :Dog,
   :Horse,
   :Tiger,
   :Rabbit,
->
+|
 
 // TODO: Be able to automatically generate serialisation and deserialisation functions
 
-str_to_animal = |name: String| -> Result[Animal, String] {
+str_to_animal = fn (name: String) -> Result[Animal, String] {
 	if name == "cat" {
 		return Ok: :Cat
 	} else if name == "dog" {
@@ -30,7 +30,7 @@ str_to_animal = |name: String| -> Result[Animal, String] {
 	}
 }
 
-animal_to_str = |animal: Animal| -> String {
+animal_to_str = fn (animal: Animal) -> String {
 	match animal {
 		:Cat {
 			return "cat"
@@ -50,7 +50,7 @@ animal_to_str = |animal: Animal| -> String {
 	}
 }
 
-main = || -> Int {
+main = fn () -> Int {
     name = readline("Enter the name of an animal: ")
 	match str_to_animal(name) {
 	    Ok: animal {

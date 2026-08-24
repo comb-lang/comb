@@ -87,7 +87,8 @@ Type :: enum u32 {
     Bool = max(u32) - 9,
     Invalid = max(u32) - 10,
     Unknown = max(u32) - 11, // TODO: Ideally `unknown_type` would not be necersarry
-    MaxIndex = max(u32) - 12,
+    EmptyOrderedHashMap = max(u32) - 12,
+    MaxIndex = max(u32) - 13,
 }
 
 response_type_variant_index_to_content_type :: proc(variant_index: u32) -> string {
@@ -122,8 +123,7 @@ get_hash_of_array_of_types :: proc(arr: []Type) -> u32 {
 
 TypeKey :: union {
     ArrayType,
-    OrderedHashMapTypeWithStringKey,
-    OrderedHashMapTypeWithIntKey,
+    OrderedHashMapType,
     FuncType,
     SumType,
     StructType,
@@ -213,9 +213,7 @@ create_types :: proc(a: ^utils.Arena) -> Types {
         .StringToString ==
         create_type(&out, FuncType{array_with_string_type, array_with_string_type}).type,
     )
-    assert(
-        .StringAnyOrderedHashmap == create_type(&out, OrderedHashMapTypeWithStringKey{.Any}).type,
-    )
+    assert(.StringAnyOrderedHashmap == create_type(&out, OrderedHashMapType{.String, .Any}).type)
     assert(.NoArgsToNil == create_type(&out, FuncType{nil, nil}).type)
     assert(
         .ArrayOfStringsToNil ==
@@ -409,10 +407,8 @@ hash_type_value :: proc(value: TypeKey) -> u32 {
     case ArrayType:
         length := v.length == nil ? max(u32) : v.length.(u32)
         return length ~ u32(v.item_type)
-    case OrderedHashMapTypeWithStringKey:
-        return u32(v.value_type) + 1
-    case OrderedHashMapTypeWithIntKey:
-        return u32(v.value_type) + 2
+    case OrderedHashMapType:
+        return u32(v.value_type) + u32(v.key_type)
     case SumType:
         return hash_sum_type(v)
     case StructType:
@@ -463,12 +459,9 @@ hash_func_type :: proc(value: FuncType) -> u32 {
 
 type_key_is_equal :: proc(a: TypeKey, b: TypeKey) -> bool {
     switch va in a {
-    case OrderedHashMapTypeWithStringKey:
-        vb, ok := b.(OrderedHashMapTypeWithStringKey)
-        return ok && va.value_type == vb.value_type
-    case OrderedHashMapTypeWithIntKey:
-        vb, ok := b.(OrderedHashMapTypeWithIntKey)
-        return ok && va.value_type == vb.value_type
+    case OrderedHashMapType:
+        vb, ok := b.(OrderedHashMapType)
+        return ok && va.key_type == vb.key_type && va.value_type == vb.value_type
     case ArrayType:
         vb, ok := b.(ArrayType)
         return ok && va.length == vb.length && va.item_type == vb.item_type

@@ -8,7 +8,9 @@ package utils
 // - Implement binary shifts
 // - Free memory correctly
 
+import "core:math"
 import "core:slice"
+import "core:strconv"
 
 BigUint :: struct {
     // The further on in the array the chunk index is, the bigger the chunk is
@@ -21,8 +23,36 @@ BigInt :: struct {
     absolute_value: BigUint,
 }
 
+NumberValue :: struct {
+    is_negated:    bool,
+    whole_part:    BigUint,
+    fraction_part: string,
+}
+
 uint_zero :: BigUint{nil}
 int_zero :: BigInt{false, uint_zero}
+
+number_value_to_f64 :: proc(num: NumberValue) -> Maybe(f64) {
+    whole_part_as_u64, ok := big_uint_to_u64(num.whole_part)
+    if !ok {
+        return nil
+    }
+
+    fraction_part_as_int := 0
+    if num.fraction_part != "" {
+        fraction_part_as_int, ok = strconv.parse_int(num.fraction_part)
+        if !ok {
+            return nil
+        }
+    }
+
+    absolute_f64 := f64(whole_part_as_u64)
+    if fraction_part_as_int != 0 {
+        absolute_f64 += f64(fraction_part_as_int) / math.pow10(f64(len(num.fraction_part)))
+    }
+
+    return num.is_negated ? -absolute_f64 : absolute_f64
+}
 
 big_uint_from_u64 :: proc(num: u64) -> BigUint {
     if num == 0 {

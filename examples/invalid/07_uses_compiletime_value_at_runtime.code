@@ -1,4 +1,4 @@
-main = || -> Int {
+main = fn () -> Int {
     println(String + 5)
     return 0
 }

@@ -107,7 +107,7 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.CompileTimeValu
         // TODO: Handle comptime.lambda_args
         strings.write_string(&s.b, "func")
         strings.write_uint(&s.b, comptime.ref.index)
-    case compiler.NumberValue:
+    case utils.NumberValue:
         if comptime.is_negated {
             strings.write_byte(&s.b, '-')
         }
@@ -164,9 +164,7 @@ emit_c_value :: proc(s: ^CEmitterState, v: compiler.CheckedValue) {
         panic("TODO: Handle array literal in C emitter")
     case compiler.CheckedDerivation:
         panic("TODO: Handle checked derivation in C emitter")
-    case compiler.CheckedOrderedHashMapAccess,
-         compiler.KeysOfOrderedHashMapWithStringKey,
-         compiler.KeysOfOrderedHashMapWithIntKey:
+    case compiler.CheckedOrderedHashMapAccess, compiler.KeysOfOrderedHashMap:
         panic("TODO")
     case compiler.CompileTimeValue:
         emit_c_comptime_value(s, value)
@@ -195,9 +193,7 @@ emit_c_value :: proc(s: ^CEmitterState, v: compiler.CheckedValue) {
     case compiler.LengthOfArray:
         emit_c_value(s, value.array^)
         strings.write_string(&s.b, ".length")
-    case compiler.LengthOfOrderedHashMapWithStringKey:
-        panic("TODO")
-    case compiler.LengthOfOrderedHashMapWithIntKey:
+    case compiler.LengthOfOrderedHashMap:
         panic("TODO")
     case compiler.CheckedIndexedAccess:
         if value.base_type == .String {
@@ -493,24 +489,11 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
             strings.write_string(&s.other_type_definitions, "* elems;};")
         }
         emit_forward_struct_definition(s, name)
-    case compiler.OrderedHashMapTypeWithStringKey:
+    case compiler.OrderedHashMapType:
         emit_forward_struct_definition(s, name)
         strings.write_string(&s.other_type_definitions, "typedef struct ")
         strings.write_string(&s.other_type_definitions, name)
-        strings.write_string(
-            &s.other_type_definitions,
-            "Struct {/* TODO: Ordered hash map with String key */}",
-        )
-        strings.write_string(&s.other_type_definitions, name)
-        strings.write_byte(&s.other_type_definitions, ';')
-    case compiler.OrderedHashMapTypeWithIntKey:
-        emit_forward_struct_definition(s, name)
-        strings.write_string(&s.other_type_definitions, "typedef struct ")
-        strings.write_string(&s.other_type_definitions, name)
-        strings.write_string(
-            &s.other_type_definitions,
-            "Struct {/* TODO: Ordered hash map with Int key */}",
-        )
+        strings.write_string(&s.other_type_definitions, "Struct {/* TODO: Ordered hash map */}")
         strings.write_string(&s.other_type_definitions, name)
         strings.write_byte(&s.other_type_definitions, ';')
     case compiler.FuncType:

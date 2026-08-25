@@ -1086,8 +1086,7 @@ get_func_type :: proc(
         // TODO: Also have this better error message for other functions:
         // - `get_struct_type`
         // - `get_sum_type`
-        // - `expect_value_of_type`
-        // - `expect_exact_type`
+        // - `expect_type`
         global_value_with_generic_ref, ok := value.(CompileTimeValue).(GlobalValueWithGenericRef)
         if ok {
             global_value_with_generic :=
@@ -1343,7 +1342,7 @@ expect_value_of_type :: proc(
 }
 */
 
-expect_exact_type :: proc(
+expect_type :: proc(
     s: ^CheckerState,
     pos: utils.Pos,
     expected: Type,
@@ -1351,7 +1350,7 @@ expect_exact_type :: proc(
     extra_text: string,
     loc := #caller_location,
 ) -> bool {
-    utils.call(loc, "expect_exact_type", "")
+    utils.call(loc, "expect_type", "")
     if !type_is_subset(s, got, expected) {
         utils.diagnostic(
             s.r,
@@ -2962,7 +2961,7 @@ check_value_with_markers :: proc(
         if value.value == nil {
             return CheckValueResult{nil, .Invalid}
         }
-        if !expect_exact_type(s, v.pos, .String, value.type, "") {
+        if !expect_type(s, v.pos, .String, value.type, "") {
             return CheckValueResult{nil, .Invalid}
         }
         comptime_value, is_comptime := value.value.(CompileTimeValue)
@@ -3039,7 +3038,7 @@ check_joined_unit_value :: proc(
             )
             return CheckValueResult{nil, .Invalid}
         }
-        if !expect_exact_type(s, value.unit0.pos, Type(hash_map_type.key_type), val0.type, "") {
+        if !expect_type(s, value.unit0.pos, Type(hash_map_type.key_type), val0.type, "") {
             return CheckValueResult{nil, .Invalid}
         }
         out: CheckedValue = CheckedJoinedValues{.In, new_clone(val0.value), new_clone(val1.value)}
@@ -4337,7 +4336,7 @@ check_initial_value_of_type :: proc(
     if r.v.value == nil {
         return nil
     }
-    if expect_exact_type(s, v.pos, expected_type, r.v.type, "") {
+    if expect_type(s, v.pos, expected_type, r.v.type, "") {
         return r.v.value
     }
     return nil
@@ -4357,7 +4356,7 @@ check_value_of_type :: proc(
     if r.v.value == nil {
         return nil
     }
-    if expect_exact_type(s, v.pos, expected_type, r.v.type, "") {
+    if expect_type(s, v.pos, expected_type, r.v.type, "") {
         return r.v.value
     }
     return nil

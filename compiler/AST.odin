@@ -115,7 +115,6 @@ UnitWithoutPos :: union #no_nil {
     FuncDefinitionRef,
     CallWithBrackets,
     CallWithSquareBrackets,
-    HierarchyJoinedUnits,
     IdentNode,
     Number,
     String,
@@ -139,25 +138,26 @@ Unit :: struct {
 
 ExtraUnit :: struct {
     join_method_pos: utils.Pos,
-    join_method:     LeftToRightUnitJoinMethod,
+    join_method:     UnitJoinMethod,
     unit:            UnitWithPos,
 }
 
 // TODO: Maybe all unit join methods should be left to right?
 
-LeftToRightUnitJoinMethod :: enum {
+// Operations with higher prioraty (prioraty 5 is the highest prioraty) are executed first
+// See https://en.wikipedia.org/wiki/Order_of_operations#Programming_languages
+UnitJoinMethod :: enum {
+    // Prioraty 0
     Assign, // =
     Tilde, // ~
     PipeEquals, // |=
     Colon, // Used for array indexing (for example `my_array[start_index:end_index]`)
-}
 
-HierarchyUnitJoinMethod :: enum {
-    // Prioraty 0
+    // Prioraty 1
     BooleanAnd,
     BooleanOr,
 
-    // Prioraty 1
+    // Prioraty 2
     IsEqual,
     IsNotEqual,
     IsGreaterThan,
@@ -165,54 +165,26 @@ HierarchyUnitJoinMethod :: enum {
     IsGreaterThanOrEqual,
     IsLessThanOrEqual,
 
-    // Prioraty 2
+    // Prioraty 3
     In,
 
-    // Prioraty 3
+    // Prioraty 4
     Append, // ::
     Concat, // ++
     StringConcat, // &
     Arrow, // Used for function types (for example `(String) -> U64`)
 
-    // Prioraty 4
+    // Prioraty 5
     Addition,
     Subtraction,
     Modulo,
 
-    // Prioraty 5
+    // Prioraty 6
     Multiplication,
     Division,
-}
 
-// Operations with higher prioraty (prioraty 5 is the highest prioraty) are executed first
-// See https://en.wikipedia.org/wiki/Order_of_operations#Programming_languages
-get_prioraty :: proc(join_method: HierarchyUnitJoinMethod) -> uint {
-    switch join_method {
-    case .BooleanAnd, .BooleanOr:
-        return 0
-    case .IsEqual,
-         .IsNotEqual,
-         .IsGreaterThan,
-         .IsLessThan,
-         .IsGreaterThanOrEqual,
-         .IsLessThanOrEqual:
-        return 1
-    case .In:
-        return 2
-    case .Append, .Concat, .StringConcat, .Arrow:
-        return 3
-    case .Subtraction, .Addition, .Modulo:
-        return 4
-    case .Division, .Multiplication:
-        return 5
-    }
-    panic("Unreachable")
-}
-
-HierarchyJoinedUnits :: struct {
-    join_method: HierarchyUnitJoinMethod,
-    unit0:       ^Unit,
-    unit1:       ^Unit,
+    // Prioraty 7
+    Dot,
 }
 
 Call :: struct {
@@ -324,7 +296,7 @@ FunctionArg :: struct {
 
 FunctionDefinition :: struct {
     inputs: #soa[]FunctionArg,
-    output: ^Unit, // if the function has no output, then `output` is `nil`
+    output: Maybe(Unit), // if the function has no output, then `output` is `nil`
     body:   []Statement,
 }
 

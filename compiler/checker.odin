@@ -122,8 +122,25 @@ StringLiteralValue :: distinct string
 CharValue :: distinct u8
 IntValue :: distinct i64
 BooleanNotValue :: distinct ^CheckedValue
+CheckedJoinMethod :: enum {
+    BooleanAnd           = int(UnitJoinMethod.BooleanAnd),
+    BooleanOr            = int(UnitJoinMethod.BooleanOr),
+    IsEqual              = int(UnitJoinMethod.IsEqual),
+    IsNotEqual           = int(UnitJoinMethod.IsNotEqual),
+    IsGreaterThan        = int(UnitJoinMethod.IsGreaterThan),
+    IsLessThan           = int(UnitJoinMethod.IsLessThan),
+    IsGreaterThanOrEqual = int(UnitJoinMethod.IsGreaterThanOrEqual),
+    IsLessThanOrEqual    = int(UnitJoinMethod.IsLessThanOrEqual),
+    In                   = int(UnitJoinMethod.In),
+    StringConcat         = int(UnitJoinMethod.StringConcat), // &
+    Addition             = int(UnitJoinMethod.Addition),
+    Subtraction          = int(UnitJoinMethod.Subtraction),
+    Modulo               = int(UnitJoinMethod.Modulo),
+    Multiplication       = int(UnitJoinMethod.Multiplication),
+    Division             = int(UnitJoinMethod.Division),
+}
 CheckedJoinedValues :: struct {
-    join_method: HierarchyUnitJoinMethod,
+    join_method: CheckedJoinMethod,
     val0:        ^CheckedValue,
     val1:        ^CheckedValue,
 }
@@ -467,12 +484,27 @@ check_struct_type :: proc(
 check_function_type :: proc(
     s: ^CheckerState,
     inputs: []Unit,
-    output: ^Unit, // if the function has no output, then `output` is `nil`
+    output: Maybe(Unit), // if the function has no output, then `output` is `nil`
     generic_args: map[string]Type,
 ) -> (
     FuncType,
     bool,
 ) {
+    get_outputs :: proc(output: Maybe(Unit)) -> []Unit {
+        if output == nil {
+            return nil
+        }
+        o := output.(Unit)
+        if len(o.extra_units) == 0 {
+            if tuple, is_tuple := o.first_unit.(Tuple); is_tuple {
+                return tuple.elements
+            }
+        }
+        outputs := make([]Unit, 1)
+        outputs[0] = o
+        return outputs
+    }
+
     ok := true
 
     args := make([]Type, len(inputs))
@@ -483,15 +515,7 @@ check_function_type :: proc(
         }
     }
 
-    outputs: []Unit = ---
-    if output == nil {
-        outputs = nil
-    } else if tuple, is_tuple := output.first_unit.(Tuple); is_tuple {
-        outputs = tuple.elements
-    } else {
-        outputs = make([]Unit, 1)
-        outputs[0] = output^
-    }
+    outputs := get_outputs(output)
     return_types := make([]Type, len(outputs))
     for output, i in outputs {
         return_types[i] = check_type(s, output, generic_args)
@@ -1772,17 +1796,16 @@ check_mutation :: proc(
 
 SuccessfulSplit :: struct {
     before_split:     Unit,
-    split_method:     LeftToRightUnitJoinMethod,
+    split_method:     UnitJoinMethod,
     split_method_pos: utils.Pos,
     after_split:      Unit,
 }
 
 // Returns `nil` on failure
-try_split_by :: proc(
-    u: Unit,
-    possible_splits: ..LeftToRightUnitJoinMethod,
-) -> Maybe(SuccessfulSplit) {
-    for extra_unit, i in u.extra_units {
+try_split_by :: proc(u: Unit, possible_splits: ..UnitJoinMethod) -> Maybe(SuccessfulSplit) {
+    // Start from the end for correct order of operations
+    for i := len(u.extra_units) - 1; i >= 0; i -= 1 {
+        extra_unit := u.extra_units[i]
         for possible_split in possible_splits {
             if extra_unit.join_method == possible_split {
                 return SuccessfulSplit {
@@ -3007,8 +3030,10 @@ check_value_with_markers :: proc(
 
 check_joined_unit_value :: proc(
     s: ^CheckerState,
-    pos: utils.Pos,
-    value: HierarchyJoinedUnits,
+    join_method: UnitJoinMethod,
+    join_method_pos: utils.Pos,
+    before: Unit,
+    after: Unit,
     a: CheckValueArgs,
     loc := #caller_location,
 ) -> CheckValueResult {
@@ -3019,26 +3044,32 @@ check_joined_unit_value :: proc(
     // operations should be performable on values that can only be used at
     // compile time, like a value of the type `Type`
     array_err :: "Expected an array type\nGot the type `%s`"
-    switch value.join_method {
+    switch join_method {
+
+    case .Assign, .Tilde, .Colon, .PipeEquals, .Dot:
+        utils.panicf("Unreachable (join method is %v)", join_method)
+
+    case:
+        utils.panicf("Unreachable (join method is %v)", join_method)
 
     case .In:
-        val0 := check_value(s, value.unit0^, CheckValueArgs{a.body, a.generic_args, nil}).v
-        val1 := check_value(s, value.unit1^, CheckValueArgs{a.body, a.generic_args, nil}).v
-        if !runtime_value_ok(s, value.unit0.pos, val0.value) ||
-           !runtime_value_ok(s, value.unit1.pos, val1.value) {
+        val0 := check_value(s, before, CheckValueArgs{a.body, a.generic_args, nil}).v
+        val1 := check_value(s, after, CheckValueArgs{a.body, a.generic_args, nil}).v
+        if !runtime_value_ok(s, before.pos, val0.value) ||
+           !runtime_value_ok(s, after.pos, val1.value) {
             return CheckValueResult{nil, .Invalid}
         }
         hash_map_type, is_hash_map_type := simplify_type(s, val1.type).key.(OrderedHashMapType)
         if !is_hash_map_type {
             utils.diagnostic(
                 s.r,
-                value.unit1.pos,
+                after.pos,
                 "Expected an ordered hash map type\nGot the type %s",
                 type_to_string(s, val1.type),
             )
             return CheckValueResult{nil, .Invalid}
         }
-        if !expect_type(s, value.unit0.pos, Type(hash_map_type.key_type), val0.type, "") {
+        if !expect_type(s, before.pos, Type(hash_map_type.key_type), val0.type, "") {
             return CheckValueResult{nil, .Invalid}
         }
         out: CheckedValue = CheckedJoinedValues{.In, new_clone(val0.value), new_clone(val1.value)}
@@ -3048,17 +3079,16 @@ check_joined_unit_value :: proc(
         if a.early_exit_if_value_is_type != nil {
             return finish_checking_early_return_type(s, a).v
         }
-        tuple, is_tuple := value.unit0.first_unit.(Tuple)
+        tuple, is_tuple := before.first_unit.(Tuple)
         if !is_tuple {
             utils.diagnostic(
                 s.r,
-                value.unit1.pos,
+                after.pos,
                 "While checking function type: The unit before the `->` should be a tuple (for example `(String, U64)`)",
             )
             return CheckValueResult{CompileTimeValue(Type.Invalid), .Type}
         }
-        assert(value.unit1 != nil)
-        t, ok := check_function_type(s, tuple.elements, value.unit1, a.generic_args)
+        t, ok := check_function_type(s, tuple.elements, after, a.generic_args)
         if !ok {
             return CheckValueResult{nil, .Type}
         }
@@ -3066,63 +3096,53 @@ check_joined_unit_value :: proc(
         return CheckValueResult{out, .Type}
 
     case .BooleanAnd, .BooleanOr:
-        val0 := check_value_of_type(
-            s,
-            value.unit0^,
-            CheckValueArgs{a.body, a.generic_args, nil},
-            .Bool,
-        )
-        val1 := check_value_of_type(
-            s,
-            value.unit1^,
-            CheckValueArgs{a.body, a.generic_args, nil},
-            .Bool,
-        )
+        val0 := check_value_of_type(s, before, CheckValueArgs{a.body, a.generic_args, nil}, .Bool)
+        val1 := check_value_of_type(s, after, CheckValueArgs{a.body, a.generic_args, nil}, .Bool)
         if val0 == nil || val1 == nil {
             return CheckValueResult{nil, .Invalid}
         }
-        return CheckValueResult{create_joined_values(value.join_method, val0, val1), .Bool}
+        return CheckValueResult{create_joined_values(join_method, val0, val1), .Bool}
 
     case .IsEqual, .IsNotEqual:
-        val0 := check_value(s, value.unit0^, CheckValueArgs{a.body, a.generic_args, nil}).v
-        if !runtime_value_ok(s, value.unit0.pos, val0.value) {
+        val0 := check_value(s, before, CheckValueArgs{a.body, a.generic_args, nil}).v
+        if !runtime_value_ok(s, before.pos, val0.value) {
             return CheckValueResult{nil, .Invalid}
         }
         val1 := check_value_of_type(
             s,
-            value.unit1^,
+            after,
             CheckValueArgs{a.body, a.generic_args, nil},
             val0.type,
         )
-        if !runtime_value_ok(s, value.unit1.pos, val1) {
+        if !runtime_value_ok(s, after.pos, val1) {
             return CheckValueResult{nil, .Invalid}
         }
         t_simplified := simplify_type(s, val0.type)
         if t_simplified.type == .String {
             str_comp: CheckedValue = StringsAreEqual{new_clone(val0.value), new_clone(val1)}
-            if value.join_method == .IsNotEqual {
+            if join_method == .IsNotEqual {
                 return CheckValueResult{create_not(str_comp), .Bool}
             }
             return CheckValueResult{str_comp, .Bool}
         }
-        return CheckValueResult{create_joined_values(value.join_method, val0.value, val1), .Bool}
+        return CheckValueResult{create_joined_values(join_method, val0.value, val1), .Bool}
 
     case .Append:
-        val0 := check_value(s, value.unit0^, CheckValueArgs{a.body, a.generic_args, nil}).v
-        if !runtime_value_ok(s, value.unit0.pos, val0.value) {
+        val0 := check_value(s, before, CheckValueArgs{a.body, a.generic_args, nil}).v
+        if !runtime_value_ok(s, before.pos, val0.value) {
             return CheckValueResult{nil, .Invalid}
         }
-        length, item_type := check_array(s, value.unit0.pos, val0.value, val0.type, array_err)
+        length, item_type := check_array(s, before.pos, val0.value, val0.type, array_err)
         if length == nil {
             return CheckValueResult{nil, .Invalid}
         }
         val1 := check_value_of_type(
             s,
-            value.unit1^,
+            after,
             CheckValueArgs{a.body, a.generic_args, nil},
             item_type,
         )
-        if !runtime_value_ok(s, value.unit1.pos, val1) {
+        if !runtime_value_ok(s, after.pos, val1) {
             return CheckValueResult{nil, .Invalid}
         }
         return_type1 := ArrayType{nil, item_type}
@@ -3135,38 +3155,32 @@ check_joined_unit_value :: proc(
     case .StringConcat:
         val0 := check_value_of_type(
             s,
-            value.unit0^,
+            before,
             CheckValueArgs{a.body, a.generic_args, nil},
             .String,
         )
-        val1 := check_value_of_type(
-            s,
-            value.unit1^,
-            CheckValueArgs{a.body, a.generic_args, nil},
-            .String,
-        )
-        if !runtime_value_ok(s, value.unit0.pos, val0) ||
-           !runtime_value_ok(s, value.unit1.pos, val1) {
+        val1 := check_value_of_type(s, after, CheckValueArgs{a.body, a.generic_args, nil}, .String)
+        if !runtime_value_ok(s, before.pos, val0) || !runtime_value_ok(s, after.pos, val1) {
             return CheckValueResult{nil, .Invalid}
         }
         return CheckValueResult{create_joined_values(.StringConcat, val0, val1), .String}
 
     case .Concat:
-        val0 := check_value(s, value.unit0^, CheckValueArgs{a.body, a.generic_args, nil}).v
-        val1 := check_value(s, value.unit1^, CheckValueArgs{a.body, a.generic_args, nil}).v
-        if !runtime_value_ok(s, value.unit0.pos, val0.value) ||
-           !runtime_value_ok(s, value.unit1.pos, val1.value) {
+        val0 := check_value(s, before, CheckValueArgs{a.body, a.generic_args, nil}).v
+        val1 := check_value(s, after, CheckValueArgs{a.body, a.generic_args, nil}).v
+        if !runtime_value_ok(s, before.pos, val0.value) ||
+           !runtime_value_ok(s, after.pos, val1.value) {
             return CheckValueResult{nil, .Invalid}
         }
-        length0, item_type0 := check_array(s, value.unit0.pos, val0.value, val0.type, array_err)
-        length1, item_type1 := check_array(s, value.unit1.pos, val1.value, val1.type, array_err)
+        length0, item_type0 := check_array(s, before.pos, val0.value, val0.type, array_err)
+        length1, item_type1 := check_array(s, after.pos, val1.value, val1.type, array_err)
         if length0 == nil || length1 == nil {
             return CheckValueResult{nil, .Invalid}
         }
         if item_type0 != item_type1 {
             utils.diagnostic(
                 s.r,
-                pos,
+                join_method_pos,
                 "Array item type mismatch:\nItem type on left is %s\nItem type on right is %s",
                 type_to_string(s, item_type0),
                 type_to_string(s, item_type1),
@@ -3181,26 +3195,15 @@ check_joined_unit_value :: proc(
         return CheckValueResult{ArrayLiteral{return_type, segments}, return_type}
 
     case .IsGreaterThan, .IsGreaterThanOrEqual, .IsLessThan, .IsLessThanOrEqual:
-        val0 := check_value_of_type(
-            s,
-            value.unit0^,
-            CheckValueArgs{a.body, a.generic_args, nil},
-            .Float,
-        )
-        val1 := check_value_of_type(
-            s,
-            value.unit1^,
-            CheckValueArgs{a.body, a.generic_args, nil},
-            .Float,
-        )
-        if !runtime_value_ok(s, value.unit0.pos, val0) ||
-           !runtime_value_ok(s, value.unit1.pos, val1) {
+        val0 := check_value_of_type(s, before, CheckValueArgs{a.body, a.generic_args, nil}, .Float)
+        val1 := check_value_of_type(s, after, CheckValueArgs{a.body, a.generic_args, nil}, .Float)
+        if !runtime_value_ok(s, before.pos, val0) || !runtime_value_ok(s, after.pos, val1) {
             return CheckValueResult{nil, .Invalid}
         }
-        return CheckValueResult{create_joined_values(value.join_method, val0, val1), .Bool}
+        return CheckValueResult{create_joined_values(join_method, val0, val1), .Bool}
 
     case .Multiplication, .Subtraction, .Division, .Addition, .Modulo:
-        get_output_type :: proc(m: HierarchyUnitJoinMethod) -> Type {
+        get_output_type :: proc(m: UnitJoinMethod) -> Type {
             #partial switch m {
             case .Multiplication, .Addition, .Modulo:
                 return .UInt
@@ -3212,30 +3215,26 @@ check_joined_unit_value :: proc(
                 panic("Unreachable")
             }
         }
-        val0 := check_value(s, value.unit0^, CheckValueArgs{a.body, a.generic_args, nil}).v
-        val1 := check_value(s, value.unit1^, CheckValueArgs{a.body, a.generic_args, nil}).v
-        if !runtime_value_ok(s, value.unit0.pos, val0.value) ||
-           !runtime_value_ok(s, value.unit1.pos, val1.value) {
+        val0 := check_value(s, before, CheckValueArgs{a.body, a.generic_args, nil}).v
+        val1 := check_value(s, after, CheckValueArgs{a.body, a.generic_args, nil}).v
+        if !runtime_value_ok(s, before.pos, val0.value) ||
+           !runtime_value_ok(s, after.pos, val1.value) {
             return CheckValueResult{nil, .Invalid}
         }
         out_type := most_general_number_type(
             s,
-            get_output_type(value.join_method),
-            TypeAndPos{val0.type, value.unit0.pos},
-            TypeAndPos{val1.type, value.unit1.pos},
+            get_output_type(join_method),
+            TypeAndPos{val0.type, before.pos},
+            TypeAndPos{val1.type, after.pos},
         )
         if out_type == .Invalid {
             return CheckValueResult{nil, .Invalid}
         }
         return CheckValueResult {
-            create_joined_values(value.join_method, val0.value, val1.value),
+            create_joined_values(join_method, val0.value, val1.value),
             out_type,
         }
-
-    case:
-        utils.panicf("Unreachable (join method is %v)", value.join_method)
     }
-
 }
 
 import_use_err :: "Cannot use an import as a runtime value"
@@ -4039,8 +4038,10 @@ check_initial_value :: proc(
         }
         return utils.to_debug_value(CheckValueResult{call.value, call.return_types[0]})
 
+    /*
     case HierarchyJoinedUnits:
         return utils.to_debug_value(check_joined_unit_value(s, pos, value, a))
+    */
 
     case IdentNode:
         if value.has_re_before {
@@ -4090,6 +4091,30 @@ check_array_index_derivation_subset :: proc(
     index := check_value_of_type(s, args[0], CheckValueArgs{body, generic_args, nil}, index_type)
     utils.diagnostic(s.r, pos, bounds_checks_warning, type = .Warning)
     return ArrayElementAccess{index}
+}
+
+// Returns `nil, .Invalid` on failure
+// The type returned is the type of the derivation alteration's value
+check_derivation_subset2 :: proc(
+    s: ^CheckerState,
+    derivation_base_type: Type,
+    unit: Unit,
+    generic_args: map[string]Type,
+    body: ^utils.DebugValue([dynamic]CheckedStatement),
+) -> (
+    utils.DoubleDynamic(DerivationSubsetElement),
+    Type,
+) {
+    if len(unit.extra_units) != 0 {
+        panic("TODO")
+    }
+    return check_derivation_subset(
+        s,
+        derivation_base_type,
+        UnitWithPos{unit.first_unit, unit.pos},
+        generic_args,
+        body,
+    )
 }
 
 // Returns `nil, .Invalid` on failure
@@ -4278,7 +4303,7 @@ check_derivation_subset :: proc(
 // If DerivationAlteration.arg == nil then the checking failed
 check_derivation_alteration :: proc(
     s: ^CheckerState,
-    join_method: LeftToRightUnitJoinMethod,
+    join_method: UnitJoinMethod,
     join_method_pos: utils.Pos,
     unit: Unit,
     value_type: Type,
@@ -4312,13 +4337,7 @@ check_derivation_alteration :: proc(
         }
         return DerivationAlteration{.PipeThroughFunction, new_clone(func)}
     case:
-        utils.diagnostic(
-            s.r,
-            join_method_pos,
-            "Expected join method to be `=` to set the subset's new value or `|=` to update the subset's value",
-            "",
-        )
-        return DerivationAlteration{}
+        panic("Unreachable")
     }
 }
 
@@ -4383,7 +4402,65 @@ check_value :: proc(
 
     if len(v.extra_units) == 0 {
         return check_initial_value(s, v.pos, v.first_unit, a)
-    } else if v.extra_units[0].join_method == .Colon {
+    }
+
+    if split, split_ok := try_split_by(v, .Tilde).(SuccessfulSplit); split_ok {
+        res := check_value(s, split.before_split, CheckValueArgs{a.body, a.generic_args, nil}).v
+        if res.value == nil {
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+
+        after_split, after_split_ok := try_split_by(
+            split.after_split,
+            .Assign,
+            .PipeEquals,
+        ).(SuccessfulSplit)
+        if !after_split_ok {
+            utils.diagnostic(
+                s.r,
+                split.after_split.pos,
+                "Expected an `=` to set the subset's new value or an `|=` to update the subset's value within this text area",
+                "",
+            )
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+
+        derivation_subset, derivation_alteration_type := check_derivation_subset2(
+            s,
+            res.type,
+            after_split.before_split,
+            a.generic_args,
+            a.body,
+        )
+        if derivation_alteration_type == .Invalid {
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+
+        alteration := check_derivation_alteration(
+            s,
+            after_split.split_method,
+            after_split.split_method_pos,
+            after_split.after_split,
+            derivation_alteration_type,
+            a.body,
+            a.generic_args,
+        )
+        if alteration.arg == nil {
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+        return utils.to_debug_value(
+            CheckValueResult {
+                CheckedDerivation {
+                    new_clone(res.value),
+                    DerivationSubset{utils.dynamic_to_fixed(derivation_subset)},
+                    alteration,
+                },
+                res.type,
+            },
+        )
+    }
+
+    if v.extra_units[0].join_method == .Colon {
         tag_name, tag_name_ok := get_text_and_pos_from_unit_with_pos(
             s.r,
             UnitWithPos{v.first_unit, v.pos},
@@ -4400,62 +4477,106 @@ check_value :: proc(
         )
     }
 
-    res :=
-        check_initial_value(s, v.pos, v.first_unit, CheckValueArgs{a.body, a.generic_args, nil}).v
-    if res.value == nil {
-        return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+    if split, split_ok := try_split_by(v, .BooleanOr, .BooleanAnd).(SuccessfulSplit); split_ok {
+        return utils.to_debug_value(
+            check_joined_unit_value(
+                s,
+                split.split_method,
+                split.split_method_pos,
+                split.before_split,
+                split.after_split,
+                a,
+            ),
+        )
     }
 
-    i := 0
-    for i < len(v.extra_units) {
-        extra_unit := v.extra_units[i]
-        if extra_unit.join_method != .Tilde {
-            utils.diagnostic(
-                s.r,
-                extra_unit.join_method_pos,
-                "Expected join method to be `~` to set the derivation subset",
-            )
-            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-        }
-        derivation_subset, derivation_alteration_type := check_derivation_subset(
-            s,
-            res.type,
-            extra_unit.unit,
-            a.generic_args,
-            a.body,
+    if split, split_ok := try_split_by(
+           v,
+           .IsEqual,
+           .IsNotEqual,
+           .IsGreaterThan,
+           .IsLessThan,
+           .IsGreaterThanOrEqual,
+           .IsLessThanOrEqual,
+       ).(SuccessfulSplit); split_ok {
+        return utils.to_debug_value(
+            check_joined_unit_value(
+                s,
+                split.split_method,
+                split.split_method_pos,
+                split.before_split,
+                split.after_split,
+                a,
+            ),
         )
-        if derivation_alteration_type == .Invalid {
-            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-        }
-
-        i += 1
-        if i >= len(v.extra_units) {
-            utils.diagnostic(s.r, extra_unit.join_method_pos, "Expected a derivation alteration")
-            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-        }
-
-        alteration := check_derivation_alteration(
-            s,
-            v.extra_units[i].join_method,
-            v.extra_units[i].join_method_pos,
-            Unit{v.extra_units[i].unit.pos, v.extra_units[i].unit.unit, nil},
-            derivation_alteration_type,
-            a.body,
-            a.generic_args,
-        )
-        if alteration.arg == nil {
-            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-        }
-        res.value = CheckedDerivation {
-            new_clone(res.value),
-            DerivationSubset{utils.dynamic_to_fixed(derivation_subset)},
-            alteration,
-        }
-
-        i += 1
     }
 
-    return utils.to_debug_value(res)
+    if split, split_ok := try_split_by(v, .In).(SuccessfulSplit); split_ok {
+        return utils.to_debug_value(
+            check_joined_unit_value(
+                s,
+                split.split_method,
+                split.split_method_pos,
+                split.before_split,
+                split.after_split,
+                a,
+            ),
+        )
+    }
+
+    if split, split_ok := try_split_by(
+           v,
+           .Append,
+           .Concat,
+           .StringConcat,
+           .Arrow,
+       ).(SuccessfulSplit); split_ok {
+        return utils.to_debug_value(
+            check_joined_unit_value(
+                s,
+                split.split_method,
+                split.split_method_pos,
+                split.before_split,
+                split.after_split,
+                a,
+            ),
+        )
+    }
+
+    if split, split_ok := try_split_by(v, .Addition, .Subtraction, .Modulo).(SuccessfulSplit);
+       split_ok {
+        return utils.to_debug_value(
+            check_joined_unit_value(
+                s,
+                split.split_method,
+                split.split_method_pos,
+                split.before_split,
+                split.after_split,
+                a,
+            ),
+        )
+    }
+
+    if split, split_ok := try_split_by(v, .Multiplication, .Division).(SuccessfulSplit); split_ok {
+        return utils.to_debug_value(
+            check_joined_unit_value(
+                s,
+                split.split_method,
+                split.split_method_pos,
+                split.before_split,
+                split.after_split,
+                a,
+            ),
+        )
+    }
+
+    if split, split_ok := try_split_by(v, .Dot).(SuccessfulSplit); split_ok {
+        panic("TODO")
+    } else {
+        utils.panicf("TODO (join method is %v)", v.extra_units[0].join_method)
+    }
+
+
 }
 
 get_inline_func_fields :: proc(s: ^CheckerState) -> (InlineFuncFields, utils.Multi(VariableRef)) {

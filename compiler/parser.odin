@@ -631,6 +631,7 @@ parse_units_until :: proc(
     }
 }
 
+/*
 create_joined_unit :: proc(
     join_method: HierarchyUnitJoinMethod,
     unit0: Unit,
@@ -647,6 +648,7 @@ create_joined_unit :: proc(
     }
     return HierarchyJoinedUnits{join_method, new_clone(unit0), unit1}
 }
+*/
 
 // Returns `nil` on failure
 parse_unit_with_pos :: proc(s: ^ParserState, loc := #caller_location) -> Maybe(UnitWithoutPos) {
@@ -685,56 +687,18 @@ parse_unit_with_pos :: proc(s: ^ParserState, loc := #caller_location) -> Maybe(U
         }
     }
 
+    return unit
+
+    /*
     // Parse possible arithmetic
     utils.append_dynamic(
         &s.last_token_descriptions_of_other_possible_tokens,
-        "A hierarchical value joiner (`and`, `or`, `==`, `!=`, `>`, `>=`, `<`, `<=`, `*`, `/`, `+`, `-`, `%`, `::`, `:`, `->`, `in`, `++`, `&`)",
+        "A hierarchical value joiner ()",
     )
     value_type: HierarchyUnitJoinMethod
     #partial switch token in s.last_token {
     case:
         return unit
-    case InToken:
-        value_type = .In
-    case AndToken:
-        value_type = .BooleanAnd
-    case ColonColonToken:
-        value_type = .Append
-    case OrToken:
-        value_type = .BooleanOr
-    case OpenAngleBracketToken:
-        value_type = .IsLessThan
-    case LessThanOrEqualToken:
-        value_type = .IsLessThanOrEqual
-    case CloseAngleBracketToken:
-        value_type = .IsGreaterThan
-    case GreaterThanOrEqualToken:
-        value_type = .IsGreaterThanOrEqual
-    case ArrowToken:
-        value_type = .Arrow
-    case SymbolsToken:
-        switch token {
-        case:
-            return unit
-        case "==":
-            value_type = .IsEqual
-        case "!=":
-            value_type = .IsNotEqual
-        case "*":
-            value_type = .Multiplication
-        case "/":
-            value_type = .Division
-        case "+":
-            value_type = .Addition
-        case "++":
-            value_type = .Concat
-        case "&":
-            value_type = .StringConcat
-        case "-":
-            value_type = .Subtraction
-        case "%":
-            value_type = .Modulo
-        }
     }
     get_next_token(s, true)
     next_value_pos := s.last_token_pos
@@ -747,6 +711,7 @@ parse_unit_with_pos :: proc(s: ^ParserState, loc := #caller_location) -> Maybe(U
         Unit{pos, unit, nil},
         new_clone(Unit{next_value_pos, next_value, nil}),
     )
+    */
 }
 
 // Returns `Unit{}, false` on failure
@@ -762,23 +727,61 @@ parse_unit :: proc(s: ^ParserState) -> (Unit, bool) {
         join_method_pos := s.last_token_pos
         utils.append_dynamic(
             &s.last_token_descriptions_of_other_possible_tokens,
-            "A left to right value joiner (`~`, `=`, `|=`)",
+            "A value joiner (`~`, `=`, `|=`, `and`, `or`, `==`, `!=`, `>`, `>=`, `<`, `<=`, `*`, `/`, `+`, `-`, `%`, `::`, `:`, `->`, `in`, `++`, `&`)",
         )
-        join_method: LeftToRightUnitJoinMethod
+        join_method: UnitJoinMethod
         #partial switch v in s.last_token {
+        case:
+            return Unit{pos, first_unit, extra_units}, true
+        case SymbolsToken:
+            switch v {
+            case:
+                return Unit{pos, first_unit, extra_units}, true
+            case "~":
+                join_method = .Tilde
+            case "==":
+                join_method = .IsEqual
+            case "!=":
+                join_method = .IsNotEqual
+            case "*":
+                join_method = .Multiplication
+            case "/":
+                join_method = .Division
+            case "+":
+                join_method = .Addition
+            case "++":
+                join_method = .Concat
+            case "&":
+                join_method = .StringConcat
+            case "-":
+                join_method = .Subtraction
+            case "%":
+                join_method = .Modulo
+            }
         case AssignToken:
             join_method = .Assign
-        case SymbolsToken:
-            if v != "~" {
-                return Unit{pos, first_unit, extra_units}, true
-            }
-            join_method = .Tilde
         case PipeEqualsToken:
             join_method = .PipeEquals
         case ColonToken:
             join_method = .Colon
-        case:
-            return Unit{pos, first_unit, extra_units}, true
+        case InToken:
+            join_method = .In
+        case AndToken:
+            join_method = .BooleanAnd
+        case ColonColonToken:
+            join_method = .Append
+        case OrToken:
+            join_method = .BooleanOr
+        case OpenAngleBracketToken:
+            join_method = .IsLessThan
+        case LessThanOrEqualToken:
+            join_method = .IsLessThanOrEqual
+        case CloseAngleBracketToken:
+            join_method = .IsGreaterThan
+        case GreaterThanOrEqualToken:
+            join_method = .IsGreaterThanOrEqual
+        case ArrowToken:
+            join_method = .Arrow
         }
         get_next_token(s, true)
         extra_unit_pos := s.last_token_pos
@@ -1483,7 +1486,7 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
     }
 
     get_next_token(s, true)
-    return_type: ^Unit = nil
+    return_type: Maybe(Unit) = nil
     open_brace :: "`{` to start the body of the function"
     #partial switch _ in s.last_token {
     case:
@@ -1506,7 +1509,7 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
             wrong_token_err(s)
             return FunctionDefinition{}, false
         }
-        return_type = new_clone(parsed_return_type)
+        return_type = parsed_return_type
     case OpenBraceToken:
     }
 

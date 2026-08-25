@@ -2870,7 +2870,6 @@ check_array_initialisation :: proc(
 }
 */
 
-// A function call which returns one or more values
 CheckedFuncCall :: struct {
     value:        CheckedFunctionCall,
     return_types: []Type,

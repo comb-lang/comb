@@ -1,4 +1,4 @@
-find_primes = fn () -> Bool[100] {
+find_primes = || -> Bool[100] {
 	re is_prime$ = [false, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true]
 	for index in 1 ..< is_prime$.len {
 		if is_prime$[index] {
@@ -10,7 +10,7 @@ find_primes = fn () -> Bool[100] {
 	return is_prime$
 }
 
-main = fn () -> Int {
+main = || -> Int {
     primes = find_primes()
     for is_prime, i in primes {
 		print("The number ")

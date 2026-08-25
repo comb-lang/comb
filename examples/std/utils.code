@@ -2,23 +2,23 @@
 // TODO: Be able to iterate over the characters in a string like `for c in string { ... }`
 // You should not have to define these functions in every program you write that uses them
 
-assert = fn (cond: Bool) {
+assert = |cond: Bool| {
 	assert_with_message(cond, "Assert failed")
 }
 
-assert_with_message = fn (cond: Bool, message: String) {
+assert_with_message = |cond: Bool, message: String| {
 	if cond == false {
 		eprintln(message)
 		unreachable
 	}
 }
 
-negate = fn (a: Float) -> Float {
+negate = |a: Float| -> Float {
 	// TODO: Do not require 0
 	return 0 - a
 }
 
-pow = fn (a: Float, b$: UInt) -> Float {
+pow = |a: Float, b$: UInt| -> Float {
 	re out$ = 1.0
 	while b$ > 0 {
 	    out$ = out$ * a
@@ -27,20 +27,20 @@ pow = fn (a: Float, b$: UInt) -> Float {
 	return out$
 }
 
-empty_map[T] = fn () -> T {
+empty_map[T] = || -> T {
 	return OrderedHashMap()
 }
 
-empty_array[T] = fn () -> T[] {
+empty_array[T] = || -> T[] {
 	return []
 }
 
-Result[O, E] = |
+Result[O, E] = /
 	Ok: O,
 	Err: E,
-|
+\
 
-map_ok[O, O2, E] = fn (r: Result[O, E], f: (O) -> O2) -> Result[O2, E] {
+map_ok[O, O2, E] = |r: Result[O, E], f: (O) -> O2| -> Result[O2, E] {
 	match r {
 		Ok: o {
 			return Ok: f(o)
@@ -51,7 +51,7 @@ map_ok[O, O2, E] = fn (r: Result[O, E], f: (O) -> O2) -> Result[O2, E] {
 	}
 }
 
-split_first = fn (str: String, by: Char) -> {before: String, after: String} {
+split_first = |str: String, by: Char| -> {before: String, after: String} {
 	for i in 0..<str.len {
 		if str[i] == by {
 			return {before = str[0:i], after = str[i+1:str.len]}
@@ -61,15 +61,15 @@ split_first = fn (str: String, by: Char) -> {before: String, after: String} {
 }
 
 // TODO: Maybe this could be defined like `Result[V, {}]` in the future
-Maybe[V] = |
+Maybe[V] = /
     Some: V,
 	:None,
-|
+\
 
 // TODO: Be able to implement this better
 // - Be able to use `c - '0'`
 // - Be able to use `'0' <= c && c <= '9'`
-char_to_num = fn (c: Char) -> Maybe[UInt] {
+char_to_num = |c: Char| -> Maybe[UInt] {
 	if c == '0' { return Some: 0 }
 	if c == '1' { return Some: 1 }
 	if c == '2' { return Some: 2 }
@@ -83,7 +83,7 @@ char_to_num = fn (c: Char) -> Maybe[UInt] {
 	return :None
 }
 
-string_to_uint = fn (str: String) -> Result[UInt, String] {
+string_to_uint = |str: String| -> Result[UInt, String] {
 	if str == "" {
 		return Err: "Empty string"
 	}
@@ -102,7 +102,7 @@ string_to_uint = fn (str: String) -> Result[UInt, String] {
 	return Ok: out$
 }
 
-string_to_float = fn (str: String) -> Result[Float, String] {
+string_to_float = |str: String| -> Result[Float, String] {
 	if str == "" {
 		return Err: "Empty string"
 	}

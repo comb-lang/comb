@@ -5,13 +5,13 @@ CacheEntry = {
 	halved: Float,
 }
 
-calculate_cache_entry = fn (num: Float) -> CacheEntry {
+calculate_cache_entry = |num: Float| -> CacheEntry {
 	return {doubled = num * 2, halved = num / 2}
 }
 
 Cache = OrderedHashMap[Float, CacheEntry]
 
-get_command = fn () -> |AddNumber: Float, :Exit| {
+get_command = || -> /AddNumber: Float, :Exit\ {
 	command = readline("Enter a number to perform a cache lookup or `exit` to exit: ")
 	if command == "exit" {
 		return :Exit
@@ -27,7 +27,7 @@ get_command = fn () -> |AddNumber: Float, :Exit| {
 	}
 }
 
-view = fn (cache: Cache) {
+view = |cache: Cache| {
 	re num_printed$ = 0
 	for number, cache_entry in cache {
 		println(number.to_str & ": {doubled = " & cache_entry.doubled.to_str & ", halved = " & cache_entry.halved.to_str & "}")
@@ -38,7 +38,7 @@ view = fn (cache: Cache) {
 	}
 }
 
-main = fn () -> Int {
+main = || -> Int {
     re cache$ = u.empty_map[Cache]()
 	while true {
 		view(cache$)

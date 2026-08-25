@@ -59,7 +59,7 @@ ParsingContext :: struct {
     kind: enum {
         ValuesInCurlyBraces,
         Block,
-        ValuesInBars,
+        ValuesInForwardSlashBackSlash,
         ValuesInBrackets,
         ValuesInSquareBrackets,
     },
@@ -222,14 +222,14 @@ maybe_parse_initial_unit :: proc(
             &s.last_token_descriptions_of_other_possible_tokens,
             "`true`",
             "`false`",
-            "`fn` to create a lambda function value",
+            "`|` to create a lambda function value",
             "`(` to create a tuple of values or types",
             "a digits token",
             "a string literal",
             "a character literal",
             "a marker token (# followed by one or more alphanumerics)",
             "a name",
-            "`|` to create a sum type",
+            "`/` to create a sum type",
             "`[` to create an array type",
             "`{` to create a struct type",
             "`re`",
@@ -330,15 +330,6 @@ maybe_parse_initial_unit :: proc(
         get_next_token(s, true)
         return UnitWithoutPos(StructUnit{elements})
 
-    case BarToken:
-        utils.append_dynamic(&s.parser_context, ParsingContext{s.last_token_pos, .ValuesInBars})
-        defer utils.pop_dynamic(&s.parser_context)
-        elems, elems_ok := parse_units_until(s, is_bar_token, "`|`").([]Unit)
-        if !elems_ok {
-            return Failure{}
-        }
-        get_next_token(s, true)
-        return UnitWithoutPos(SumUnit{elems})
     /*
         sum_type := SumUnit {
             utils.make_key_to_index(s.a, utils.KeyToIndex(string)),
@@ -523,24 +514,38 @@ maybe_parse_initial_unit :: proc(
         return UnitWithoutPos(Number{false, number})
 
     case SymbolsToken:
-        if token != "-" {
+        switch token {
+        case:
             return e(s)
-        }
-        get_next_token(s, true)
-        digits, is_digits := s.last_token.(DigitsToken)
-        if !is_digits {
+        case "/":
             utils.append_dynamic(
-                &s.last_token_descriptions_of_other_possible_tokens,
-                "A digits token",
+                &s.parser_context,
+                ParsingContext{s.last_token_pos, .ValuesInForwardSlashBackSlash},
             )
-            wrong_token_err(s)
-            return Failure{}
+            defer utils.pop_dynamic(&s.parser_context)
+            elems, elems_ok := parse_units_until(s, is_backslash_token, "`\\`").([]Unit)
+            if !elems_ok {
+                return Failure{}
+            }
+            get_next_token(s, true)
+            return UnitWithoutPos(SumUnit{elems})
+        case "-":
+            get_next_token(s, true)
+            digits, is_digits := s.last_token.(DigitsToken)
+            if !is_digits {
+                utils.append_dynamic(
+                    &s.last_token_descriptions_of_other_possible_tokens,
+                    "A digits token",
+                )
+                wrong_token_err(s)
+                return Failure{}
+            }
+            number := parse_non_negative_number(s, string(digits))
+            if number == nil {
+                return Failure{}
+            }
+            return UnitWithoutPos(Number{true, number})
         }
-        number := parse_non_negative_number(s, string(digits))
-        if number == nil {
-            return Failure{}
-        }
-        return UnitWithoutPos(Number{true, number})
 
     case StringToken:
         strings := [dynamic]string{string(token)}
@@ -562,7 +567,7 @@ maybe_parse_initial_unit :: proc(
         get_next_token(s, true)
         return UnitWithoutPos(Char(token))
 
-    case FnToken:
+    case BarToken:
         func, ok := parse_function_def(s)
         if !ok {
             return Failure{}
@@ -1420,17 +1425,6 @@ parse_variable_management_after_first_var :: proc(
 
 // The boolean returned is whether the function passed successfully
 parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
-    get_next_token(s, false)
-    _, is_open_bracket_token := s.last_token.(OpenBracketToken)
-    if !is_open_bracket_token {
-        utils.append_dynamic(
-            &s.last_token_descriptions_of_other_possible_tokens,
-            "`(` to specify the arguments to the function",
-        )
-        wrong_token_err(s)
-        return FunctionDefinition{}, false
-    }
-
     args := make(#soa[dynamic]FunctionArg)
     loop: for {
         arg: FunctionArg
@@ -1439,13 +1433,13 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
         utils.append_dynamic_elems(
             &s.last_token_descriptions_of_other_possible_tokens,
             "an identifier with one segment for the name of a normal function argument",
-            "`)`",
+            "`|`",
         )
         #partial switch token in s.last_token {
         case:
             wrong_token_err(s)
             return FunctionDefinition{}, false
-        case CloseBracketToken:
+        case BarToken:
             break loop
         case IdentToken:
             if len(token) != 1 {
@@ -1477,13 +1471,13 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
             utils.append_dynamic_elems(
                 &s.last_token_descriptions_of_other_possible_tokens,
                 "`,`",
-                "`)`",
+                "`|`",
             )
             wrong_token_err(s)
             return FunctionDefinition{}, false
         case CommaToken:
             continue
-        case CloseBracketToken:
+        case BarToken:
             break loop
         }
     }

@@ -4,7 +4,7 @@ u = import "std/utils.code"
 
 Shopping = OrderedHashMap[String, UInt]
 
-view = fn (shopping: Shopping) {
+view = |shopping: Shopping| {
     re num_printed$ = 0
 	for item_name, item_quantity in shopping {
 	    if item_quantity > 0 {
@@ -17,7 +17,7 @@ view = fn (shopping: Shopping) {
 	}
 }
 
-main = fn () -> Int {
+main = || -> Int {
     println("Available commands:")
 	println("`exit` - exit")
 	println("`add` - add to shopping list")

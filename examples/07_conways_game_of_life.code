@@ -7,7 +7,7 @@ game_height = 15
 game_size = game_height * game_width
 main_title = "Conway's game of life"
 
-count_pixel_life = fn (s: Bool[game_width][game_height], x: Int, y: Int) -> UInt {
+count_pixel_life = |s: Bool[game_width][game_height], x: Int, y: Int| -> UInt {
 	if x < 0 or x >= game_width or y < 0 or y >= game_height {
 		return 0
 	}
@@ -17,7 +17,7 @@ count_pixel_life = fn (s: Bool[game_width][game_height], x: Int, y: Int) -> UInt
 	return 0
 }
 
-run_tick = fn (s: Bool[game_width][game_height]) -> Bool[game_width][game_height] {
+run_tick = |s: Bool[game_width][game_height]| -> Bool[game_width][game_height] {
     f = false
 	r = [f, f, f, f, f, f, f, f, f, f, f, f, f, f, f]
     re new_state$ = [r, r, r, r, r, r, r, r, r, r, r, r, r, r, r]
@@ -44,7 +44,7 @@ run_tick = fn (s: Bool[game_width][game_height]) -> Bool[game_width][game_height
     return new_state$
 }
 
-game_of_life = fn (s: Bool[game_width][game_height]) -> h.UI {
+game_of_life = |s: Bool[game_width][game_height]| -> h.UI {
     re grid_pixels$ = u.empty_array[h.HtmlElem]()
     for row in s {
 		for pixel in row {
@@ -63,14 +63,14 @@ game_of_life = fn (s: Bool[game_width][game_height]) -> h.UI {
 	ui_contents = [
         Button: {
 			children = [Text: "Run tick"],
-			onclick = fn () -> h.UI { return game_of_life(run_tick(s)) },
+			onclick = || -> h.UI { return game_of_life(run_tick(s)) },
 		},
         Div: {style = grid_style, children = grid_pixels$},
     ]
 	return {
 		page_title = main_title,
 		ui_contents = ui_contents,
-		on_key_down = fn (_: h.Key) -> h.UI { return game_of_life(s) },
+		on_key_down = |_: h.Key| -> h.UI { return game_of_life(s) },
 	}
 }
 
@@ -93,16 +93,16 @@ pulsar_initial_state = [
 ]
 
 site = {pages = OrderedHashMap(
-	"/" = fn () -> h.UI { return game_of_life(pulsar_initial_state) },
+	"/" = || -> h.UI { return game_of_life(pulsar_initial_state) },
 )}
 
-build = fn (c: Compiler) -> Int {
+build = |c: Compiler| -> Int {
 	h.build_reactive_site(c, site, "gitignore_conways_game_of_life")
     return 0
 }
 
 // TODO: Add unit test for this
-serve = fn (c: Compiler) -> Int {
+serve = |c: Compiler| -> Int {
 	server = http.get_http_server(c.cache, "server")
     h.serve_reactive_site(c, server, site)
 	return 0

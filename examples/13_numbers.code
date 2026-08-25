@@ -9,43 +9,43 @@ u = import "std/utils.code"
 
 // The return type of a numeric calculation is the most general type
 
-uint_plus_uint_returns_uint = fn (a: UInt, b: UInt) -> UInt {
+uint_plus_uint_returns_uint = |a: UInt, b: UInt| -> UInt {
 	return a + b
 }
 
-uint_minus_uint_returns_int = fn (a: UInt, b: UInt) -> Int {
+uint_minus_uint_returns_int = |a: UInt, b: UInt| -> Int {
 	return a - b
 }
 
-uint_multiply_float_returns_float = fn (a: UInt, b: Float) -> Float {
+uint_multiply_float_returns_float = |a: UInt, b: Float| -> Float {
 	return a * b
 }
 
-uint_divide_uint_returns_float = fn (a: UInt, b: UInt) -> Float {
+uint_divide_uint_returns_float = |a: UInt, b: UInt| -> Float {
 	return a / b
 }
 
-float_minus_float_returns_float = fn (a: Float, b: Float) -> Float {
+float_minus_float_returns_float = |a: Float, b: Float| -> Float {
 	return a - b
 }
 
 // Implicit number conversions
 
-uint_implicitly_becomes_int = fn (a: UInt) -> Int {
+uint_implicitly_becomes_int = |a: UInt| -> Int {
 	return a
 }
 
-uint_implicitly_becomes_float = fn (a: UInt) -> Float {
+uint_implicitly_becomes_float = |a: UInt| -> Float {
 	return a
 }
 
-int_implicitly_becomes_float = fn (a: Int) -> Float {
+int_implicitly_becomes_float = |a: Int| -> Float {
 	return a
 }
 
 // Main test
 
-main = fn () -> Int {
+main = || -> Int {
 	my_uint = uint_plus_uint_returns_uint(3, 5)
 	my_int = uint_minus_uint_returns_int(2, 5)
 	my_float = uint_multiply_float_returns_float(2, 0.5)

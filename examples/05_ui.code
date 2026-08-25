@@ -1,15 +1,15 @@
-UI[State] = |
+UI[State] = /
     Button: {children: UI[State][], onclick: (State) -> State},
     List: {header: String, children: UI[State][]},
     Text: String,
-|
+\
 
-nothing           = fn (s: String) -> String { return s }
-set_text_to_text1 = fn (s: String) -> String { return "Text 1" }
-set_text_to_text2 = fn (s: String) -> String { return "Text 2" }
-set_text_to_text3 = fn (s: String) -> String { return "Text 3" }
+nothing           = |s: String| -> String { return s }
+set_text_to_text1 = |s: String| -> String { return "Text 1" }
+set_text_to_text2 = |s: String| -> String { return "Text 2" }
+set_text_to_text3 = |s: String| -> String { return "Text 3" }
 
-text_picker = fn (s: String) -> UI[String][] {
+text_picker = |s: String| -> UI[String][] {
     return [
         Text: s,
         Button: {
@@ -32,7 +32,7 @@ UIRenderingState[State] = {
     focussed_button_onclick: (State) -> State,
 }
 
-render_ui[T] = fn (ui: UI[T][], focussed_button_index: UInt, nesting: UInt, state: UIRenderingState[T]) -> UIRenderingState[T] {
+render_ui[T] = |ui: UI[T][], focussed_button_index: UInt, nesting: UInt, state: UIRenderingState[T]| -> UIRenderingState[T] {
     re s$ = state
     for elem in ui {
         for _ in 0..<nesting {
@@ -64,7 +64,7 @@ render_ui[T] = fn (ui: UI[T][], focussed_button_index: UInt, nesting: UInt, stat
     return s$
 }
 
-main = fn () -> Int {
+main = || -> Int {
     re focussed_button_index$ = 0
     re state$ = "Initial text"
     while true {

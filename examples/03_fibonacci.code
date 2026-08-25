@@ -1,8 +1,8 @@
-as[A, B] = fn (v: A) -> B {
+as[A, B] = |v: A| -> B {
     return v
 }
 
-main = fn () -> Int {
+main = || -> Int {
     threshold = 1000
     re fibonacci_numbers$ = as[UInt[2], UInt[]]([1, 1])
     while fibonacci_numbers$[fibonacci_numbers$.len-1] < threshold {

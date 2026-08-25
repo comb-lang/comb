@@ -1,13 +1,13 @@
-InvalidSumType = |
+InvalidSumType = /
 	:A,
 	B: InvalidType,
-|
+\
 
-uses_invalid_sum_type = fn () {
-	_ = fn () -> InvalidSumType {return :A}
+uses_invalid_sum_type = || {
+	_ = || -> InvalidSumType {return :A}
 }
 
-main = fn () -> Int {
+main = || -> Int {
 	uses_invalid_sum_type()
 	return 0
 }

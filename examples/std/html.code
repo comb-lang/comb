@@ -11,7 +11,7 @@
 h = import "http.code"
 p = import "path.code"
 
-SvgElem = |
+SvgElem = /
     Line: {
         x1: UInt,
         y1: UInt,
@@ -21,14 +21,14 @@ SvgElem = |
         stroke_width: UInt,
         stroke_color: String,
     },
-|
+\
 
-HtmlElem = |
+HtmlElem = /
     Button: {children: HtmlElem[], onclick: () -> UI},
     Div: {style: String, children: HtmlElem[]},
     Text: String,
     Svg: {style: String, width: UInt, height: UInt, contents: SvgElem[]},
-|
+\
 
 Key = {
     key: String,
@@ -49,7 +49,7 @@ Site = {
     pages: OrderedHashMap[String, () -> UI], // TODO: Be able to use a unordered hash map
 }
 
-reactive_page = fn (c: Compiler, ui: () -> UI) -> String {
+reactive_page = |c: Compiler, ui: () -> UI| -> String {
     glue = #load "./html.js"
     // TODO: Be able to define the map something like `{"ui": ui()}`
     map = OrderedHashMap("ui" = ui())
@@ -75,7 +75,7 @@ reactive_page = fn (c: Compiler, ui: () -> UI) -> String {
         "</" & "html>"
 }
 
-build_reactive_site = fn (c: Compiler, s: Site, path: String) {
+build_reactive_site = |c: Compiler, s: Site, path: String| {
     for rel_page_path, ui in s.pages {
         page_path = path & "/" & p.normalize_path(rel_page_path) & ".html"
         make_dir_all(p.dir(page_path))
@@ -84,9 +84,9 @@ build_reactive_site = fn (c: Compiler, s: Site, path: String) {
 }
 
 // TODO: Implement state-preserving hot-reload using the `-watch` flag and compiler cache and a websocket
-serve_reactive_site = fn (c: Compiler, server: HttpServer, s: Site) {
+serve_reactive_site = |c: Compiler, server: HttpServer, s: Site| {
     println("Serving reactive site on port " & server.port.to_str)
-    server.set_handler(fn (req: HttpRequest) -> HttpResponse {
+    server.set_handler(|req: HttpRequest| -> HttpResponse {
         // TODO: Add path normalisation
         if req.url in s.pages {
             return Html: (reactive_page(c, s.pages[req.url]))

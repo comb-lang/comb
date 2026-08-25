@@ -832,13 +832,13 @@ invalid_example_04_invalid_globals :: proc(t: ^testing.T) {
     utils.expect_string(&e, "Error compiling `" + path + "` (8:15)\n")
     utils.expect_string(&e, "The variable `E` is not defined in the file `" + path + "`\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + path + "` (10:29)\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (10:26)\n")
     utils.expect_string(&e, "Expected the type `Type` but got the type `Invalid`\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + path + "` (10:44)\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (10:41)\n")
     utils.expect_string(&e, "Expected the type `Type` but got the type `Invalid`\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + path + "` (19:25)\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (19:22)\n")
     utils.expect_string(
         &e,
         "The variable `InvalidType` is not defined in the file `" + path + "`\n",

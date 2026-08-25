@@ -1462,7 +1462,7 @@ build_type_string :: proc(
         case StructType:
             build_struct_string(types, globals_without_generic, globals_with_generic, b, tv)
         case SumType:
-            strings.write_byte(b, '|')
+            strings.write_byte(b, '/')
             first_variant := true
             for tag_variant_index, tag_payload in tv.payloads {
                 if !first_variant {
@@ -1485,7 +1485,7 @@ build_type_string :: proc(
                 }
                 first_variant = false
             }
-            strings.write_byte(b, '|')
+            strings.write_byte(b, '\\')
         case GenericTypeValue:
             strings.write_string(b, globals_with_generic[tv.global.index].name)
             strings.write_byte(b, '[')

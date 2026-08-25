@@ -1,4 +1,4 @@
-get_http_server = fn (cache: CompilerCache, cache_name: String) -> HttpServer {
+get_http_server = |cache: CompilerCache, cache_name: String| -> HttpServer {
     if cache.contains(cache_name) {
         return cast[HttpServer](cache.get(cache_name))
     } else {
@@ -10,7 +10,7 @@ get_http_server = fn (cache: CompilerCache, cache_name: String) -> HttpServer {
 
 // TODO: Implement using a replace function
 
-get_char_replacement = fn (c: Char) -> String {
+get_char_replacement = |c: Char| -> String {
     if c == '&' {
         return "&amp;"
     } else if c == '<' {
@@ -29,7 +29,7 @@ get_char_replacement = fn (c: Char) -> String {
 }
 
 // TODO: Add a unit test for this code
-escape_for_html = fn (s: String) -> String {
+escape_for_html = |s: String| -> String {
     re out$ = ""
     re segment_start$ = 0
     re index$ = 0

@@ -12,6 +12,7 @@ import "core:strings"
 
 Error :: distinct string
 NewlineToken :: struct {}
+BackSlashToken :: struct {} // \
 OpenBracketToken :: struct {} // (
 CloseBracketToken :: struct {} // )
 OpenSquareBracketToken :: struct {} // [
@@ -48,7 +49,6 @@ ElseToken :: struct {} // else
 ImportToken :: struct {} // import
 ReturnToken :: struct {} // return
 YieldToken :: struct {} // yield
-FnToken :: struct {} // fn
 LoopControlFlowKind :: enum {
     Continue,
     Break,
@@ -73,6 +73,7 @@ EndOfFileToken :: struct {}
 TokenContents :: union {
     Error,
     NewlineToken,
+    BackSlashToken,
     OpenBracketToken,
     CloseBracketToken,
     OpenSquareBracketToken,
@@ -111,7 +112,6 @@ TokenContents :: union {
     ImportToken,
     ReturnToken,
     YieldToken,
-    FnToken,
     AndToken,
     OrToken,
     MatchToken,
@@ -132,6 +132,8 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
         fmt.wprintf(fi.writer, "the tokenizer error:\n%s", value)
     case NewlineToken:
         fmt.wprint(fi.writer, "a newline")
+    case BackSlashToken:
+        fmt.wprint(fi.writer, "a back slash (`\\`)")
     case OpenBracketToken:
         fmt.wprint(fi.writer, "an open bracket (`(`)")
     case CloseBracketToken:
@@ -213,8 +215,6 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
         fmt.wprint(fi.writer, "the keyword `return`")
     case YieldToken:
         fmt.wprint(fi.writer, "the keyword `yield`")
-    case FnToken:
-        fmt.wprint(fi.writer, "the keyword `fn`")
     case LoopControlFlowToken:
         switch value.kind {
         case .Continue:
@@ -262,9 +262,9 @@ is_close_square_bracket :: proc(t: TokenContents) -> bool {
     return is_close_square_bracket
 }
 
-is_bar_token :: proc(t: TokenContents) -> bool {
-    _, is_bar_token := t.(BarToken)
-    return is_bar_token
+is_backslash_token :: proc(t: TokenContents) -> bool {
+    _, is_backslash := t.(BackSlashToken)
+    return is_backslash
 }
 
 TokenizerState :: struct {
@@ -321,8 +321,8 @@ wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
             io.write_string(w, "values in `()`")
         case .ValuesInSquareBrackets:
             io.write_string(w, "values in `[]`")
-        case .ValuesInBars:
-            io.write_string(w, "values in `||`")
+        case .ValuesInForwardSlashBackSlash:
+            io.write_string(w, "values in `/\\`")
         case .Block:
             io.write_string(w, "a block")
         case:
@@ -417,6 +417,9 @@ get_next_token :: proc(
             state.last_token = NewlineToken{}
         }
 
+    case '\\':
+        state.index += 1
+        state.last_token = BackSlashToken{}
     case '(':
         state.index += 1
         state.last_token = OpenBracketToken{}
@@ -551,8 +554,6 @@ get_next_token :: proc(
             state.last_token = ReturnToken{}
         case "yield":
             state.last_token = YieldToken{}
-        case "fn":
-            state.last_token = FnToken{}
         case "continue":
             state.last_token = LoopControlFlowToken{.Continue}
         case "break":

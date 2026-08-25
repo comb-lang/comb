@@ -2,7 +2,7 @@
 
 http = import "std/http.code"
 
-handler = fn (req: HttpRequest) -> HttpResponse {
+handler = |req: HttpRequest| -> HttpResponse {
     if req.method == "GET" {
 		return .Html("<p>Hello world</p><p>Url is " & http.escape_for_html(req.url) & "</p>")
 	} else if req.method == "POST" {
@@ -18,7 +18,7 @@ handler = fn (req: HttpRequest) -> HttpResponse {
 // This API is also missing a way to get the port of the web server
 // http_listen_and_serve(handler)
 
-main = fn (compiler: Compiler) -> Int {
+main = |compiler: Compiler| -> Int {
     // - The `CompilerCache` is a place to store values across program
     //   executions when using the `-watch` flag
     // - For this demo, all saving the initialised HTTP server in the

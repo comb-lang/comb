@@ -1,5 +1,5 @@
 // To test when functions don't return anything
-fizzbuzz = fn () {
+fizzbuzz = || {
     for i in 1..=100 {
         if i % 15 == 0 {
             println("Fizzbuzz")
@@ -13,7 +13,7 @@ fizzbuzz = fn () {
     }
 }
 
-main = fn () -> Int {
+main = || -> Int {
     fizzbuzz()
     return 0
 }

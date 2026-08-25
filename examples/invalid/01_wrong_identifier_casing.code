@@ -4,16 +4,16 @@
 // - `Hello`
 // - There may be more, IDK ¯\_(ツ)_/¯
 
-result[ok, err] = |
+result[ok, err] = /
   ok: ok,
   err: err,
-|
+\
 
-Hello = fn () {
+Hello = || {
 	println("Hello world")
 }
 
-main = fn () -> Int {
+main = || -> Int {
 	Hello()
 	return 0
 }

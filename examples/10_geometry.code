@@ -6,7 +6,7 @@ circle = "cc"
 triangle = "tt"
 nothing = "  "
 
-main = fn () -> Int {
+main = || -> Int {
 	for@outer y in 0 - max_radius ..= max_radius {
 	    for x in 0 - max_radius ..= max_radius {
 			if x + y > x_plus_y_max {

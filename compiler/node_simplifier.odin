@@ -1,7 +1,6 @@
 package compiler
 
 import "../utils"
-import "core:fmt"
 
 // This file may become an implementation of the node simplifier in a sea of nodes style optimizer
 // See https://github.com/seaofnodes/simple
@@ -22,7 +21,11 @@ create_joined_values :: proc(
     method: HierarchyUnitJoinMethod,
     val0: CheckedValue,
     val1: CheckedValue,
+    loc := #caller_location,
 ) -> CheckedValue {
+    when ODIN_DEBUG {
+        utils.call(loc, "create_joined_values", "")
+    }
     flip_values := false
     switch method {
     case .BooleanAnd, .BooleanOr:
@@ -44,19 +47,19 @@ create_joined_values :: proc(
          .Modulo,
          .StringConcat,
          .In: // TODO
-    case .Append, .Concat, .Colon, .Arrow:
-        panic(fmt.aprintf("Unreachable (%v)", method))
+    case .Append, .Concat, .Arrow:
+        utils.panicf("Unreachable (%v)", method)
     case .Multiplication, .Division, .Addition, .Subtraction:
         comptime0, val0_is_comptime := val0.(CompileTimeValue)
         comptime1, val1_is_comptime := val1.(CompileTimeValue)
         if val0_is_comptime && val1_is_comptime {
-            num0 := comptime0.(NumberValue)
-            num1 := comptime1.(NumberValue)
+            num0 := comptime0.(utils.NumberValue)
+            num1 := comptime1.(utils.NumberValue)
             if num0.fraction_part == "" && num1.fraction_part == "" {
                 n0 := utils.BigInt{num0.is_negated, num0.whole_part}
                 n1 := utils.BigInt{num1.is_negated, num1.whole_part}
                 ok :: proc(b: utils.BigInt) -> CheckedValue {
-                    return CompileTimeValue(NumberValue{b.is_negated, b.absolute_value, ""})
+                    return CompileTimeValue(utils.NumberValue{b.is_negated, b.absolute_value, ""})
                 }
                 #partial switch method {
                 case .Multiplication:
@@ -85,7 +88,7 @@ create_joined_values :: proc(
 create_field_access :: proc(value: CheckedValue, field_index: u32) -> CheckedValue {
     #partial switch v in value {
     case CompileTimeValue:
-        return v.(CompileTimeStructInitialisation).args[field_index]
+        return v.(CompileTimeStructInitialisation).fields[field_index]
     case CheckedFunctionCall:
     // Cannot simplify something like `{a: 5, b: do_stuff()}.a` to `5` because the `do_stuff` call may cause side effects
     // TODO: Be able to make simplifications like this and preserve side effects
@@ -93,6 +96,36 @@ create_field_access :: proc(value: CheckedValue, field_index: u32) -> CheckedVal
     return CheckedFieldAccess{new_clone(value), field_index}
 }
 
+create_struct :: proc(struct_type: Type, fields: []CheckedValue) -> CheckedValue {
+    comptime_args := make([]CompileTimeValue, len(fields))
+    for field, i in fields {
+        comptime, is_comptime := field.(CompileTimeValue)
+        if is_comptime == false {
+            return StructInitialisation{struct_type, fields}
+        }
+        comptime_args[i] = comptime
+    }
+    return CompileTimeValue(CompileTimeStructInitialisation{struct_type, comptime_args})
+}
+
+/*
+to_checked_value :: proc(func: union {
+        CheckedFunctionCall,
+        CompileTimeValue,
+    }) -> CheckedValue {
+    switch f in func {
+    case CheckedFunctionCall:
+        return f
+    case CompileTimeValue:
+        return f
+    case nil:
+        return nil
+    case:
+        panic("Unreachable")
+    }
+}
+
+// OLD(INITIALISING STRUCTS LIKE `StructType(fields...)`)
 create_checked_func_call :: proc(func: CheckedValue, args: []CheckedValue) -> union {
         CheckedFunctionCall,
         CompileTimeValue,
@@ -111,6 +144,7 @@ create_checked_func_call :: proc(func: CheckedValue, args: []CheckedValue) -> un
     }
     return CheckedFunctionCall{new_clone(func), args}
 }
+*/
 
 iterate_array :: proc(
     loop_index: uint,
@@ -124,7 +158,7 @@ iterate_array :: proc(
     loop_enter := make([]CheckedStatement, 1)
     loop_enter[0] = CheckedAssignment {
         index_variable,
-        CompileTimeValue(NumberValue{false, utils.uint_zero, ""}),
+        CompileTimeValue(utils.NumberValue{false, utils.uint_zero, ""}),
     }
 
     if_block := make([]CheckedStatement, 1)
@@ -155,7 +189,7 @@ iterate_array :: proc(
         create_joined_values(
             .Addition,
             index_variable,
-            CompileTimeValue(NumberValue{false, utils.big_uint_from_u64(1), ""}),
+            CompileTimeValue(utils.NumberValue{false, utils.big_uint_from_u64(1), ""}),
         ),
     }
     return CheckedLoop {
@@ -163,7 +197,7 @@ iterate_array :: proc(
         body_variables,
         loop_enter,
         continue_code,
-        utils.dynamic_to_fixed(body^),
+        utils.to_debug_value(utils.dynamic_to_fixed(body^)),
     }
 }
 
@@ -204,7 +238,7 @@ iterate_start_end_step :: proc(
         body_variables,
         loop_enter,
         loop_continue,
-        utils.dynamic_to_fixed(body^),
+        utils.to_debug_value(utils.dynamic_to_fixed(body^)),
     }
 }
 
@@ -216,8 +250,12 @@ iterate_ordered_hash_map :: proc(
     value_variable: VariableRef,
     body: ^utils.DoubleDynamic(CheckedStatement),
     body_variables: []Type,
+    loc := #caller_location,
 ) -> CheckedLoop {
-    keys := KeysOfOrderedHashMapWithStringKey{new_clone(hash_map)} // TODO: Handle for Int keys
+    when ODIN_DEBUG {
+        utils.call(loc, "iterate_ordered_hash_map", "")
+    }
+    keys := KeysOfOrderedHashMap{new_clone(hash_map)}
     utils.dynamic_insert(
         body,
         CheckedAssignment {
@@ -235,6 +273,6 @@ iterate_ordered_hash_map :: proc(
         body,
         body_variables,
         keys,
-        ArrayType{0, .String},
+        ArrayType{nil, .String},
     )
 }

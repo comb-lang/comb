@@ -28,14 +28,17 @@ ArenaAllocation :: struct {
     block:                    ^virtual.Memory_Block,
     prev_allocation_in_arena: ^ArenaAllocation,
     prev_allocation_in_block: ^ArenaAllocation,
-    loc:                      SourceCodeLocationOnDebug,
+    call_stack:               CallStackOnDebug,
 }
 
 get_block_info :: proc(block: ^virtual.Memory_Block) -> ^ArenaBlockInfo {
     return (^ArenaBlockInfo)(block.base)
 }
 
-create_block :: proc(a: ^Arena) {
+create_block :: proc(a: ^Arena, loc := #caller_location) {
+    when ODIN_DEBUG {
+        call(loc, "create_block", "", enable_debug = debug_arena)
+    }
     block, err := virtual.memory_block_alloc(0, virtual.DEFAULT_ARENA_STATIC_RESERVE_SIZE)
     if err != nil {
         panic("Failed to allocate memory block")
@@ -70,6 +73,9 @@ alloc :: proc(
     zero: bool,
     loc: runtime.Source_Code_Location,
 ) -> rawptr {
+    when ODIN_DEBUG {
+        call(loc, "alloc", "", enable_debug = debug_arena)
+    }
     if a.last_resizable_block == nil {
         create_block(a)
     }
@@ -94,9 +100,7 @@ alloc :: proc(
     arena_allocation.prev_allocation_in_block = last_resizable_block_info.last_allocation_in_block
     arena_allocation.prev_allocation_in_arena = a.last_allocation
     arena_allocation.block = a.last_resizable_block
-    when ODIN_DEBUG {
-        arena_allocation.loc = loc
-    }
+    arena_allocation.call_stack = get_call_stack_on_debug()
 
     last_resizable_block_info.last_allocation_in_block = arena_allocation
     a.last_allocation = arena_allocation
@@ -120,9 +124,7 @@ alloc :: proc(
 }
 
 arena_new :: proc(a: ^Arena, $T: typeid, resizable := false, loc := #caller_location) -> ^T {
-    when debug_arena {
-        print_call(loc, "arena_new")
-    }
+    call(loc, "arena_new", "", enable_debug = debug_arena)
     allocated := alloc(a, size_of(T), align_of(T), resizable, true, loc)
     return (^T)(allocated)
 }
@@ -134,9 +136,7 @@ arena_make :: proc(
     resizable := false,
     loc := #caller_location,
 ) -> T {
-    when debug_arena {
-        print_call(loc, "arena_make")
-    }
+    call(loc, "arena_make", "", enable_debug = debug_arena)
     out: T = ---
     out_raw := (^runtime.Raw_Slice)(&out)
     out_raw.data = alloc(a, uint(size_of(E) * len), align_of(E), resizable, true, loc)
@@ -151,9 +151,7 @@ arena_make_multi :: proc(
     resizable := false,
     loc := #caller_location,
 ) -> T {
-    when debug_arena {
-        print_call(loc, "arena_make_multi")
-    }
+    call(loc, "arena_make_multi", "", enable_debug = debug_arena)
     when ODIN_DEBUG {
         return T{arena_make(a, []E, len, resizable, loc)}
     } else {
@@ -188,9 +186,7 @@ is_resizable :: proc {
 }
 
 resize :: proc(allocation: rawptr, new_size: int, loc := #caller_location) {
-    when debug_arena {
-        print_call(loc, "resize")
-    }
+    call(loc, "resize", "", enable_debug = debug_arena)
     assert(new_size >= 0)
     info := get_info(allocation)
     assert(is_resizable(info))
@@ -204,9 +200,7 @@ resize :: proc(allocation: rawptr, new_size: int, loc := #caller_location) {
 }
 
 fix_resizable :: proc(allocation: rawptr, loc := #caller_location) {
-    when debug_arena {
-        print_call(loc, "fix_resizable")
-    }
+    call(loc, "fix_resizable", "")
     info := get_info(allocation)
     assert(is_resizable(info))
     assert(info.block.last_resizable_block == nil)
@@ -215,9 +209,7 @@ fix_resizable :: proc(allocation: rawptr, loc := #caller_location) {
 }
 
 dealloc :: proc(allocation: rawptr, loc := #caller_location) {
-    when debug_arena {
-        print_call(loc, "dealloc")
-    }
+    call(loc, "dealloc", "")
     info := get_info(allocation)
     assert(info.block.arena.last_allocation == info.allocation)
     info.allocation.block.used = uint(
@@ -234,8 +226,8 @@ cleanup_arena :: proc(
     delete_blocks := true,
     loc := #caller_location,
 ) {
-    when debug_arena {
-        print_call(loc, "cleanup_arena")
+    when ODIN_DEBUG {
+        call(loc, "cleanup_arena", "", enable_debug = debug_arena)
     }
     if expect_empty {
         assert(a.last_allocation == nil)
@@ -249,9 +241,7 @@ cleanup_arena :: proc(
     }
     defer delete(resizable_blocks) // TODO: Maybe we should use the arena for this allocation?
     for resizable_block := a.last_resizable_block; resizable_block != nil; {
-        when debug_arena {
-            debug("Found resizable block at ^virtual.MemoryBlock %p", resizable_block)
-        }
+        debug("Found resizable block at ^virtual.MemoryBlock %p", resizable_block)
         assert(resizable_block not_in resizable_blocks)
         resizable_blocks[resizable_block] = .NotVisited
         resizable_block = get_block_info(resizable_block).last_resizable_block
@@ -270,7 +260,7 @@ cleanup_arena :: proc(
         if block not_in resizable_blocks {
             panicf(
                 "There was a resizable allocation allocated at %v for which `fix_resizable` was not called",
-                block_info.last_allocation_in_block.loc,
+                block_info.last_allocation_in_block.call_stack,
             )
         }
 
@@ -292,5 +282,10 @@ cleanup_arena :: proc(
 
     for _, value in resizable_blocks {
         assert(value == .Visited)
+    }
+
+    if delete_blocks {
+        a.last_resizable_block = nil
+        a.last_block = nil
     }
 }

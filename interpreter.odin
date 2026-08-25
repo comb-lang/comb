@@ -11,7 +11,6 @@ import "core:net"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
-import "core:strconv"
 import "core:strings"
 import "utils"
 import "webserver"
@@ -21,12 +20,9 @@ RuntimeValue :: union {
     bool,
     RuntimeString,
     RuntimeArray,
-    RuntimeStringOrderedHashMap,
-    RuntimeIntOrderedHashMap,
+    RuntimeOrderedHashMap,
     RuntimeStruct,
-    compiler.StructTypeInitFunc,
     RuntimeSumType,
-    compiler.SumTypeInitFunc,
     RuntimeFunc,
     compiler.BuiltinFunction,
     compiler.CastFunction,
@@ -50,20 +46,19 @@ get_value_type :: proc(s: InterpState, value: RuntimeValue) -> compiler.Type {
         return .String
     case RuntimeArray:
         return v.type
-    case RuntimeStringOrderedHashMap:
-        return v.type
-    case RuntimeIntOrderedHashMap:
+    case RuntimeOrderedHashMap:
         return v.type
     case RuntimeStruct:
         return v.type
+    /*
+    // OLD(INITIALISING STRUCTS LIKE `StructType(fields...)`)
     case compiler.StructTypeInitFunc:
         return_types := make([]compiler.Type, 1)
         return_types[0] = v.return_type
         return compiler.create_type(&s.types, compiler.FuncType{nil, return_types}).type
+        */
     case RuntimeSumType:
         return v.type
-    case compiler.SumTypeInitFunc:
-        panic("TODO")
     case RuntimeFunc:
         return s.checked_funcs[v.ref.index].type
     case compiler.BuiltinFunction:
@@ -103,17 +98,11 @@ RuntimeArray :: struct {
     elems:         []RuntimeValue,
 }
 
-RuntimeStringOrderedHashMap :: struct {
+RuntimeOrderedHashMap :: struct {
     type:          compiler.Type,
     needs_freeing: bool,
-    hashmap:       map[string]RuntimeValue,
-    order:         []string,
-}
-RuntimeIntOrderedHashMap :: struct {
-    type:          compiler.Type,
-    needs_freeing: bool,
-    hashmap:       map[int]RuntimeValue,
-    order:         [dynamic]i64,
+    hashmap:       map[compiler.HashMapKey]RuntimeValue,
+    order:         []compiler.HashMapKey,
 }
 RuntimeStruct :: struct {
     needs_freeing: bool,
@@ -124,7 +113,7 @@ RuntimeSumType :: struct {
     type:          compiler.Type,
     needs_freeing: bool,
     variant_index: u32,
-    payload:       []RuntimeValue,
+    payload:       ^RuntimeValue, // May be nil
 }
 
 Frame :: struct {
@@ -206,10 +195,11 @@ interp_execute_function :: proc(s: InterpState, c: compiler.CheckedFunctionCall)
     }
 
     #partial switch val in fn_val {
+    /*
+    // OLD(INITIALISING STRUCTS LIKE `StructType(fields...)`)
     case compiler.StructTypeInitFunc:
         return RuntimeStruct{true, args, val.return_type}
-    case compiler.SumTypeInitFunc:
-        return RuntimeSumType{val.sum_type, true, val.variant_index, args}
+    */
     case compiler.CastFunction:
         assert(len(args) == 1)
         got_type := get_value_type(s, args[0])
@@ -310,7 +300,7 @@ interp_execute_function :: proc(s: InterpState, c: compiler.CheckedFunctionCall)
                     200,
                     "OK",
                     compiler.response_type_variant_index_to_content_type(response.variant_index),
-                    transmute([]byte)(response.payload[0].(RuntimeString).value),
+                    transmute([]byte)(response.payload.(RuntimeString).value),
                 )
                 if err != nil {
                     // TODO: Better error handling
@@ -328,8 +318,11 @@ interp_execute_function2 :: proc(
     state: InterpState,
     func: RuntimeFunc,
     args: []RuntimeValue,
+    loc := #caller_location,
 ) -> RuntimeValue {
+    utils.call(loc, "interp_execute_function2", "", enable_debug = utils.debug_interpreter)
     checked_func := state.checked_funcs[func.ref.index]
+    utils.debug("checked_func.body: %v", checked_func.body)
 
     frame := Frame {
         func_index = func.ref.index,
@@ -345,7 +338,7 @@ interp_execute_function2 :: proc(
     append_elem(&state.frames, frame)
 
     assert(state.control_flow_op == nil)
-    interp_exec_block(state, checked_func.body)
+    interp_exec_block(state, checked_func.body.v)
     f := pop(&state.frames)
     assert(len(f.scopes) == 3)
     for &v in f.scopes[2] {
@@ -430,9 +423,7 @@ interp_push_scope :: proc(state: ^ShortLivedInterpState, variable_types: []compi
 }
 
 interp_pop_scope :: proc(state: ^ShortLivedInterpState, loc := #caller_location) {
-    when utils.debug_interpreter {
-        utils.print_call(loc, "interp_pop_scope")
-    }
+    utils.call(loc, "interp_pop_scope", "")
     frame := &state.frames[len(state.frames) - 1]
     scope := pop(&frame.scopes)
     for &val in scope {
@@ -443,9 +434,7 @@ interp_pop_scope :: proc(state: ^ShortLivedInterpState, loc := #caller_location)
 
 interp_destroy_value :: proc(val: ^RuntimeValue, loc := #caller_location) {
     /*
-    when debug_interpreter {
-        utils.print_call(loc, "interp_destroy_value")
-    }
+        utils.call(loc, "interp_destroy_value")
     switch &v in val {
     case RuntimeStringOrderedHashMap:
         if v.needs_freeing {
@@ -516,26 +505,17 @@ interp_destroy_value :: proc(val: ^RuntimeValue, loc := #caller_location) {
 }
 
 interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> RuntimeValue {
-    when utils.debug_interpreter {
-        utils.print_call(loc, "interp_clone_value")
-    }
+    utils.call(loc, "interp_clone_value", "")
     switch v in val {
     case nil:
         panic("Unreachable: Uninitialised")
-    case RuntimeStringOrderedHashMap:
-        out_hashmap := make(map[string]RuntimeValue, len(v.hashmap))
+    case RuntimeOrderedHashMap:
+        out_hashmap := make(map[compiler.HashMapKey]RuntimeValue, len(v.hashmap))
         for key, value in v.hashmap {
             out_hashmap[key] = interp_clone_value(value)
         }
         out_order := slice.clone(v.order)
-        return RuntimeStringOrderedHashMap{v.type, true, out_hashmap, out_order}
-    case RuntimeIntOrderedHashMap:
-        out_hashmap := make(map[int]RuntimeValue, len(v.hashmap))
-        for key, value in v.hashmap {
-            out_hashmap[key] = interp_clone_value(value)
-        }
-        out_order := slice.clone_to_dynamic(v.order[:])
-        return RuntimeIntOrderedHashMap{v.type, true, out_hashmap, out_order}
+        return RuntimeOrderedHashMap{v.type, true, out_hashmap, out_order}
     case RuntimeArray:
         new_elems := make([]RuntimeValue, len(v.elems))
         for elem, i in v.elems {
@@ -549,19 +529,17 @@ interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> Runtim
         }
         return RuntimeStruct{true, new_fields, v.type}
     case RuntimeSumType:
-        payload := make([]RuntimeValue, len(v.payload))
-        for value, i in v.payload {
-            payload[i] = interp_clone_value(value)
+        out := RuntimeSumType{v.type, true, v.variant_index, nil}
+        if v.payload != nil {
+            out.payload = new_clone(interp_clone_value(v.payload^))
         }
-        return RuntimeSumType{v.type, true, v.variant_index, payload}
+        return out
     case RuntimeString:
         return RuntimeString{true, strings.clone(v.value)}
     case f64,
          bool,
          RuntimeFunc,
          compiler.BuiltinFunction,
-         compiler.StructTypeInitFunc,
-         compiler.SumTypeInitFunc,
          HttpServerListenAndServe,
          SetHttpServerHandler,
          compiler.CastFunction:
@@ -583,9 +561,7 @@ interp_exec_statement :: proc(state: InterpState, stmt: compiler.CheckedStatemen
         } else {
             state.control_flow_op = ReturnFromFunction{nil}
         }
-        when utils.debug_interpreter {
-            utils.debug("state.control_flow_op set to %v", state.control_flow_op)
-        }
+        utils.debug("state.control_flow_op set to %v", state.control_flow_op)
 
     case compiler.CheckedIf:
         cond := interp_eval_value(state, s.condition)
@@ -612,7 +588,7 @@ interp_exec_statement :: proc(state: InterpState, stmt: compiler.CheckedStatemen
 
             old_loop := state.current_loop
             state.current_loop = loop_index
-            interp_exec_block(state, s.body)
+            interp_exec_block(state, s.body.v)
             state.current_loop = old_loop
 
             switch op in state.control_flow_op {
@@ -645,9 +621,7 @@ interp_exec_statement :: proc(state: InterpState, stmt: compiler.CheckedStatemen
             value: CheckedValue,
             loc := #caller_location,
         ) -> ^RuntimeValue {
-            when debug_interpreter {
-                utils.print_call(loc, "get_mutable_value")
-            }
+            utils.call(loc, "get_mutable_value")
             #partial switch v in value {
             case CheckedArrayAccess:
                 array := get_mutable_value(s, v.array^).(RuntimeArray)
@@ -715,9 +689,7 @@ interp_exec_statement :: proc(state: InterpState, stmt: compiler.CheckedStatemen
         interp_push_scope(state, branch.block.variables)
         val_var, has_val := branch.value_var.(compiler.VariableRef)
         if has_val {
-            sum_type := compiler.get_type(state.types, val.type).key.(compiler.SumType)
-            state.frames[len(state.frames) - 1].scopes[val_var.nesting_level][val_var.index] =
-                RuntimeStruct{false, val.payload, sum_type.payloads.d[val.variant_index]}
+            state.frames[len(state.frames) - 1].scopes[val_var.nesting_level][val_var.index] = val.payload^
         }
         interp_exec_block(state, branch.block.body)
         interp_pop_scope(state)
@@ -756,21 +728,21 @@ interp_eval_comptime_value :: proc(
         }
         return RuntimeArray{comptime.type, true, elems}
     case compiler.CompileTimeOrderedHashMapInitialisation:
-        out_map: map[string]RuntimeValue
+        out_map: map[compiler.HashMapKey]RuntimeValue
         for key, v in comptime.value {
             out_map[key] = interp_eval_comptime_value(s, v)
         }
-        return RuntimeStringOrderedHashMap{comptime.type, true, out_map, comptime.order}
+        return RuntimeOrderedHashMap{comptime.type, true, out_map, comptime.order}
     case compiler.CastFunction:
         return comptime
     case compiler.BuiltinFunction:
         return comptime
     case compiler.CompileTimeStructInitialisation:
-        out_args := make([]RuntimeValue, len(comptime.args))
-        for arg, i in comptime.args {
-            out_args[i] = interp_eval_comptime_value(s, arg)
+        out_fields := make([]RuntimeValue, len(comptime.fields))
+        for field, i in comptime.fields {
+            out_fields[i] = interp_eval_comptime_value(s, field)
         }
-        return RuntimeStruct{true, out_args, comptime.func.return_type}
+        return RuntimeStruct{true, out_fields, comptime.struct_type}
     case compiler.Func:
         lambda_args := make(
             []RuntimeValue,
@@ -784,20 +756,8 @@ interp_eval_comptime_value :: proc(
         return RuntimeFunc{comptime.ref, lambda_args}
     case compiler.StringLiteralValue:
         return RuntimeString{false, string(comptime)}
-    case compiler.NumberValue:
-        whole_part_as_u64, ok := utils.big_uint_to_u64(comptime.whole_part)
-        assert(ok)
-        fraction_part_as_int := 0
-        if comptime.fraction_part != "" {
-            fraction_part_as_int, ok = strconv.parse_int(comptime.fraction_part)
-            assert(ok)
-        }
-        absolute_f64 := f64(whole_part_as_u64)
-        if fraction_part_as_int != 0 {
-            absolute_f64 +=
-                f64(fraction_part_as_int) / math.pow10(f64(len(comptime.fraction_part)))
-        }
-        return comptime.is_negated ? -absolute_f64 : absolute_f64
+    case utils.NumberValue:
+        return utils.number_value_to_f64(comptime).(f64)
     case compiler.BoolValue:
         return bool(comptime)
     case compiler.Type,
@@ -841,9 +801,9 @@ interp_derive_value :: proc(
         new_elems[index] = interp_derive_value(s, old.elems[index], subset_elems[1:], alteration)
         return RuntimeArray{old.type, true, new_elems}
     case compiler.StringOrderedHashMapAccess:
-        key := interp_eval_value(s, elem.key).(RuntimeString).value
-        old := v.(RuntimeStringOrderedHashMap)
-        new_hashmap := make(map[string]RuntimeValue)
+        key := to_hashmap_key(interp_eval_value(s, elem.key))
+        old := v.(RuntimeOrderedHashMap)
+        new_hashmap := make(map[compiler.HashMapKey]RuntimeValue)
         new_order := old.order
         if key not_in old.hashmap {
             dyn := slice.clone_to_dynamic(old.order)
@@ -854,7 +814,7 @@ interp_derive_value :: proc(
             new_hashmap[k] = old_elem
         }
         new_hashmap[key] = interp_derive_value(s, old.hashmap[key], subset_elems[1:], alteration)
-        return RuntimeStringOrderedHashMap{old.type, true, new_hashmap, new_order}
+        return RuntimeOrderedHashMap{old.type, true, new_hashmap, new_order}
     case compiler.FieldAccess:
         old := v.(RuntimeStruct)
         new_fields := make([]RuntimeValue, len(old.field_values))
@@ -878,19 +838,42 @@ expect_int :: proc(f: f64) -> int {
     return int(f)
 }
 
+to_hashmap_key :: proc(value: RuntimeValue) -> compiler.HashMapKey {
+    #partial switch v in value {
+    case RuntimeString:
+        return v.value
+    case f64:
+        return v
+    case:
+        panic("Unreachable")
+    }
+}
+
 interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeValue {
     switch value in v {
+    case compiler.StructInitialisation:
+        out := RuntimeStruct{true, make([]RuntimeValue, len(value.fields)), value.struct_type}
+        for field, i in value.fields {
+            out.field_values[i] = interp_eval_value(s, field)
+        }
+        return out
+    case compiler.SumTypeInitialisation:
+        out := RuntimeSumType{value.sum_type, true, value.variant_index, nil}
+        if value.payload != nil {
+            out.payload = new_clone(interp_eval_value(s, value.payload^))
+        }
+        return out
     case compiler.LengthOfString:
         return f64(len(interp_eval_value(s, value.str^).(RuntimeString).value))
     case compiler.OrderedHashMapInitialisation:
-        out_map: map[string]RuntimeValue
+        out_map: map[compiler.HashMapKey]RuntimeValue
         for k, val in value.compile_time_values {
             out_map[k] = interp_eval_comptime_value(s, val)
         }
         for k, val in value.runtime_values {
             out_map[k] = interp_eval_value(s, val)
         }
-        return RuntimeStringOrderedHashMap{value.type, true, out_map, value.order}
+        return RuntimeOrderedHashMap{value.type, true, out_map, value.order}
     case compiler.ArrayLiteral:
         elems := make([dynamic]RuntimeValue)
         for segment in value.segments {
@@ -908,34 +891,24 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeVa
         base_value := interp_eval_value(s, value.base^)
         return interp_derive_value(s, base_value, value.subset.elements, value.alteration)
     case compiler.CheckedOrderedHashMapAccess:
-        hash_map := interp_eval_value(s, value.hash_map^)
+        hash_map := interp_eval_value(s, value.hash_map^).(RuntimeOrderedHashMap)
         key := interp_eval_value(s, value.key^)
-        #partial switch hash_map_value in hash_map {
-        case RuntimeStringOrderedHashMap:
-            return hash_map_value.hashmap[key.(RuntimeString).value]
-        case RuntimeIntOrderedHashMap:
-            return hash_map_value.hashmap[expect_int(key.(f64))]
-        }
-        panic("Unreachable")
-    case compiler.KeysOfOrderedHashMapWithStringKey:
-        keys := interp_eval_value(s, value.hash_map^).(RuntimeStringOrderedHashMap).order
+        return hash_map.hashmap[to_hashmap_key(key)]
+    case compiler.KeysOfOrderedHashMap:
+        keys := interp_eval_value(s, value.hash_map^).(RuntimeOrderedHashMap).order
         out := make([]RuntimeValue, len(keys))
         for key, i in keys {
-            out[i] = RuntimeString{false, key}
+            switch k in key {
+            case string:
+                out[i] = RuntimeString{false, k}
+            case f64:
+                out[i] = k
+            case:
+                panic("Unreachable")
+            }
         }
         return RuntimeArray {
-            compiler.create_type(&s.types, compiler.ArrayType{0, .String}).type,
-            true,
-            out,
-        }
-    case compiler.KeysOfOrderedHashMapWithIntKey:
-        keys := interp_eval_value(s, value.hash_map^).(RuntimeIntOrderedHashMap).order
-        out := make([]RuntimeValue, len(keys))
-        for key, i in keys {
-            out[i] = f64(key)
-        }
-        return RuntimeArray {
-            compiler.create_type(&s.types, compiler.ArrayType{0, .Int}).type,
+            compiler.create_type(&s.types, compiler.ArrayType{nil, .String}).type,
             true,
             out,
         }
@@ -963,10 +936,7 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeVa
              RuntimeSumType,
              RuntimeFunc,
              compiler.BuiltinFunction,
-             RuntimeStringOrderedHashMap,
-             RuntimeIntOrderedHashMap,
-             compiler.StructTypeInitFunc,
-             compiler.SumTypeInitFunc,
+             RuntimeOrderedHashMap,
              HttpServerListenAndServe,
              SetHttpServerHandler,
              compiler.CastFunction:
@@ -986,13 +956,8 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeVa
         switch value.join_method {
 
         case .In:
-            #partial switch b in interp_eval_value(s, value.val1^) {
-            case RuntimeStringOrderedHashMap:
-                return lhs.(RuntimeString).value in b.hashmap
-            case RuntimeIntOrderedHashMap:
-                return expect_int(lhs.(f64)) in b.hashmap
-            }
-            panic("Unreachable")
+            hashmap := interp_eval_value(s, value.val1^).(RuntimeOrderedHashMap)
+            return to_hashmap_key(lhs) in hashmap.hashmap
 
         case .Addition:
             return lhs.(f64) + interp_eval_value(s, value.val1^).(f64)
@@ -1050,13 +1015,15 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeVa
                 ),
             }
 
-        case .Append, .Concat, .Colon, .Arrow:
+        case .Append, .Concat, .Arrow:
             panic("Unreachable")
         }
 
     case compiler.CheckedFunctionCall:
         return interp_execute_function(s, value)
 
+    /*
+    // OLD(INITIALISING STRUCTS LIKE `StructType(fields...)`)
     case compiler.StructTypeInitFunc:
         // struct_type := get_type(state.checked.types, value.type).(Struct(compiler.Type, compiler.Type))
         // fields := make([dynamic]RuntimeValue, len(struct_type.fields))
@@ -1065,9 +1032,7 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeVa
         // }
         // return RuntimeStruct{fields}
         return value
-
-    case compiler.SumTypeInitFunc:
-        return value
+        */
 
     case compiler.CheckedIndexedAccess:
         base := interp_eval_value(s, value.base^)
@@ -1102,13 +1067,9 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeVa
         arr := interp_eval_value(s, value.array^).(RuntimeArray)
         return f64(len(arr.elems))
 
-    case compiler.LengthOfOrderedHashMapWithStringKey:
+    case compiler.LengthOfOrderedHashMap:
         hash_map := interp_eval_value(s, value.hash_map^)
-        return f64(len(hash_map.(RuntimeStringOrderedHashMap).order))
-
-    case compiler.LengthOfOrderedHashMapWithIntKey:
-        hash_map := interp_eval_value(s, value.hash_map^)
-        return f64(len(hash_map.(RuntimeIntOrderedHashMap).order))
+        return f64(len(hash_map.(RuntimeOrderedHashMap).order))
 
     case compiler.StringsAreEqual:
         str0 := interp_eval_value(s, value.str0^)
@@ -1213,12 +1174,12 @@ default_builtin_handler_procedure :: proc(
     case .emit_js_code:
         // TODO: Tree shake globals which are not used by the globals in `globals_map`
         assert(len(args) == 2)
-        globals_map := args[0].(RuntimeStringOrderedHashMap)
+        globals_map := args[0].(RuntimeOrderedHashMap)
         glue := args[1].(RuntimeString)
         builder := emit_javascript(state.types, state.checked_funcs)
         for global_name in globals_map.order {
             strings.write_string(&builder, "let ")
-            strings.write_string(&builder, global_name)
+            strings.write_string(&builder, global_name.(string))
             strings.write_string(&builder, "=")
             emit_js_runtime_value(&builder, globals_map.hashmap[global_name])
             strings.write_string(&builder, ";")

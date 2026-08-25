@@ -12,6 +12,7 @@ import "core:strings"
 
 Error :: distinct string
 NewlineToken :: struct {}
+BackSlashToken :: struct {} // \
 OpenBracketToken :: struct {} // (
 CloseBracketToken :: struct {} // )
 OpenSquareBracketToken :: struct {} // [
@@ -72,6 +73,7 @@ EndOfFileToken :: struct {}
 TokenContents :: union {
     Error,
     NewlineToken,
+    BackSlashToken,
     OpenBracketToken,
     CloseBracketToken,
     OpenSquareBracketToken,
@@ -130,6 +132,8 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
         fmt.wprintf(fi.writer, "the tokenizer error:\n%s", value)
     case NewlineToken:
         fmt.wprint(fi.writer, "a newline")
+    case BackSlashToken:
+        fmt.wprint(fi.writer, "a back slash (`\\`)")
     case OpenBracketToken:
         fmt.wprint(fi.writer, "an open bracket (`(`)")
     case CloseBracketToken:
@@ -258,6 +262,11 @@ is_close_square_bracket :: proc(t: TokenContents) -> bool {
     return is_close_square_bracket
 }
 
+is_backslash_token :: proc(t: TokenContents) -> bool {
+    _, is_backslash := t.(BackSlashToken)
+    return is_backslash
+}
+
 TokenizerState :: struct {
     index:                                            uint,
     last_token:                                       TokenContents,
@@ -299,21 +308,23 @@ skip :: proc(s: ^TokenizerState, should_continue: proc(_: byte) -> bool) -> Skip
 }
 
 wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
-    when utils.debug_diagnostics {
-        utils.print_call(loc, "wrong_token_err")
-    }
+    utils.call(loc, "wrong_token_err", "", enable_debug = utils.debug_diagnostics)
     w := state.r.diagnostic_header(state.r.data, state.last_token_pos, .Error)
     defer io.close(w)
 
     for c in state.parser_context {
         io.write_string(w, "While parsing ")
         switch c.kind {
-        case .StructFieldType:
-            io.write_string(w, "the type of a struct field")
-        case .StructType:
-            io.write_string(w, "the type of a struct")
-        case .FuncDefinition:
-            io.write_string(w, "a function definition")
+        case .ValuesInCurlyBraces:
+            io.write_string(w, "values in `{}`")
+        case .ValuesInBrackets:
+            io.write_string(w, "values in `()`")
+        case .ValuesInSquareBrackets:
+            io.write_string(w, "values in `[]`")
+        case .ValuesInForwardSlashBackSlash:
+            io.write_string(w, "values in `/\\`")
+        case .Block:
+            io.write_string(w, "a block")
         case:
             panic("Unreachable")
         }
@@ -383,11 +394,9 @@ get_next_token :: proc(
     skip_newlines_and_comments_and_semicolons: bool,
     loc := #caller_location,
 ) {
-    when utils.debug_tokenizer {
-        utils.print_call(loc, "get next token")
-        defer {
-            utils.debug("last token set to %v", state.last_token)
-        }
+    utils.call(loc, "get next token", "", enable_debug = utils.debug_tokenizer)
+    defer {
+        utils.debug("last token set to %v at %v", state.last_token, state.last_token_pos)
     }
     utils.clear_dynamic(&state.last_token_descriptions_of_other_possible_tokens)
     if skip(state, utils.is_nothing_char).reached_end_of_file {
@@ -408,6 +417,9 @@ get_next_token :: proc(
             state.last_token = NewlineToken{}
         }
 
+    case '\\':
+        state.index += 1
+        state.last_token = BackSlashToken{}
     case '(':
         state.index += 1
         state.last_token = OpenBracketToken{}

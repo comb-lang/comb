@@ -5,11 +5,11 @@ kilobyte = 1024 & byte // `&` should be `*`
 megabyte = 1000 * kilobyte
 gigabyte = 1000 * megabyte
 
-Array[Elem] = []E // `E` should be `Elem`
+Array[Elem] = E[] // `E` should be `Elem`
 
 add = |a: Array[Int], b: Array[Int]| -> Array[Int] {
 	u.assert(a.len == b.len)
-	re out$ = []Int()
+	re out$ = u.empty_array[Int]()
 	for a_elem, i in a {
 		out$ = out$ :: a_elem + b[i]
 	}

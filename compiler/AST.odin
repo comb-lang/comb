@@ -3,9 +3,7 @@ package compiler
 import "../utils"
 
 StructUnit :: struct {
-    m:         utils.KeyToIndex(string),
-    positions: utils.Multi(utils.Pos),
-    types:     utils.Multi(Unit),
+    elements: []Unit,
 }
 
 StructType :: struct {
@@ -15,15 +13,12 @@ StructType :: struct {
 }
 
 SumUnit :: struct {
-    m:         utils.KeyToIndex(string),
-    positions: utils.Multi(utils.Pos),
-    payloads:  utils.Multi(StructUnit),
+    elements: []Unit,
 }
 
 SumType :: struct {
-    m:        utils.KeyToIndex(string),
     // positions: utils.Multi(utils.Pos),
-    payloads: utils.Multi(Type), // Always a struct type
+    payloads: map[u32]Maybe(Type),
 }
 
 IdentNode :: struct {
@@ -72,7 +67,7 @@ UnitsInSquareBrackets :: struct {
 FuncDefinitionRef :: struct {
     // an index into:
     // - `ParserState.function_defs`
-    // - `ParsedProject.function_defs`
+    // - `ParserOutput.function_defs`
     index: uint,
 }
 
@@ -107,7 +102,12 @@ InitialUnit :: union {
 }
 */
 
-UnitWithoutPos :: union {
+TagUnit :: struct {
+    tag: IdentToken,
+    // value: ^UnitWithPos, // May be `nil`
+}
+
+UnitWithoutPos :: union #no_nil {
     StructUnit,
     SumUnit,
     Tuple,
@@ -115,7 +115,6 @@ UnitWithoutPos :: union {
     FuncDefinitionRef,
     CallWithBrackets,
     CallWithSquareBrackets,
-    CallWithFrontedSquareBrackets,
     HierarchyJoinedUnits,
     IdentNode,
     Number,
@@ -124,6 +123,7 @@ UnitWithoutPos :: union {
     Bool,
     MarkedUnit,
     Import,
+    TagUnit,
 }
 
 UnitWithPos :: struct {
@@ -149,6 +149,7 @@ LeftToRightUnitJoinMethod :: enum {
     Assign, // =
     Tilde, // ~
     PipeEquals, // |=
+    Colon, // Used for array indexing (for example `my_array[start_index:end_index]`)
 }
 
 HierarchyUnitJoinMethod :: enum {
@@ -171,7 +172,6 @@ HierarchyUnitJoinMethod :: enum {
     Append, // ::
     Concat, // ++
     StringConcat, // &
-    Colon, // Used for array indexing (for example `my_array[start_index:end_index]`)
     Arrow, // Used for function types (for example `(String) -> U64`)
 
     // Prioraty 4
@@ -199,7 +199,7 @@ get_prioraty :: proc(join_method: HierarchyUnitJoinMethod) -> uint {
         return 1
     case .In:
         return 2
-    case .Append, .Concat, .StringConcat, .Colon, .Arrow:
+    case .Append, .Concat, .StringConcat, .Arrow:
         return 3
     case .Subtraction, .Addition, .Modulo:
         return 4
@@ -222,7 +222,6 @@ Call :: struct {
 
 CallWithBrackets :: distinct Call // A(B, C, D)
 CallWithSquareBrackets :: distinct Call // A[B, C, D]
-CallWithFrontedSquareBrackets :: distinct Call // [B, C, D]A
 
 Iterator :: union {
     Unit,
@@ -386,7 +385,6 @@ print_output_list :: proc(s: ^TreePrinterState, label: string, list: []FunctionO
         print_type(s, output.value_type)
     }
 }
-*/
 
 debug_call :: proc(funcs: []FunctionDefinition, c: Call) {
     utils.debug_nesting += 1
@@ -467,6 +465,7 @@ debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
     }
     utils.debug_nesting -= 1
 }
+*/
 
 /*
 print_block :: proc(

@@ -76,9 +76,7 @@ diagnostic :: proc(
     type: DiagnosticType = .Error,
     loc := #caller_location,
 ) {
-    when debug_diagnostics {
-        print_call(loc, "diagnostic")
-    }
+    call(loc, "diagnostic", "", enable_debug = debug_diagnostics)
     w := r.diagnostic_header(r.data, position, type)
     fmt.wprintf(w, message_fmt, ..message_args)
     io.close(w)

@@ -39,9 +39,6 @@ Type :: enum u32 {
     // }
     HttpRequest,
 
-    // {body: String}
-    HttpResponseBody,
-
     // TODO: Add more response types:
     // - Ico
     // - Gif
@@ -56,9 +53,9 @@ Type :: enum u32 {
     // - Wasm
     //
     // <
-    //   .Plain{body: String},
-    //   .Css{body: String},
-    //   .Html{body: String},
+    //   :Plain String,
+    //   :Css String,
+    //   :Html String,
     // >
     HttpResponse,
 
@@ -90,7 +87,8 @@ Type :: enum u32 {
     Bool = max(u32) - 9,
     Invalid = max(u32) - 10,
     Unknown = max(u32) - 11, // TODO: Ideally `unknown_type` would not be necersarry
-    MaxIndex = max(u32) - 12,
+    EmptyOrderedHashMap = max(u32) - 12,
+    MaxIndex = max(u32) - 13,
 }
 
 response_type_variant_index_to_content_type :: proc(variant_index: u32) -> string {
@@ -125,8 +123,7 @@ get_hash_of_array_of_types :: proc(arr: []Type) -> u32 {
 
 TypeKey :: union {
     ArrayType,
-    OrderedHashMapTypeWithStringKey,
-    OrderedHashMapTypeWithIntKey,
+    OrderedHashMapType,
     FuncType,
     SumType,
     StructType,
@@ -139,13 +136,23 @@ TypeKey :: union {
 fix_types :: proc(t: Types) {
     utils.fix_key_to_index(t.m)
     utils.fix_resizable_multi(t.values)
+    utils.fix_key_to_index(t.sum_type_tags)
 }
 
 create_types :: proc(a: ^utils.Arena) -> Types {
     out := Types {
         utils.make_key_to_index(a, utils.KeyToIndex(TypeKey)),
         utils.arena_make_multi(a, utils.Multi(TypeValue), 0, resizable = true),
+        utils.make_key_to_index(a, utils.KeyToIndex(string)),
     }
+
+    plain_tag, _ := utils.lookup_or_insert(
+        &out.sum_type_tags,
+        "Plain",
+        utils.string_to_index_procs,
+    )
+    css_tag, _ := utils.lookup_or_insert(&out.sum_type_tags, "Css", utils.string_to_index_procs)
+    html_tag, _ := utils.lookup_or_insert(&out.sum_type_tags, "Html", utils.string_to_index_procs)
 
     array_with_string_type := utils.arena_make(a, []Type, 1)
     array_with_string_type[0] = .String
@@ -199,16 +206,14 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     array_with_http_server := utils.arena_make(a, []Type, 1)
     array_with_http_server[0] = .HttpServer
 
-    assert(.DynamicArrayOfStrings == create_type(&out, ArrayType{0, .String}).type)
+    assert(.DynamicArrayOfStrings == create_type(&out, ArrayType{nil, .String}).type)
     assert(.StringToNil == create_type(&out, FuncType{array_with_string_type, nil}).type)
     assert(.StringStringToNil == create_type(&out, FuncType{array_with_2string_types, nil}).type)
     assert(
         .StringToString ==
         create_type(&out, FuncType{array_with_string_type, array_with_string_type}).type,
     )
-    assert(
-        .StringAnyOrderedHashmap == create_type(&out, OrderedHashMapTypeWithStringKey{.Any}).type,
-    )
+    assert(.StringAnyOrderedHashmap == create_type(&out, OrderedHashMapType{.String, .Any}).type)
     assert(.NoArgsToNil == create_type(&out, FuncType{nil, nil}).type)
     assert(
         .ArrayOfStringsToNil ==
@@ -298,34 +303,12 @@ create_types :: proc(a: ^utils.Arena) -> Types {
         create_type(&out, StructType{http_request_map, utils.array_to_multi(http_request_types)}).type,
     )
 
-    http_response_body_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
-    i, _ = utils.lookup_or_insert(&http_response_body_map, "body", utils.string_to_index_procs)
-    assert(i.index == 0)
-    utils.fix_key_to_index(http_response_body_map)
+    http_response_types := make(map[u32]Maybe(Type))
+    http_response_types[plain_tag.index] = .String
+    http_response_types[css_tag.index] = .String
+    http_response_types[html_tag.index] = .String
 
-    assert(
-        .HttpResponseBody ==
-        create_type(&out, StructType{http_response_body_map, utils.array_to_multi(array_with_string_type)}).type,
-    )
-
-    http_response_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
-    i, _ = utils.lookup_or_insert(&http_response_map, "Plain", utils.string_to_index_procs)
-    assert(i.index == 0)
-    i, _ = utils.lookup_or_insert(&http_response_map, "Css", utils.string_to_index_procs)
-    assert(i.index == 1)
-    i, _ = utils.lookup_or_insert(&http_response_map, "Html", utils.string_to_index_procs)
-    assert(i.index == 2)
-    utils.fix_key_to_index(http_response_map)
-
-    http_response_types := utils.arena_make(a, []Type, 3)
-    http_response_types[0] = .HttpResponseBody
-    http_response_types[1] = .HttpResponseBody
-    http_response_types[2] = .HttpResponseBody
-
-    assert(
-        .HttpResponse ==
-        create_type(&out, SumType{http_response_map, utils.array_to_multi(http_response_types)}).type,
-    )
+    assert(.HttpResponse == create_type(&out, SumType{http_response_types}).type)
 
     assert(
         .HttpRequestHandler ==
@@ -374,8 +357,9 @@ TypeValue :: struct {
 }
 
 Types :: struct {
-    m:      utils.KeyToIndex(TypeKey),
-    values: utils.Multi(TypeValue),
+    m:             utils.KeyToIndex(TypeKey),
+    values:        utils.Multi(TypeValue),
+    sum_type_tags: utils.KeyToIndex(string),
 }
 
 GotType :: struct {
@@ -383,7 +367,10 @@ GotType :: struct {
     value: TypeValue,
 }
 
-get_type :: proc(types: Types, t: Type) -> GotType {
+get_type :: proc(types: Types, t: Type, loc := #caller_location) -> GotType {
+    when ODIN_DEBUG {
+        utils.call(loc, "get_type", "")
+    }
     if t > Type.MaxIndex {
         return GotType{nil, TypeValue{}}
     }
@@ -397,10 +384,8 @@ CreatedType :: struct {
 }
 
 create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> CreatedType {
-    when utils.debug_checker {
-        utils.print_call(loc, "create_type")
-        utils.debug("value: %v", value)
-    }
+    utils.call(loc, "create_type", "")
+    utils.debug("value: %v", value)
     type, result := utils.lookup_or_insert(
         &types.m,
         value,
@@ -413,20 +398,17 @@ create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> C
     }
 
     out := CreatedType{Type(type.index), types.values.d[type.index], result}
-    when utils.debug_checker {
-        utils.debug("out: %v", out)
-    }
+    utils.debug("out: %v", out)
     return out
 }
 
 hash_type_value :: proc(value: TypeKey) -> u32 {
     switch v in value {
     case ArrayType:
-        return v.length ~ u32(v.item_type)
-    case OrderedHashMapTypeWithStringKey:
-        return u32(v.value_type) + 1
-    case OrderedHashMapTypeWithIntKey:
-        return u32(v.value_type) + 2
+        length := v.length == nil ? max(u32) : v.length.(u32)
+        return length ~ u32(v.item_type)
+    case OrderedHashMapType:
+        return u32(v.value_type) + u32(v.key_type)
     case SumType:
         return hash_sum_type(v)
     case StructType:
@@ -454,11 +436,12 @@ hash_struct_type :: proc(value: StructType) -> u32 {
 
 hash_sum_type :: proc(value: SumType) -> u32 {
     result: u32
-    for variant, i in value.m.keys {
-        for c in variant.key {
-            result ~= u32(c)
+    for tag_index, tag_payload in value.payloads {
+        result ~= tag_index
+        type, is_type := tag_payload.(Type)
+        if is_type {
+            result ~= u32(type)
         }
-        result ~= u32(value.payloads.d[i])
     }
     return result
 }
@@ -476,12 +459,9 @@ hash_func_type :: proc(value: FuncType) -> u32 {
 
 type_key_is_equal :: proc(a: TypeKey, b: TypeKey) -> bool {
     switch va in a {
-    case OrderedHashMapTypeWithStringKey:
-        vb, ok := b.(OrderedHashMapTypeWithStringKey)
-        return ok && va.value_type == vb.value_type
-    case OrderedHashMapTypeWithIntKey:
-        vb, ok := b.(OrderedHashMapTypeWithIntKey)
-        return ok && va.value_type == vb.value_type
+    case OrderedHashMapType:
+        vb, ok := b.(OrderedHashMapType)
+        return ok && va.key_type == vb.key_type && va.value_type == vb.value_type
     case ArrayType:
         vb, ok := b.(ArrayType)
         return ok && va.length == vb.length && va.item_type == vb.item_type
@@ -547,14 +527,14 @@ struct_types_are_equal :: proc(a: StructType, b: StructType) -> bool {
 }
 
 sum_types_are_equal :: proc(a: SumType, b: SumType) -> bool {
-    if len(a.m.keys) != len(b.m.keys) {
+    if len(a.payloads) != len(b.payloads) {
         return false
     }
-    for a_key, i in a.m.keys {
-        if a_key.key != b.m.keys[i].key {
+    for a_tag_index, a_tag_payload in a.payloads {
+        if a_tag_index not_in b.payloads {
             return false
         }
-        if a.payloads.d[i] != b.payloads.d[i] {
+        if a_tag_payload != b.payloads[a_tag_index] {
             return false
         }
     }

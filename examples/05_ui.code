@@ -1,21 +1,30 @@
-UI[State] = <
-    Button {children: []UI[State], onclick: (State) -> State},
-    List {header: String, children: []UI[State]},
-    Text {text: String},
->
+UI[State] = /
+    Button: {children: UI[State][], onclick: (State) -> State},
+    List: {header: String, children: UI[State][]},
+    Text: String,
+\
 
 nothing           = |s: String| -> String { return s }
 set_text_to_text1 = |s: String| -> String { return "Text 1" }
 set_text_to_text2 = |s: String| -> String { return "Text 2" }
 set_text_to_text3 = |s: String| -> String { return "Text 3" }
 
-text_picker = |s: String| -> []UI[String] {
-    return []UI[String](
-        .Text(s),
-        .Button([]UI[String](.Text("Text 1")), set_text_to_text1),
-        .Button([]UI[String](.Text("Text 2")), set_text_to_text2),
-        .Button([]UI[String](.Text("Text 3")), set_text_to_text3),
-    )
+text_picker = |s: String| -> UI[String][] {
+    return [
+        Text: s,
+        Button: {
+            children = [Text: "Text 1"],
+            onclick = set_text_to_text1,
+        },
+        Button: {
+            children = [Text: "Text 2"],
+            onclick = set_text_to_text2
+        },
+        Button: {
+            children = [Text: "Text 3"],
+            onclick = set_text_to_text3
+        },
+    ]
 }
 
 UIRenderingState[State] = {
@@ -23,7 +32,7 @@ UIRenderingState[State] = {
     focussed_button_onclick: (State) -> State,
 }
 
-render_ui[T] = |ui: []UI[T], focussed_button_index: UInt, nesting: UInt, state: UIRenderingState[T]| -> UIRenderingState[T] {
+render_ui[T] = |ui: UI[T][], focussed_button_index: UInt, nesting: UInt, state: UIRenderingState[T]| -> UIRenderingState[T] {
     re s$ = state
     for elem in ui {
         for _ in 0..<nesting {
@@ -31,24 +40,24 @@ render_ui[T] = |ui: []UI[T], focussed_button_index: UInt, nesting: UInt, state: 
         }
         print("- ")
         match elem {
-            button: .Button {
+            Button: button {
                 if focussed_button_index == s$.button_index {
                     println("Focused button")
                     // ~s.focussed_button_onclick = button.onclick
-                    s$ = UIRenderingState[T](s$.button_index, button.onclick)
+                    s$ = {button_index = s$.button_index, focussed_button_onclick = button.onclick}
                 } else {
                     println("Button")
                 }
                 // ~s.button_index += 1
-                s$ = UIRenderingState[T](s$.button_index + 1, s$.focussed_button_onclick)
+                s$ = s$ ~ .button_index = s$.button_index + 1
                 s$ = render_ui[T](button.children, focussed_button_index, nesting + 1, s$)
             }
-            list: .List {
+            List: list {
                 println(list.header)
                 s$ = render_ui[T](list.children, focussed_button_index, nesting + 1, s$)
             }
-            text: .Text {
-                println(text.text)
+            Text: text {
+                println(text)
             }
         }
     }
@@ -61,7 +70,12 @@ main = || -> Int {
     while true {
         ui = text_picker(state$)
         clear()
-        rendering_state = render_ui[String](ui, focussed_button_index$, 0, UIRenderingState[String](0, nothing))
+        rendering_state = render_ui[String](
+            ui,
+            focussed_button_index$,
+            0,
+            {button_index = 0, focussed_button_onclick = nothing},
+        )
         max_button_index = rendering_state.button_index - 1
 
         input = readline("Enter either `next`, `prev`, `click`, or `quit`: ")

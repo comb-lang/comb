@@ -1,7 +1,7 @@
-Result[Ok, Err] = <
-  Ok{value: Ok},
-  Err{value: Err},
->
+Result[Ok, Err] = /
+  Ok: Ok,
+  Err: Err,
+\
 
 debug[T] = |arg: T| -> T {
 	println(arg.to_str)

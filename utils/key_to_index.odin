@@ -39,7 +39,12 @@ KeyToIndex :: struct(K: typeid) {
     keys:  []Key(K),
 }
 
-make_key_to_index :: proc(a: ^Arena, $T: typeid/KeyToIndex($K)) -> KeyToIndex(K) {
+make_key_to_index :: proc(
+    a: ^Arena,
+    $T: typeid/KeyToIndex($K),
+    loc := #caller_location,
+) -> KeyToIndex(K) {
+    call(loc, "make_key_to_index", "")
     return KeyToIndex(K) {
         arena_make(a, []Index, 0, resizable = true),
         arena_make(a, []Key(K), 0, resizable = true),
@@ -62,10 +67,8 @@ resize_key_to_index :: proc(
     new_slots_len: u32,
     loc := #caller_location,
 ) {
-    when debug_key_to_index {
-        print_call(loc, "resize")
-        debug("new_slots_len: %d", new_slots_len)
-    }
+    call(loc, "resize", "")
+    debug("new_slots_len: %d", new_slots_len)
     resize_dynamic(&key_to_index.slots, int(new_slots_len))
     mem.set(&key_to_index.slots[0], max(u8), int(new_slots_len) * size_of(Index))
 
@@ -87,11 +90,9 @@ resize_key_to_index :: proc(
         start_slot_index := get_index(new_slots_len, key_to_index.keys[index].key_hash)
         free_slot_index := find_index_of_free_slot(key_to_index.slots, start_slot_index)
 
-        when debug_key_to_index {
-            debug("index: %d", index)
-            debug("start_slot_index: %d", start_slot_index)
-            debug("free_slot_index: %d", free_slot_index)
-        }
+        debug("index: %d", index)
+        debug("start_slot_index: %d", start_slot_index)
+        debug("free_slot_index: %d", free_slot_index)
 
         key_to_index.slots[free_slot_index] = Index{u32(index)}
     }
@@ -129,18 +130,14 @@ _lookup :: proc(
     for {
         slot_value := key_to_index.slots[i]
         if slot_value.index == max(u32) {
-            when debug_key_to_index {
-                debug("found empty slot at index %d", i)
-            }
+            debug("found empty slot at index %d", i)
             return SlotIndex{i}
         }
         existing_key := key_to_index.keys[slot_value.index].key
         is_equal := equal_proc(key.key, existing_key)
-        when debug_key_to_index {
-            debug("equal func called")
-            debug("existing key: %v", existing_key)
-            debug("is_equal: %b", is_equal)
-        }
+        debug("equal func called")
+        debug("existing key: %v", existing_key)
+        debug("is_equal: %b", is_equal)
         if is_equal {
             return slot_value
         }
@@ -156,10 +153,8 @@ lookup :: proc(
     procs: KeyToIndexProcs(K),
     loc := #caller_location,
 ) -> Index {
-    when debug_key_to_index {
-        print_call(loc, "lookup")
-        debug("key: %v", key)
-    }
+    call(loc, "lookup", "", enable_debug = debug_key_to_index)
+    debug("key: %v", key)
 
     if len(key_to_index.keys) == 0 {
         return does_not_exist
@@ -182,10 +177,8 @@ lookup_or_insert :: proc(
     Index,
     Result,
 ) {
-    when debug_key_to_index {
-        print_call(loc, "lookup_or_insert")
-        debug("key: %v", key)
-    }
+    call(loc, "lookup_or_insert", "", enable_debug = debug_key_to_index)
+    debug("key: %v", key)
     full_key := Key(K){key, procs.hash_proc(key)}
     if len(key_to_index.keys) == 0 {
         append_dynamic(&key_to_index.keys, full_key)

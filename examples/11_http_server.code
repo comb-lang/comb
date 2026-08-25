@@ -1,6 +1,6 @@
 // TODO: Add an automated test for this example
 
-http = import "http.code"
+http = import "std/http.code"
 
 handler = |req: HttpRequest| -> HttpResponse {
     if req.method == "GET" {

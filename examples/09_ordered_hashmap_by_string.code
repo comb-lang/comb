@@ -1,3 +1,5 @@
+u = import "std/utils.code"
+
 // TODO: Improve C emitter so that this also works when compiled via C
 
 Shopping = OrderedHashMap[String, UInt]
@@ -22,7 +24,7 @@ main = || -> Int {
 	println("`remove` - remove from shopping list")
 	save_cursor_pos()
 
-    re shopping$ = Shopping[]
+    re shopping$ = u.empty_map[Shopping]()
     while true {
 		restore_cursor_pos()
 		clear_after_cursor()

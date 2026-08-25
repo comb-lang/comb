@@ -1,32 +1,34 @@
-LinkedList[T] = <
-    Empty,
-    NotEmpty{head: T, tail: LinkedList[T]},
->
+u = import "std/utils.code"
+
+LinkedList[T] = /
+    :Empty,
+    NotEmpty: {head: T, tail: LinkedList[T]},
+\
 
 insert[T] = |list: LinkedList[T], number: T| -> LinkedList[T] {
-    return .NotEmpty(number, list)
+    return NotEmpty: {head = number, tail = list}
 }
 
 reverse[T] = |list: LinkedList[T], end: LinkedList[T]| -> LinkedList[T] {
     match list {
-        _: .Empty {
+        :Empty {
             return end
         }
-        not_empty: .NotEmpty {
-            return reverse[T](not_empty.tail, .NotEmpty(not_empty.head, end))
+        NotEmpty: not_empty {
+            return reverse[T](not_empty.tail, NotEmpty: {head = not_empty.head, tail = end})
         }
     }
 }
 
-to_array[T] = |list: LinkedList[T]| -> []T {
-    re array$ = []T()
+to_array[T] = |list: LinkedList[T]| -> T[] {
+    re array$ = u.empty_array[T]()
     re l$ = list
     while true {
         match l$ {
-            .Empty {
+            :Empty {
                 return array$
             }
-            not_empty: .NotEmpty {
+            NotEmpty: not_empty {
                 array$ = array$ :: not_empty.head
                 l$ = not_empty.tail
             }
@@ -38,10 +40,10 @@ foreach[T] = |list: LinkedList[T], func: (T) -> ()| {
     re l$ = list
     while true {
         match l$ {
-            .Empty {
+            :Empty {
                 return
             }
-            not_empty: .NotEmpty {
+            NotEmpty: not_empty {
                 func(not_empty.head)
                 l$ = not_empty.tail
             }
@@ -50,7 +52,7 @@ foreach[T] = |list: LinkedList[T], func: (T) -> ()| {
 }
 
 empty_list[T] = || -> LinkedList[T] {
-    return .Empty()
+    return :Empty
 }
 
 debug_number = |number: Int| {
@@ -72,6 +74,6 @@ main = || -> Int {
         println(number.to_str)
     }
     println("Reversed:")
-    foreach[Int](reverse[Int](l$, .Empty()), debug_number)
+    foreach[Int](reverse[Int](l$, :Empty), debug_number)
     return 0
 }

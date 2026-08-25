@@ -14,7 +14,10 @@ FilesCache :: struct {
     files_map: map[string]^CompilerFile,
 }
 
-empty_files_cache :: proc(a: ^Arena) -> FilesCache {
+empty_files_cache :: proc(a: ^Arena, loc := #caller_location) -> FilesCache {
+    when ODIN_DEBUG {
+        call(loc, "empty_files_cache", "")
+    }
     return FilesCache{arena_make(a, []CompilerFile, 0, resizable = true), nil}
 }
 

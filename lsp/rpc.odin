@@ -57,7 +57,9 @@ Shutdown :: struct {
     using _: RequestData,
 }
 
-Exit :: struct {}
+Exit :: struct {
+    method: string,
+}
 
 DidChangeTextDocumentParams :: struct {
     text_document:   TextDocumentIdentifier `json:"textDocument"`,
@@ -79,7 +81,8 @@ TextDocumentPositionParams :: struct {
 }
 
 RequestData :: struct {
-    id: int,
+    id:     int,
+    method: string,
 }
 
 Response :: union {
@@ -152,7 +155,9 @@ InitializeParams :: struct {
     client_info:  Info `json:"clientInfo"`,
     capabilities: ClientCapabilities,
 }
-LspInitialized :: struct {}
+LspInitialized :: struct {
+    method: string,
+}
 
 TextDocumentSync :: enum {
     None        = 0,
@@ -165,9 +170,9 @@ Info :: struct {
     version: string,
 }
 
-// TODO: Update server info
+// TODO: Update server version
 @(private = "package")
-server_info :: Info{"programming_language", "0.0.1"}
+server_info :: Info{"Comb LSP", "0.0.1"}
 
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#positionEncodingKind
 @(private = "package")
@@ -201,10 +206,13 @@ send_response :: proc(data: Response) {
     }
     json_str := utils.finish_building(builder)
     fmt.wprintf(lsp_state.writer, "Content-Length: %d\r\n\r\n%s", len(json_str), json_str)
-    fmt.wprintf(utils.debug_writer, "Sent message ```\n%s\n```", json_str)
+    fmt.wprintfln(utils.debug_writer, "Sent message ```\n%s\n```", json_str)
 }
 
-receive_request :: proc() -> Request {
+receive_request :: proc(loc := #caller_location) -> Request {
+    when ODIN_DEBUG {
+        utils.call(loc, "receive_request", "")
+    }
     LspInitialMessage :: struct {
         method: string,
     }

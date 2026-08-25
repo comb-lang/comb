@@ -1,10 +1,10 @@
-InvalidSumType = <
-	A{},
-	B{value: InvalidType},
->
+InvalidSumType = /
+	:A,
+	B: InvalidType,
+\
 
 uses_invalid_sum_type = || {
-	_ = []InvalidSumType(.A())
+	_ = || -> InvalidSumType {return :A}
 }
 
 main = || -> Int {

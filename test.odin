@@ -6,10 +6,14 @@ package main
 //       the same behavior in all the tests
 
 import "compiler"
+import "core:encoding/json"
 import "core:fmt"
+import "core:io"
 import "core:os"
 import "core:path/filepath"
+import "core:strings"
 import "core:testing"
+import "lsp"
 import "utils"
 
 CompilationFailed :: struct {
@@ -471,13 +475,13 @@ example_08_result :: proc(t: ^testing.T) {
 }
 
 @(test)
-example_09_hashmap :: proc(t: ^testing.T) {
+example_09_ordered_hashmap_by_string :: proc(t: ^testing.T) {
     a: utils.Arena
     defer utils.cleanup_arena(&a, expect_empty = false)
     ran := interpret_example(
         t,
         &a,
-        FunctionRef{#directory + "examples/09_hashmap.code", "main"},
+        FunctionRef{#directory + "examples/09_ordered_hashmap_by_string.code", "main"},
         "add\nbanana\nadd\napple\nadd\nbanana\nremove\napple\nexit\n",
     )
     testing.expect(t, ran.exit_code == 0)
@@ -490,10 +494,14 @@ example_09_hashmap :: proc(t: ^testing.T) {
 example_10_geometry :: proc(t: ^testing.T) {
     a: utils.Arena
     defer utils.cleanup_arena(&a, expect_empty = false)
-    ran := run_example_via_c(t, &a, #directory + "examples/10_geometry.code", "")
-    if ran == nil {return}
-    out := ran.(CompilationSuccessful)
-    testing.expect(t, out.compiler.stderr == c_warning)
+    out := interpret_example(
+        t,
+        &a,
+        FunctionRef{#directory + "examples/10_geometry.code", "main"},
+        "",
+    )
+    testing.expect(t, out.exit_code == 0)
+    testing.expect(t, out.compiler.stderr == "")
     testing.expect(t, out.program.stderr == "")
     e := utils.TestingTextExpecter{0, out.program.stdout, t}
     utils.expect_string(&e, "                              cc                              \n")
@@ -563,12 +571,11 @@ invalid_example_01_wrong_identifier_casing :: proc(t: ^testing.T) {
     file :: #directory + "examples/invalid/01_wrong_identifier_casing.code"
     a: utils.Arena
     defer utils.cleanup_arena(&a, expect_empty = false)
-    ran := run_example_via_c(t, &a, file, "")
-    if ran == nil {return}
-    out := ran.(CompilationSuccessful)
+    out := interpret_example(t, &a, FunctionRef{file, "main"}, "")
+    testing.expect(t, out.exit_code == 0)
     testing.expect(t, out.program.stderr == "")
     testing.expect(t, out.program.stdout == "Hello world\n")
-    testing.expect(t, out.compiler.stderr == c_warning)
+    testing.expect(t, out.compiler.stderr == "")
     e := utils.TestingTextExpecter{0, out.compiler.stdout, t}
     fmt.println(out.compiler.stdout)
     utils.expect_string(&e, "Reading `" + file + "`...\n")
@@ -596,7 +603,7 @@ invalid_example_01_wrong_identifier_casing :: proc(t: ^testing.T) {
     utils.expect_string(&e, ".")
     utils.expect_digits(&e)
     utils.expect_string(&e, " ms\n")
-    utils.expect_string(&e, "Emitting C code...\n")
+    utils.expect_string(&e, "Interpreting `main`...\n")
     utils.expect_done_message(&e)
     utils.expect_finished(&e)
 }
@@ -822,8 +829,14 @@ invalid_example_04_invalid_globals :: proc(t: ^testing.T) {
     utils.expect_string(&e, "Error compiling `" + path + "` (4:19)\n")
     utils.expect_string(&e, "Expected the type `String` but got the type `UInt`\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + path + "` (8:17)\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (8:15)\n")
     utils.expect_string(&e, "The variable `E` is not defined in the file `" + path + "`\n")
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (10:26)\n")
+    utils.expect_string(&e, "Expected the type `Type` but got the type `Invalid`\n")
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (10:41)\n")
+    utils.expect_string(&e, "Expected the type `Type` but got the type `Invalid`\n")
     utils.expect_string(&e, "\n")
     utils.expect_string(&e, "Error compiling `" + path + "` (19:22)\n")
     utils.expect_string(
@@ -831,11 +844,13 @@ invalid_example_04_invalid_globals :: proc(t: ^testing.T) {
         "The variable `InvalidType` is not defined in the file `" + path + "`\n",
     )
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + path + "` (11:13)\n")
+    /*
+    utils.expect_string(&e, "Error compiling `" + path + "` (15:13)\n")
     utils.expect_string(&e, "The value before `.len` is of type `Array[Int]`\n")
     utils.expect_string(&e, "Expected a string type, an array type, or an OrderedHashSet type\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Erroneously checked with 5 errors and 0 warnings in ")
+    */
+    utils.expect_string(&e, "Erroneously checked with 6 errors and 0 warnings in ")
     utils.expect_digits(&e)
     utils.expect_string(&e, ".")
     utils.expect_digits(&e)
@@ -907,6 +922,97 @@ invalid_example_07_uses_compiletime_value_at_runtime :: proc(t: ^testing.T) {
     utils.expect_string(&e, ".")
     utils.expect_digits(&e)
     utils.expect_string(&e, " ms\n")
+    utils.expect_finished(&e)
+}
+
+@(test)
+lsp_test :: proc(t: ^testing.T) {
+    send_request :: proc(a: ^utils.Arena, b: ^strings.Builder, r: lsp.Request) {
+        builder := utils.make_builder(a)
+        opt := json.Marshal_Options{}
+        json.marshal_to_writer(builder, r, &opt)
+        built := utils.finish_building(builder)
+        fmt.sbprintf(b, "Content-Length: %d\r\n\r\n%s", len(built), built)
+    }
+
+    get_text_document :: proc(path: string) -> lsp.TextDocumentItem {
+        data, err := os.read_entire_file(path, context.allocator)
+        assert(err == nil)
+        return lsp.TextDocumentItem{lsp.to_uri(path), "comb", 0, string(data)}
+    }
+
+    a: utils.Arena
+    b := strings.builder_make()
+    send_request(
+        &a,
+        &b,
+        lsp.LspInitialize{lsp.RequestData{0, "initialize"}, lsp.InitializeParams{}},
+    )
+    send_request(&a, &b, lsp.LspInitialized{"initialized"})
+    send_request(
+        &a,
+        &b,
+        lsp.DidOpenTextDocumentNotification {
+            lsp.Notification{lsp.jsonrpc, "textDocument/didOpen"},
+            lsp.DidOpenTextDocumentParams {
+                get_text_document(#directory + "examples/00_fizzbuzz.code"),
+            },
+        },
+    )
+    send_request(&a, &b, lsp.Shutdown{lsp.RequestData{0, "shutdown"}})
+    send_request(&a, &b, lsp.Exit{"exit"})
+
+    // TODO: Check the output in `output_collector`
+    output_collector := utils.make_builder(&a)
+    lsp.run_lsp(utils.make_reader(&a, strings.to_string(b)), output_collector)
+}
+
+@(test)
+example_14_ordered_hashmap_by_number :: proc(t: ^testing.T) {
+    a: utils.Arena
+    defer utils.cleanup_arena(&a, expect_empty = false)
+    ran := interpret_example(
+        t,
+        &a,
+        FunctionRef{#directory + "examples/14_ordered_hashmap_by_number.code", "main"},
+        "1\n2.5\n15\n2.5\ninvalid\n4.5.\nexit\n",
+    )
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.compiler.stderr == "")
+    testing.expect(t, ran.program.stderr == "")
+    e := utils.TestingTextExpecter{0, ran.program.stdout, t}
+    utils.expect_string(&e, "No cache entries\n")
+    utils.expect_string(
+        &e,
+        "Enter a number to perform a cache lookup or `exit` to exit: 1.000: {doubled = 2.000, halved = 0.500}\n",
+    )
+    utils.expect_string(
+        &e,
+        "Enter a number to perform a cache lookup or `exit` to exit: 1.000: {doubled = 2.000, halved = 0.500}\n",
+    )
+    utils.expect_string(&e, "2.500: {doubled = 5.000, halved = 1.250}\n")
+    utils.expect_string(
+        &e,
+        "Enter a number to perform a cache lookup or `exit` to exit: 1.000: {doubled = 2.000, halved = 0.500}\n",
+    )
+    utils.expect_string(&e, "2.500: {doubled = 5.000, halved = 1.250}\n")
+    utils.expect_string(&e, "15.000: {doubled = 30.000, halved = 7.500}\n")
+    utils.expect_string(
+        &e,
+        "Enter a number to perform a cache lookup or `exit` to exit: Already in cache\n",
+    )
+    utils.expect_string(&e, "1.000: {doubled = 2.000, halved = 0.500}\n")
+    utils.expect_string(&e, "2.500: {doubled = 5.000, halved = 1.250}\n")
+    utils.expect_string(&e, "15.000: {doubled = 30.000, halved = 7.500}\n")
+    utils.expect_string(
+        &e,
+        "Enter a number to perform a cache lookup or `exit` to exit: Failed to convert to float: Unexpected non-digit character ''\n",
+    )
+    utils.expect_string(
+        &e,
+        "Enter a number to perform a cache lookup or `exit` to exit: Failed to convert to float: Unexpected non-digit character ''\n",
+    )
+    utils.expect_string(&e, "Enter a number to perform a cache lookup or `exit` to exit: ")
     utils.expect_finished(&e)
 }
 

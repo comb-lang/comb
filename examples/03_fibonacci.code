@@ -1,6 +1,10 @@
+as[A, B] = |v: A| -> B {
+    return v
+}
+
 main = || -> Int {
     threshold = 1000
-    re fibonacci_numbers$ = []Int(1, 1)
+    re fibonacci_numbers$ = as[UInt[2], UInt[]]([1, 1])
     while fibonacci_numbers$[fibonacci_numbers$.len-1] < threshold {
         fibonacci_numbers$ = fibonacci_numbers$
             :: fibonacci_numbers$[fibonacci_numbers$.len-1] + fibonacci_numbers$[fibonacci_numbers$.len-2]

@@ -1,4 +1,4 @@
-# Programming language
+# The comb programming language
 
 The second programming language that I've developed, after [common assembly](https://github.com/godalming123/common-assembly).
 
@@ -11,7 +11,7 @@ odin build .
 # Executing the fizzbuzz example
 
 ```sh
-./programming_language run examples/00_fizzbuzz.code
+./comb run examples/00_fizzbuzz.code
 ```
 
 # Running tests
@@ -38,7 +38,6 @@ A new language for the web, because it's time to stop working around javascript.
 
 # Todo
 
-- Choose a name
 - Make the `examples/std` standard library accessible from source code in any directory
 - Consider using a different syntax for generics, where `$` is used to specify a generic, and the type of that generic is inferred:
   - For functions, something like `typeof(append) = ([]$T, []$T) -> []$T`
@@ -166,13 +165,15 @@ A new language for the web, because it's time to stop working around javascript.
 
 # The syntax
 
+- I feel like the colon being in a different place in something like `TagName: payload` for a variant with a payload and something like `:TagName` for a variant without a payload is odd, but it makes sense because it means that the parser doesn't have to guess whether it should parse a payload
+- Instead of `Bool[100]` or `Bool[]`, I would rather use `[100]Bool` or `[]Bool`, especially for 2D arrays like `Bool[game_width][game_height]`
 - Instead of something like `OrderedHashMap[String, Int]["a" = 5]` to create an ordered hash map value, I would rather use something like `{"a": 5}`
-- Instead of `<>`, I would rather use `[]` for union/sum types, but that conflicts with array types
-- Instead of `[]Type(elem1, elem2, ...)`, I would rather use `[elem1, elem2, ...]` for array literals, but that is harder to type check
+- Instead of `/\`, I would rather use `[]` for union/sum types, but that conflicts with array literals
+  - Just `<>` conflicts with comparison operators
 - Instead of `|args| -> ReturnType {...}`, I would rather use `(args) -> ReturnType {}` for function definitions, but that syntax conflicts with order of operations grouping
-- Notes on the syntax for the payload of struct literals, tagged union literals, and array literals:
+- (No longer applies now structs are created like `{field = value}`) Notes on the syntax for the payload of struct literals, tagged union literals, and array literals:
   - Syntaxes that can be used:
-    - Just `()` (the current syntax)
+    - Just `()`
     - `={}`
   - Syntaxes that can't easily be used:
     - Just `{}`, because then you can't distinguish between an identifier value followed by a block and a struct literal
@@ -188,6 +189,7 @@ A new language for the web, because it's time to stop working around javascript.
 - v0.1.0: Implement any language features for writing interactive user interfaces, and a UI library to do so:
   - Features of the UI system:
     - Functional, elm-like reactivity
+      - I prefer [this slight variation on how you implement reactivity in elm](https://discourse.elm-lang.org/t/a-different-api-design-for-elm-web-that-removes-the-need-for-msg-and-update/10400)
     - Can compile to several different artifacts, all of which can seamlessly work together in the same website:
       - Static HTML, with client side reactivity
       - An executable for a server to handle requests
@@ -218,7 +220,7 @@ A new language for the web, because it's time to stop working around javascript.
     - For this to be possible, you need some way to define that a particulair function/constant specifies the metadata/interactivity for one of the pages on the website
       - Maybe this could be done with tags, for example:
         ```
-        CounterState : {
+        CounterState = {
           count: UInt,
         }
 
@@ -261,9 +263,14 @@ A new language for the web, because it's time to stop working around javascript.
       - Being able to convert a value of any arbitrary type to a string without writing any extra code (like in odin)
   - Maybe add a REPL
   - Type inference?
-    - Most of the verbosity of explicit types can be taken away by always know the type of the value's destination, and using the type of the destination to infer things about the value
+    - Currently you create an empty array with a specific item type by defining an empty function like `empty[T] = || -> T[] {return []}` and then using the function like `empty[ItemType]()`
+    - I would rather be able to use `[]` but currently the type of `l$` is inferred incorrectly in something like `re l$ = []; l$ = l$ :: 3`
+    - Most of the verbosity of explicit types can be taken away by always knowing the type of the value's destination, and using the type of the destination to infer things about the value
       - However this approach has disadvantages:
         - You would have to specify what the generic arg is when calling a generic function
+        - You would have to specify the type of every variable explicitly
+        - You would have to specify the return type of every function
+          - Currently this is the case, but in the future function return types may be inferable
   - Make the compiler faster?
     - Concurrency?
       - Could use https://github.com/pmbanugo/tina

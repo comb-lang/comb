@@ -118,6 +118,10 @@ get_builtin :: proc(name: string) -> GotBuiltin {
         return GotBuiltin{Type.HttpResponse, .Type}
     case "HttpServer":
         return GotBuiltin{Type.HttpServer, .Type}
+    case "OrderedHashMap":
+        return GotBuiltin{UninitialisedOrderedHashMapType{}, .Unknown}
+    case "EmptyOrderedHashMap":
+        return GotBuiltin{Type.EmptyOrderedHashMap, .Type}
     }
 }
 
@@ -180,9 +184,7 @@ add_unnamed_variable :: proc(
     variable_is_re: bool,
     loc := #caller_location,
 ) -> VariableRef {
-    when utils.debug_checker {
-        utils.print_call(loc, "add_unnamed_variable")
-    }
+    utils.call(loc, "add_unnamed_variable", "")
     var_ref := VariableRef{len(s.scopes) - 1, len(s.scopes[len(s.scopes) - 1].variables)}
     append_soa_elem(
         &s.scopes[len(s.scopes) - 1].variables,
@@ -201,9 +203,7 @@ add_variable :: proc(
     VariableRef,
     bool,
 ) {
-    when utils.debug_checker {
-        utils.print_call(loc, "add_variable")
-    }
+    utils.call(loc, "add_variable", "")
     // TODO: Add a warning for unused variables
     expect_snake_case(
         s,

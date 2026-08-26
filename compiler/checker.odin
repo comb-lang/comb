@@ -1131,12 +1131,17 @@ get_func_type :: proc(
     return nil
 }
 
-type_is_subset :: proc(
+// Returns `nil` on success
+// Returns a writer that needs closing on failure
+expect_type_is_subset :: proc(
     s: ^CheckerState,
+    pos: utils.Pos,
     type_unsimplified: Type,
     superset_unsimplified: Type,
     loc := #caller_location,
-) -> bool {
+) -> (
+    out: Maybe(io.Writer),
+) {
     when ODIN_DEBUG {
         utils.call(
             loc,
@@ -1146,94 +1151,131 @@ type_is_subset :: proc(
             get_type(s.types, superset_unsimplified),
         )
     }
+    defer {
+        if out != nil {
+            w := out.(io.Writer)
+            io.write_string(w, "Expected the type `")
+            io.write_string(w, type_to_string(s, superset_unsimplified))
+            io.write_string(w, "` to be a superset of the type `")
+            io.write_string(w, type_to_string(s, type_unsimplified))
+            io.write_string(w, "`\n")
+        }
+    }
     type := simplify_type(s, type_unsimplified)
     superset := simplify_type(s, superset_unsimplified)
     if type.type == superset.type {
-        return true
+        return
     }
     if superset.type == .Any {
-        return true
+        return
     }
     if superset.type == .Float {
-        return type.type == .Int || type.type == .UInt
+        if type.type != .Int && type.type != .UInt {
+            out = s.r.diagnostic_header(s.r.data, pos, .Error)
+        }
+        return
     }
     if superset.type == .Int {
-        return type.type == .UInt
+        if type.type != .UInt {
+            out = s.r.diagnostic_header(s.r.data, pos, .Error)
+        }
+        return
     }
     if superset.type > .MaxIndex {
-        return false
+        out = s.r.diagnostic_header(s.r.data, pos, .Error)
+        return
     }
     #partial switch superset_value in superset.key {
     case nil:
         panic("Unreachable")
     case:
-        return false
+        out = s.r.diagnostic_header(s.r.data, pos, .Error)
+        return
     case OrderedHashMapType:
         if type.type == .EmptyOrderedHashMap {
-            return true
+            return
         }
         type_value, is_ordered_hashmap_type := type.key.(OrderedHashMapType)
         if !is_ordered_hashmap_type {
-            return false
+            out = s.r.diagnostic_header(s.r.data, pos, .Error)
+            return
         }
-        if !type_is_subset(s, Type(type_value.key_type), Type(superset_value.key_type)) {
-            return false
+        out = expect_type_is_subset(
+            s,
+            pos,
+            Type(type_value.key_type),
+            Type(superset_value.key_type),
+        )
+        if out != nil {
+            return
         }
-        if !type_is_subset(s, type_value.value_type, superset_value.value_type) {
-            return false
+        out = expect_type_is_subset(s, pos, type_value.value_type, superset_value.value_type)
+        if out != nil {
+            return
         }
-        return true
+        return
     case ArrayType:
         type_value, is_array_type := type.key.(ArrayType)
         if !is_array_type {
-            return false
+            out = s.r.diagnostic_header(s.r.data, pos, .Error)
+            return
         }
         if type_value.length == 0 && (superset_value.length == 0 || superset_value.length == nil) {
-            return true
+            return
         }
         if superset_value.length == nil || superset_value.length == type_value.length {
-            return type_is_subset(s, type_value.item_type, superset_value.item_type)
+            out = expect_type_is_subset(s, pos, type_value.item_type, superset_value.item_type)
+            return
         }
-        return false
+        out = s.r.diagnostic_header(s.r.data, pos, .Error)
+        return
     case StructType:
         type_value, is_struct_type := type.key.(StructType)
         if !is_struct_type {
-            return false
+            out = s.r.diagnostic_header(s.r.data, pos, .Error)
+            return
         }
         if len(superset_value.m.keys) != len(type_value.m.keys) {
-            return false
+            out = s.r.diagnostic_header(s.r.data, pos, .Error)
+            return
         }
         for superset_key, i in superset_value.m.keys {
             if superset_key.key != type_value.m.keys[i].key {
-                return false
+                out = s.r.diagnostic_header(s.r.data, pos, .Error)
+                return
             }
-            if !type_is_subset(s, type_value.types.d[i], superset_value.types.d[i]) {
-                return false
+            out = expect_type_is_subset(s, pos, type_value.types.d[i], superset_value.types.d[i])
+            if out != nil {
+                return
             }
         }
-        return true
+        return
     case SumType:
         type_value, is_sum_type := type.key.(SumType)
         if !is_sum_type {
-            return false
+            out = s.r.diagnostic_header(s.r.data, pos, .Error)
+            return
         }
         for tag_variant_index, tag_payload in type_value.payloads {
             if tag_variant_index not_in superset_value.payloads {
-                return false
+                out = s.r.diagnostic_header(s.r.data, pos, .Error)
+                return
             }
             type_payload, type_has_payload := tag_payload.(Type)
             superset_payload, superset_has_payload := superset_value.payloads[tag_variant_index].(Type)
             if type_has_payload != superset_has_payload {
-                return false
+                out = s.r.diagnostic_header(s.r.data, pos, .Error)
+                return
             }
             if !type_has_payload {
                 continue
             }
-            if type_is_subset(s, type_payload, superset_payload) == false {
-                return false
+            out = expect_type_is_subset(s, pos, type_payload, superset_payload)
+            if out != nil {
+                return
             }
         }
-        return true
+        return
     case GenericTypeValue, GlobalType:
         panic("Unreachable")
     }
@@ -1356,22 +1398,15 @@ expect_type :: proc(
     pos: utils.Pos,
     expected: Type,
     got: Type,
-    extra_text: string,
     loc := #caller_location,
 ) -> bool {
     utils.call(loc, "expect_type", "")
-    if !type_is_subset(s, got, expected) {
-        utils.diagnostic(
-            s.r,
-            pos,
-            "Expected the type `%s` but got the type `%s`%s",
-            type_to_string(s, expected),
-            type_to_string(s, got),
-            extra_text,
-        )
-        return false
+    out := expect_type_is_subset(s, pos, got, expected)
+    if out == nil {
+        return true
     }
-    return true
+    io.close(out.(io.Writer))
+    return false
 }
 
 get_variable_type :: proc(
@@ -2961,7 +2996,7 @@ check_value_with_marker :: proc(
         if value.value == nil {
             return CheckValueResult{nil, .Invalid}
         }
-        if !expect_type(s, v.pos, .String, value.type, "") {
+        if !expect_type(s, v.pos, .String, value.type) {
             return CheckValueResult{nil, .Invalid}
         }
         comptime_value, is_comptime := value.value.(CompileTimeValue)
@@ -3046,7 +3081,7 @@ check_joined_unit_value :: proc(
             )
             return CheckValueResult{nil, .Invalid}
         }
-        if !expect_type(s, before.first.pos, Type(hash_map_type.key_type), val0.type, "") {
+        if !expect_type(s, before.first.pos, Type(hash_map_type.key_type), val0.type) {
             return CheckValueResult{nil, .Invalid}
         }
         out: CheckedValue = CheckedJoinedValues{.In, new_clone(val0.value), new_clone(val1.value)}
@@ -4142,7 +4177,7 @@ check_value_of_type :: proc(
     if r.v.value == nil {
         return nil
     }
-    if expect_type(s, v.first.pos, expected_type, r.v.type, "") {
+    if expect_type(s, v.first.pos, expected_type, r.v.type) {
         return r.v.value
     }
     return nil

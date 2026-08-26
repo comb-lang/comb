@@ -197,7 +197,7 @@ add_unnamed_variable :: proc(
 add_variable :: proc(
     s: ^CheckerState,
     variable_type: Type,
-    variable: Ident, // if `variable.has_dollar_at_end`, then the variable is created as mutable
+    variable: IdentAndPos, // if `variable.has_dollar_at_end`, then the variable is created as mutable
     loc := #caller_location,
 ) -> (
     VariableRef,

@@ -17,6 +17,10 @@ create_not :: proc(value: CheckedValue) -> CheckedValue {
     return BooleanNotValue(new_clone(value))
 }
 
+create_negation :: proc(value: CheckedValue) -> CheckedValue {
+    return create_joined_values(.Subtraction, CompileTimeValue(utils.number_zero), value)
+}
+
 create_joined_values :: proc(
     method: UnitJoinMethod,
     val0: CheckedValue,

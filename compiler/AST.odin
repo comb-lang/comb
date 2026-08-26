@@ -22,7 +22,7 @@ SumType :: struct {
 }
 
 IdentNode :: struct {
-    segments:      #soa[]Ident,
+    ident:         IdentAndPos,
     has_re_before: bool,
 }
 
@@ -40,20 +40,14 @@ NonNegativeNumber :: union {
     DecimalNonNegativeNumber,
 }
 
-Number :: struct {
-    is_negated:     bool,
-    absolute_value: NonNegativeNumber,
-}
-
 String :: distinct []string
 
 Char :: distinct byte
 
 Bool :: distinct bool
 
-MarkedUnit :: struct {
-    value:   ^Unit,
-    markers: []TextAndPos,
+Marker :: struct {
+    marker: TextAndPos,
 }
 
 Tuple :: struct {
@@ -102,44 +96,30 @@ InitialUnit :: union {
 }
 */
 
-TagUnit :: struct {
-    tag: IdentToken,
-    // value: ^UnitWithPos, // May be `nil`
-}
-
-UnitWithoutPos :: union #no_nil {
+UnitSegmentContents :: union #no_nil {
     StructUnit,
     SumUnit,
     Tuple,
     UnitsInSquareBrackets,
     FuncDefinitionRef,
-    CallWithBrackets,
-    CallWithSquareBrackets,
     IdentNode,
-    Number,
+    NonNegativeNumber,
     String,
     Char,
     Bool,
-    MarkedUnit,
+    Marker,
     Import,
-    TagUnit,
+    UnitJoinMethod,
 }
 
-UnitWithPos :: struct {
-    unit: UnitWithoutPos,
-    pos:  utils.Pos,
+UnitSegment :: struct {
+    pos:      utils.Pos,
+    contents: UnitSegmentContents,
 }
 
 Unit :: struct {
-    pos:         utils.Pos,
-    first_unit:  UnitWithoutPos,
-    extra_units: []ExtraUnit,
-}
-
-ExtraUnit :: struct {
-    join_method_pos: utils.Pos,
-    join_method:     UnitJoinMethod,
-    unit:            UnitWithPos,
+    first: UnitSegment,
+    rest:  []UnitSegment,
 }
 
 // TODO: Maybe all unit join methods should be left to right?
@@ -187,14 +167,6 @@ UnitJoinMethod :: enum {
     Dot,
 }
 
-Call :: struct {
-    unit_being_called: ^UnitWithPos,
-    args:              []Unit,
-}
-
-CallWithBrackets :: distinct Call // A(B, C, D)
-CallWithSquareBrackets :: distinct Call // A[B, C, D]
-
 Iterator :: union {
     Unit,
     NumericIterator,
@@ -226,8 +198,13 @@ TextAndPos :: struct {
 
 Ident :: struct {
     ident:             string,
-    pos:               utils.Pos,
     has_dollar_at_end: bool,
+}
+
+IdentAndPos :: struct {
+    ident:             string,
+    has_dollar_at_end: bool,
+    pos:               utils.Pos,
 }
 
 ConditionControlledLoop :: struct {
@@ -290,7 +267,7 @@ Statement :: struct {
 }
 
 FunctionArg :: struct {
-    name:       Ident,
+    name:       IdentAndPos,
     value_type: Unit,
 }
 

@@ -14,8 +14,7 @@ assert_with_message = |cond: Bool, message: String| {
 }
 
 negate = |a: Float| -> Float {
-	// TODO: Do not require 0
-	return 0 - a
+	return -a
 }
 
 pow = |a: Float, b$: UInt| -> Float {
@@ -35,7 +34,7 @@ empty_array[T] = || -> T[] {
 	return []
 }
 
-Result[O, E] = /
+Result[O, E] = \
 	Ok: O,
 	Err: E,
 \
@@ -61,7 +60,7 @@ split_first = |str: String, by: Char| -> {before: String, after: String} {
 }
 
 // TODO: Maybe this could be defined like `Result[V, {}]` in the future
-Maybe[V] = /
+Maybe[V] = \
     Some: V,
 	:None,
 \

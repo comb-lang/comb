@@ -1,6 +1,6 @@
 u = import "std/utils.code"
 
-LinkedList[T] = /
+LinkedList[T] = \
     :Empty,
     NotEmpty: {head: T, tail: LinkedList[T]},
 \

@@ -16,32 +16,33 @@ expect_text_and_pos :: "Expected " + plain_ident_normal
 
 get_text_and_pos_from_ident :: proc(
     r: utils.DiagnosticReporter,
-    t: #soa[]Ident,
+    t: IdentAndPos,
 ) -> Maybe(TextAndPos) {
-    if len(t) != 1 || t[0].has_dollar_at_end {
-        utils.diagnostic(r, t[0].pos, expect_text_and_pos)
+    if t.has_dollar_at_end {
+        utils.diagnostic(r, t.pos, expect_text_and_pos)
         return nil
     }
-    return TextAndPos{t[0].ident, t[0].pos}
+    return TextAndPos{t.ident, t.pos}
 }
 
-get_text_and_pos_from_unit_with_pos :: proc(
+get_text_and_pos_from_unit_segment :: proc(
     r: utils.DiagnosticReporter,
-    u: UnitWithPos,
+    u: UnitSegment,
 ) -> Maybe(TextAndPos) {
-    ident, is_ident := u.unit.(IdentNode)
+    ident, is_ident := u.contents.(IdentNode)
     if !is_ident || ident.has_re_before {
         utils.diagnostic(r, u.pos, expect_text_and_pos)
         return nil
     }
-    return get_text_and_pos_from_ident(r, ident.segments)
+    return get_text_and_pos_from_ident(r, ident.ident)
 }
 
 get_text_and_pos_from_unit :: proc(r: utils.DiagnosticReporter, u: Unit) -> Maybe(TextAndPos) {
-    if len(u.extra_units) == 0 {
-        return get_text_and_pos_from_unit_with_pos(r, UnitWithPos{u.first_unit, u.pos})
+    if len(u.rest) == 0 {
+        return get_text_and_pos_from_unit_segment(r, u.first)
     }
-    utils.diagnostic(r, u.pos, expect_text_and_pos)
+    utils.diagnostic(r, u.first.pos, "Unexpected extra segment")
+    utils.diagnostic(r, u.rest[0].pos, expect_text_and_pos)
     return nil
 }
 
@@ -59,7 +60,7 @@ ParsingContext :: struct {
     kind: enum {
         ValuesInCurlyBraces,
         Block,
-        ValuesInForwardSlashBackSlash,
+        ValuesInBackSlashes,
         ValuesInBrackets,
         ValuesInSquareBrackets,
     },
@@ -201,23 +202,98 @@ parse_non_negative_number :: proc(s: ^ParserState, whole_part: string) -> NonNeg
     return DecimalNonNegativeNumber{whole_part, string(digits)}
 }
 
-Failure :: struct {}
-NothingToParse :: struct {}
+join_method_desc :: "A join method (`~`, `=`, `|=`, `and`, `or`, `==`, `!=`, `>`, `>=`, `<`, `<=`, `*`, `/`, `+`, `-`, `%`, `::`, `:`, `->`, `in`, `++`, `&`)"
 
-@(private = "file")
-MaybeParseInitialUnitResult :: union #no_nil {
-    UnitWithoutPos,
-    NothingToParse, // there wasn't an initial unit to parse
-    Failure,
+get_join_method :: proc(token: TokenContents) -> Maybe(UnitJoinMethod) {
+    #partial switch t in token {
+    case:
+        return nil
+    case AssignToken:
+        return UnitJoinMethod.Assign
+    case PipeEqualsToken:
+        return UnitJoinMethod.PipeEquals
+    case ColonToken:
+        return UnitJoinMethod.Colon
+    case InToken:
+        return UnitJoinMethod.In
+    case AndToken:
+        return UnitJoinMethod.BooleanAnd
+    case ColonColonToken:
+        return UnitJoinMethod.Append
+    case OrToken:
+        return UnitJoinMethod.BooleanOr
+    case OpenAngleBracketToken:
+        return UnitJoinMethod.IsLessThan
+    case LessThanOrEqualToken:
+        return UnitJoinMethod.IsLessThanOrEqual
+    case CloseAngleBracketToken:
+        return UnitJoinMethod.IsGreaterThan
+    case GreaterThanOrEqualToken:
+        return UnitJoinMethod.IsGreaterThanOrEqual
+    case ArrowToken:
+        return UnitJoinMethod.Arrow
+    case SymbolsToken:
+        switch t {
+        case:
+            return nil
+        case "~":
+            return UnitJoinMethod.Tilde
+        case "==":
+            return UnitJoinMethod.IsEqual
+        case "!=":
+            return UnitJoinMethod.IsNotEqual
+        case "*":
+            return UnitJoinMethod.Multiplication
+        case "/":
+            return UnitJoinMethod.Division
+        case "+":
+            return UnitJoinMethod.Addition
+        case "++":
+            return UnitJoinMethod.Concat
+        case "&":
+            return UnitJoinMethod.StringConcat
+        case "-":
+            return UnitJoinMethod.Subtraction
+        case "%":
+            return UnitJoinMethod.Modulo
+        case ".":
+            return UnitJoinMethod.Dot
+        }
+    }
 }
 
+should_continue_parsing_unit :: proc(
+    last_segment: UnitSegmentContents,
+    next_token: TokenContents,
+) -> bool {
+    #partial switch _ in last_segment {
+    case Marker, UnitJoinMethod:
+        return true
+    }
+    _, is_join_method := get_join_method(next_token).(UnitJoinMethod)
+    if is_join_method {
+        return true
+    }
+    #partial switch t in next_token {
+    case OpenBracketToken:
+        return true
+    case OpenSquareBracketToken:
+        return true
+    case:
+        return false
+    }
+}
+
+// BEFORE MERGE TODO: If we just return digits, rather than fully parsing a non-negative
+// number, then every successful return calls `get_next_token` so the
+// `get_next_token` can be called by the caller rather than within this function
 @(private = "file")
-maybe_parse_initial_unit :: proc(
+parse_unit_segment :: proc(
     s: ^ParserState,
     loc := #caller_location,
-) -> MaybeParseInitialUnitResult {
+) -> Maybe(UnitSegmentContents) {
     utils.call(loc, "maybe_parse_initial_unit", "")
-    e :: proc(s: ^ParserState) -> MaybeParseInitialUnitResult {
+    e :: proc(s: ^ParserState) -> Maybe(UnitSegmentContents) {
         utils.append_dynamic_elems(
             &s.last_token_descriptions_of_other_possible_tokens,
             "`true`",
@@ -229,18 +305,26 @@ maybe_parse_initial_unit :: proc(
             "a character literal",
             "a marker token (# followed by one or more alphanumerics)",
             "a name",
-            "`/` to create a sum type",
-            "`[` to create an array type",
+            "`\\` to create a sum type",
+            "`[` to create an array type or to initialise a generic type",
             "`{` to create a struct type",
             "`re`",
+            join_method_desc,
             // "`dynamic` for a dynamic type",
         )
-        return NothingToParse{}
+        wrong_token_err(s)
+        return nil
+    }
+    join_method, is_join_method := get_join_method(s.last_token).(UnitJoinMethod)
+    if is_join_method {
+        get_next_token(s, true)
+        return join_method
     }
     #partial switch token in s.last_token {
     case:
         return e(s)
 
+    /*
     case ColonToken:
         get_next_token(s, false)
         ident, is_ident := s.last_token.(IdentToken)
@@ -254,7 +338,7 @@ maybe_parse_initial_unit :: proc(
         }
         get_next_token(s, true)
         return TagUnit{ident}
-    /*
+        /*
         pos := s.last_token_pos
         switch unit in maybe_parse_initial_unit(s) {
         case:
@@ -267,6 +351,7 @@ maybe_parse_initial_unit :: proc(
             return TagUnit{ident, new_clone(UnitWithPos{unit, pos})}
         }
         */
+    */
 
     case ImportToken:
         get_next_token(s, false)
@@ -278,7 +363,7 @@ maybe_parse_initial_unit :: proc(
                 "A string literal",
             )
             wrong_token_err(s)
-            return Failure{}
+            return nil
         }
         joined, join_err := filepath.join(
             []string{s.last_token_pos.file.dir_path, string(path)},
@@ -286,15 +371,15 @@ maybe_parse_initial_unit :: proc(
         )
         if join_err != nil {
             utils.diagnostic(s.r, s.last_token_pos, "Failed to join filepath: %v", join_err)
-            return Failure{}
+            return nil
         }
         file_ref, read_err := utils.read_file(s.files_cache, joined)
         if read_err != nil {
             utils.diagnostic(s.r, s.last_token_pos, "Failed to read `%s`: %#v", joined, read_err)
-            return Failure{}
+            return nil
         }
         get_next_token(s, true)
-        return UnitWithoutPos(Import{file_ref})
+        return UnitSegmentContents(Import{file_ref})
 
     case OpenBracketToken:
         utils.append_dynamic(
@@ -304,10 +389,10 @@ maybe_parse_initial_unit :: proc(
         defer utils.pop_dynamic(&s.parser_context)
         elements, ok := parse_units_until(s, is_close_bracket, "`)` to end the tuple").([]Unit)
         if !ok {
-            return Failure{}
+            return nil
         }
         get_next_token(s, true)
-        return UnitWithoutPos(Tuple{elements})
+        return UnitSegmentContents(Tuple{elements})
 
     // case DynamicToken:
     //     get_next_token(state, false)
@@ -325,10 +410,10 @@ maybe_parse_initial_unit :: proc(
         defer utils.pop_dynamic(&s.parser_context)
         elements, ok := parse_units_until(s, is_close_brace, "`}` to end the struct").([]Unit)
         if !ok {
-            return Failure{}
+            return nil
         }
         get_next_token(s, true)
-        return UnitWithoutPos(StructUnit{elements})
+        return UnitSegmentContents(StructUnit{elements})
 
     /*
         sum_type := SumUnit {
@@ -352,13 +437,13 @@ maybe_parse_initial_unit :: proc(
             #partial switch token2 in s.last_token {
             case:
                 wrong_token_err(s)
-                return Failure{}
+                return nil
             case CloseAngleBracketToken:
                 break loop
             case IdentToken:
                 if len(token2) != 1 || token2[0].has_dollar_at_end {
                     wrong_token_err(s)
-                    return Failure{}
+                    return nil
                 }
                 variant_name := token2[0]
                 variant_payload := OldStructUnit{}
@@ -367,7 +452,7 @@ maybe_parse_initial_unit :: proc(
                 if has_payload {
                     variant_payload, has_payload = parse_struct(s)
                     if !has_payload {
-                        return Failure{}
+                        return nil
                     }
                     get_next_token(s, false)
                 }
@@ -384,7 +469,7 @@ maybe_parse_initial_unit :: proc(
                         variant_name.ident,
                         sum_type.positions.d[i.index],
                     )
-                    return Failure{}
+                    return nil
                 }
                 utils.resize_multi(&sum_type.positions, len(sum_type.m.keys))
                 utils.resize_multi(&sum_type.payloads, len(sum_type.m.keys))
@@ -408,7 +493,7 @@ maybe_parse_initial_unit :: proc(
                         )
                     }
                     wrong_token_err(s)
-                    return Failure{}
+                    return nil
                 case CommaToken:
                 case CloseAngleBracketToken:
                     break loop
@@ -427,10 +512,10 @@ maybe_parse_initial_unit :: proc(
         defer utils.pop_dynamic(&s.parser_context)
         elems, elems_ok := parse_units_until(s, is_close_square_bracket, "`]`").([]Unit)
         if !elems_ok {
-            return Failure{}
+            return nil
         }
         get_next_token(s, true)
-        return UnitWithoutPos(UnitsInSquareBrackets{elems})
+        return UnitSegmentContents(UnitsInSquareBrackets{elems})
     /*
         // OLD (creating arrays like []ItemType(elems...))
         unit_pos := s.last_token_pos
@@ -438,7 +523,7 @@ maybe_parse_initial_unit :: proc(
         case:
             panic("Unreachable")
         case Failure:
-            return Failure{}
+            return nil
         case NothingToParse:
             return UnitsInSquareBrackets{elems}
         case UnitWithoutPos:
@@ -447,7 +532,7 @@ maybe_parse_initial_unit :: proc(
                is_open_square_bracket {
                 args2, args2_ok := parse_units_until(s, is_close_square_bracket, "`]`").([]Unit)
                 if !args2_ok {
-                    return Failure{}
+                    return nil
                 }
                 get_next_token(s, true)
                 return CallWithFrontedSquareBrackets {
@@ -463,25 +548,28 @@ maybe_parse_initial_unit :: proc(
             return CallWithFrontedSquareBrackets{new_clone(UnitWithPos{unit, unit_pos}), elems}
         }
         */
-    case IdentToken:
+    case Ident:
+        pos := s.last_token_pos
         get_next_token(s, true)
-        return IdentNode{token, false}
+        return IdentNode{IdentAndPos{token.ident, token.has_dollar_at_end, pos}, false}
 
     case ReToken:
         get_next_token(s, false)
-        ident, is_ident := s.last_token.(IdentToken)
+        ident, is_ident := s.last_token.(Ident)
+        ident_pos := s.last_token_pos
         if !is_ident {
             utils.append_dynamic(
                 &s.last_token_descriptions_of_other_possible_tokens,
                 "an identifier",
             )
             wrong_token_err(s)
-            return Failure{}
+            return nil
         }
         get_next_token(s, true)
-        return IdentNode{ident, true}
+        return IdentNode{IdentAndPos{ident.ident, ident.has_dollar_at_end, ident_pos}, true}
 
     case MarkerToken:
+        /*
         markers := [dynamic]TextAndPos{{string(token), s.last_token_pos}}
         for {
             get_next_token(s, false)
@@ -492,60 +580,43 @@ maybe_parse_initial_unit :: proc(
             append_elem(&markers, TextAndPos{string(marker), s.last_token_pos})
         }
         val_pos := s.last_token_pos
-        val, ok := parse_initial_unit(s).(UnitWithoutPos)
+        val, ok := parse_initial_unit(s).(UnitSegmentContents)
         if !ok {
-            return Failure{}
+            return nil
         }
-        return UnitWithoutPos(MarkedUnit{new_clone(Unit{val_pos, val, nil}), markers[:]})
+        return UnitSegmentContents(MarkedUnit{new_clone(Unit{val_pos, val, nil}), markers[:]})
+        */
+        pos := s.last_token_pos
+        get_next_token(s, false)
+        return Marker{TextAndPos{string(token), pos}}
 
     case TrueToken:
         get_next_token(s, true)
-        return UnitWithoutPos(Bool(true))
+        return UnitSegmentContents(Bool(true))
 
     case FalseToken:
         get_next_token(s, true)
-        return UnitWithoutPos(Bool(false))
+        return UnitSegmentContents(Bool(false))
 
     case DigitsToken:
         number := parse_non_negative_number(s, string(token))
         if number == nil {
-            return Failure{}
+            return nil
         }
-        return UnitWithoutPos(Number{false, number})
+        return UnitSegmentContents(number)
 
-    case SymbolsToken:
-        switch token {
-        case:
-            return e(s)
-        case "/":
-            utils.append_dynamic(
-                &s.parser_context,
-                ParsingContext{s.last_token_pos, .ValuesInForwardSlashBackSlash},
-            )
-            defer utils.pop_dynamic(&s.parser_context)
-            elems, elems_ok := parse_units_until(s, is_backslash_token, "`\\`").([]Unit)
-            if !elems_ok {
-                return Failure{}
-            }
-            get_next_token(s, true)
-            return UnitWithoutPos(SumUnit{elems})
-        case "-":
-            get_next_token(s, true)
-            digits, is_digits := s.last_token.(DigitsToken)
-            if !is_digits {
-                utils.append_dynamic(
-                    &s.last_token_descriptions_of_other_possible_tokens,
-                    "A digits token",
-                )
-                wrong_token_err(s)
-                return Failure{}
-            }
-            number := parse_non_negative_number(s, string(digits))
-            if number == nil {
-                return Failure{}
-            }
-            return UnitWithoutPos(Number{true, number})
+    case BackSlashToken:
+        utils.append_dynamic(
+            &s.parser_context,
+            ParsingContext{s.last_token_pos, .ValuesInBackSlashes},
+        )
+        defer utils.pop_dynamic(&s.parser_context)
+        elems, elems_ok := parse_units_until(s, is_backslash_token, "`\\`").([]Unit)
+        if !elems_ok {
+            return nil
         }
+        get_next_token(s, true)
+        return UnitSegmentContents(SumUnit{elems})
 
     case StringToken:
         strings := [dynamic]string{string(token)}
@@ -557,7 +628,7 @@ maybe_parse_initial_unit :: proc(
                     &s.last_token_descriptions_of_other_possible_tokens,
                     "a string token",
                 )
-                return UnitWithoutPos(String(strings[:]))
+                return UnitSegmentContents(String(strings[:]))
             case StringToken:
                 append_elem(&strings, string(token2))
             }
@@ -565,12 +636,12 @@ maybe_parse_initial_unit :: proc(
 
     case CharToken:
         get_next_token(s, true)
-        return UnitWithoutPos(Char(token))
+        return UnitSegmentContents(Char(token))
 
     case BarToken:
         func, ok := parse_function_def(s)
         if !ok {
-            return Failure{}
+            return nil
         }
         get_next_token(s, true)
         out := FuncDefinitionRef{uint(len(s.function_defs))}
@@ -580,7 +651,11 @@ maybe_parse_initial_unit :: proc(
     }
 }
 
-parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> Maybe(UnitWithoutPos) {
+/*
+parse_initial_unit :: proc(
+    s: ^ParserState,
+    loc := #caller_location,
+) -> Maybe(UnitSegmentContents) {
     utils.call(loc, "parse_initial_unit", "")
     switch unit in maybe_parse_initial_unit(s) {
     case Failure:
@@ -588,12 +663,13 @@ parse_initial_unit :: proc(s: ^ParserState, loc := #caller_location) -> Maybe(Un
     case NothingToParse:
         wrong_token_err(s)
         return nil
-    case UnitWithoutPos:
+    case UnitSegmentContents:
         return unit
     case:
         panic("Unreachable")
     }
 }
+*/
 
 parse_units_until :: proc(
     s: ^ParserState,
@@ -650,6 +726,7 @@ create_joined_unit :: proc(
 }
 */
 
+/*
 // Returns `nil` on failure
 parse_unit_with_pos :: proc(s: ^ParserState, loc := #caller_location) -> Maybe(UnitWithoutPos) {
     utils.call(loc, "parse_unit_without_pos", "")
@@ -713,87 +790,28 @@ parse_unit_with_pos :: proc(s: ^ParserState, loc := #caller_location) -> Maybe(U
     )
     */
 }
+*/
 
 // Returns `Unit{}, false` on failure
 parse_unit :: proc(s: ^ParserState) -> (Unit, bool) {
     pos := s.last_token_pos
-    first_unit, first_unit_ok := parse_unit_with_pos(s).(UnitWithoutPos)
-    if !first_unit_ok {
+    first_segment, first_segment_ok := parse_unit_segment(s).(UnitSegmentContents)
+    if !first_segment_ok {
         return Unit{}, false
     }
-    extra_units := utils.arena_make(s.a, []ExtraUnit, 0, resizable = true)
-    defer utils.fix_resizable_dynamic(extra_units)
-    for {
-        join_method_pos := s.last_token_pos
-        utils.append_dynamic(
-            &s.last_token_descriptions_of_other_possible_tokens,
-            "A value joiner (`~`, `=`, `|=`, `and`, `or`, `==`, `!=`, `>`, `>=`, `<`, `<=`, `*`, `/`, `+`, `-`, `%`, `::`, `:`, `->`, `in`, `++`, `&`)",
-        )
-        join_method: UnitJoinMethod
-        #partial switch v in s.last_token {
-        case:
-            return Unit{pos, first_unit, extra_units}, true
-        case SymbolsToken:
-            switch v {
-            case:
-                return Unit{pos, first_unit, extra_units}, true
-            case "~":
-                join_method = .Tilde
-            case "==":
-                join_method = .IsEqual
-            case "!=":
-                join_method = .IsNotEqual
-            case "*":
-                join_method = .Multiplication
-            case "/":
-                join_method = .Division
-            case "+":
-                join_method = .Addition
-            case "++":
-                join_method = .Concat
-            case "&":
-                join_method = .StringConcat
-            case "-":
-                join_method = .Subtraction
-            case "%":
-                join_method = .Modulo
-            }
-        case AssignToken:
-            join_method = .Assign
-        case PipeEqualsToken:
-            join_method = .PipeEquals
-        case ColonToken:
-            join_method = .Colon
-        case InToken:
-            join_method = .In
-        case AndToken:
-            join_method = .BooleanAnd
-        case ColonColonToken:
-            join_method = .Append
-        case OrToken:
-            join_method = .BooleanOr
-        case OpenAngleBracketToken:
-            join_method = .IsLessThan
-        case LessThanOrEqualToken:
-            join_method = .IsLessThanOrEqual
-        case CloseAngleBracketToken:
-            join_method = .IsGreaterThan
-        case GreaterThanOrEqualToken:
-            join_method = .IsGreaterThanOrEqual
-        case ArrowToken:
-            join_method = .Arrow
-        }
-        get_next_token(s, true)
-        extra_unit_pos := s.last_token_pos
-        extra_unit, extra_unit_ok := parse_unit_with_pos(s).(UnitWithoutPos)
-        if !extra_unit_ok {
+    last_segment := first_segment
+    extra_segments := utils.arena_make(s.a, []UnitSegment, 0, resizable = true)
+    defer utils.fix_resizable_dynamic(extra_segments)
+    for should_continue_parsing_unit(last_segment, s.last_token) {
+        segment_pos := s.last_token_pos
+        segment, segment_ok := parse_unit_segment(s).(UnitSegmentContents)
+        if !segment_ok {
             return Unit{}, false
         }
-        utils.append_dynamic(
-            &extra_units,
-            ExtraUnit{join_method_pos, join_method, UnitWithPos{extra_unit, extra_unit_pos}},
-        )
+        last_segment = segment
+        utils.append_dynamic(&extra_segments, UnitSegment{segment_pos, segment})
     }
+    return Unit{UnitSegment{pos, first_segment}, extra_segments}, true
 }
 
 // Returns `nil` if there was an error
@@ -843,8 +861,8 @@ parse_possible_loop_label :: proc(s: ^ParserState) -> (TextAndPos, bool) {
     get_next_token(s, false)
     if _, is_at_token := s.last_token.(AtToken); is_at_token {
         get_next_token(s, false)
-        ident, is_ident := s.last_token.(IdentToken)
-        if !is_ident || len(ident) != 1 || ident[0].has_dollar_at_end {
+        ident, is_ident := s.last_token.(Ident)
+        if !is_ident || ident.has_dollar_at_end {
             utils.append_dynamic(
                 &s.last_token_descriptions_of_other_possible_tokens,
                 plain_ident_capitalised + " for the label of the loop",
@@ -852,8 +870,9 @@ parse_possible_loop_label :: proc(s: ^ParserState) -> (TextAndPos, bool) {
             wrong_token_err(s)
             return TextAndPos{}, false
         }
+        ident_pos := s.last_token_pos
         get_next_token(s, false)
-        return TextAndPos{ident[0].ident, ident[0].pos}, true
+        return TextAndPos{ident.ident, ident_pos}, true
     }
     return TextAndPos{}, true
 }
@@ -867,8 +886,8 @@ parse_for_loop :: proc(s: ^ParserState) -> (ForInLoop, bool) {
     variables: [3]TextAndPos
     variable_index := 0
     variables_loop: for {
-        ident, is_ident := s.last_token.(IdentToken)
-        if !is_ident || len(ident) != 1 || ident[0].has_dollar_at_end {
+        ident, is_ident := s.last_token.(Ident)
+        if !is_ident || ident.has_dollar_at_end {
             utils.append_dynamic(
                 &s.last_token_descriptions_of_other_possible_tokens,
                 "the name of the variable in a for loop (an identifier with one segment and no dollar sign at the end)",
@@ -882,7 +901,7 @@ parse_for_loop :: proc(s: ^ParserState) -> (ForInLoop, bool) {
             wrong_token_err(s)
             return ForInLoop{}, false
         }
-        variables[variable_index] = TextAndPos{ident[0].ident, ident[0].pos}
+        variables[variable_index] = TextAndPos{ident.ident, s.last_token_pos}
         variable_index += 1
 
         get_next_token(s, false)
@@ -1226,8 +1245,8 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
             _, is_at := s.last_token.(AtToken)
             if is_at {
                 get_next_token(s, true)
-                ident, is_ident := s.last_token.(IdentToken)
-                if !is_ident || len(ident) != 1 || ident[0].has_dollar_at_end {
+                ident, is_ident := s.last_token.(Ident)
+                if !is_ident || ident.has_dollar_at_end {
                     utils.append_dynamic(
                         &s.last_token_descriptions_of_other_possible_tokens,
                         plain_ident_capitalised,
@@ -1235,7 +1254,7 @@ parse_block :: proc(s: ^ParserState) -> ([]Statement, bool) {
                     wrong_token_err(s)
                     return nil, false
                 }
-                label = TextAndPos{ident[0].ident, ident[0].pos}
+                label = TextAndPos{ident.ident, s.last_token_pos}
                 get_next_token(s, true)
             }
             append_elem(&out, Statement{pos, LoopControlFlow{label, token.kind}})
@@ -1444,12 +1463,8 @@ parse_function_def :: proc(s: ^ParserState) -> (FunctionDefinition, bool) {
             return FunctionDefinition{}, false
         case BarToken:
             break loop
-        case IdentToken:
-            if len(token) != 1 {
-                wrong_token_err(s)
-                return FunctionDefinition{}, false
-            }
-            arg.name = token[0]
+        case Ident:
+            arg.name = IdentAndPos{token.ident, token.has_dollar_at_end, s.last_token_pos}
         }
 
         get_next_token(s, true)
@@ -1566,13 +1581,13 @@ parse_file :: proc(s: ^ParserState) {
             return
         case EndOfFileToken:
             return
-        case IdentToken:
+        case Ident:
             position := s.last_token_pos
-            if len(token) != 1 || token[0].has_dollar_at_end {
+            if token.has_dollar_at_end {
                 wrong_token_err(s)
                 return
             }
-            name := token[0].ident
+            name := token.ident
             if def, exists :=
                    s.parsed_files.d[get_file_index(s.files_cache.files, s.last_token_pos.file)][name];
                exists {
@@ -1592,29 +1607,29 @@ parse_file :: proc(s: ^ParserState) {
             if is_open_square_bracket {
                 for {
                     get_next_token(s, false)
-                    segments, is_ident := s.last_token.(IdentToken)
-                    if !is_ident || len(segments) != 1 || segments[0].has_dollar_at_end {
+                    ident, is_ident := s.last_token.(Ident)
+                    if !is_ident || ident.has_dollar_at_end {
                         utils.append_dynamic(
                             &s.last_token_descriptions_of_other_possible_tokens,
                             "An identifier with one segment and no dollar sign at the end",
                         )
                         break
                     }
+                    pos := s.last_token_pos
 
-                    if segments[0].ident in generic_map {
-                        pos := generic_map[segments[0].ident]
+                    if ident.ident in generic_map {
+                        pos := generic_map[ident.ident]
                         utils.diagnostic(
                             s.r,
                             s.last_token_pos,
                             "There is already a generic argument called `%s` defined on %v in this global type",
-                            segments[0].ident,
+                            ident.ident,
                             pos,
                         )
                         return
                     }
-                    pos := segments[0].pos
-                    append_elem(&generic, TextAndPos{segments[0].ident, pos})
-                    generic_map[segments[0].ident] = pos
+                    append_elem(&generic, TextAndPos{ident.ident, pos})
+                    generic_map[ident.ident] = pos
 
                     get_next_token(s, false)
                     _, is_comma := s.last_token.(CommaToken)

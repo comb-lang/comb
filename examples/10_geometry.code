@@ -7,8 +7,8 @@ triangle = "tt"
 nothing = "  "
 
 main = || -> Int {
-	for@outer y in 0 - max_radius ..= max_radius {
-	    for x in 0 - max_radius ..= max_radius {
+	for@outer y in -max_radius ..= max_radius {
+	    for x in -max_radius ..= max_radius {
 			if x + y > x_plus_y_max {
 			  println(string_repeat(triangle, expect_uint(max_radius - x + 1)))
 			  continue@outer

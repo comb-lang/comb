@@ -11,7 +11,7 @@
 h = import "http.code"
 p = import "path.code"
 
-SvgElem = /
+SvgElem = \
     Line: {
         x1: UInt,
         y1: UInt,
@@ -23,7 +23,7 @@ SvgElem = /
     },
 \
 
-HtmlElem = /
+HtmlElem = \
     Button: {children: HtmlElem[], onclick: () -> UI},
     Div: {style: String, children: HtmlElem[]},
     Text: String,

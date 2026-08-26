@@ -35,7 +35,6 @@ ArrowToken :: struct {} // ->
 AssignToken :: struct {} // =
 SymbolsToken :: distinct string
 DigitsToken :: distinct string
-IdentToken :: #soa[]Ident // A list of the segments in the identifier, where each segment is separated by `.`
 MarkerToken :: distinct string
 TrueToken :: struct {} // true
 FalseToken :: struct {} // false
@@ -96,7 +95,7 @@ TokenContents :: union {
     ArrowToken,
     AssignToken,
     DigitsToken,
-    IdentToken,
+    Ident,
     MarkerToken,
     TrueToken,
     FalseToken,
@@ -178,16 +177,10 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
         fmt.wprint(fi.writer, "`=`")
     case DigitsToken:
         fmt.wprintf(fi.writer, "the digits `%s`", value)
-    case IdentToken:
+    case Ident:
         io.write_string(fi.writer, "the identifier `")
-        io.write_string(fi.writer, value[0].ident)
-        for segment in value[1:] {
-            io.write_string(fi.writer, ".")
-            io.write_string(fi.writer, segment.ident)
-        }
-        io.write_string(fi.writer, "` (which has ")
-        io.write_int(fi.writer, len(value))
-        io.write_string(fi.writer, " segments)")
+        io.write_string(fi.writer, value.ident)
+        io.write_string(fi.writer, "`")
         io.flush(fi.writer)
     case MarkerToken:
         fmt.wprintf(fi.writer, "the marker `#%s`", value)
@@ -321,8 +314,8 @@ wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
             io.write_string(w, "values in `()`")
         case .ValuesInSquareBrackets:
             io.write_string(w, "values in `[]`")
-        case .ValuesInForwardSlashBackSlash:
-            io.write_string(w, "values in `/\\`")
+        case .ValuesInBackSlashes:
+            io.write_string(w, "values in `\\\\`")
         case .Block:
             io.write_string(w, "a block")
         case:
@@ -346,47 +339,6 @@ wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
     }
 
     fmt.wprintf(w, "\nGot %v", state.last_token)
-}
-
-tokenize_segmented_identifier :: proc(s: ^TokenizerState, first_ident_start: uint) {
-    has_dollar := false
-    if s.index < len(s.last_token_pos.file.code) && s.last_token_pos.file.code[s.index] == '$' {
-        s.index += 1
-        has_dollar = true
-    }
-    segments := make(#soa[dynamic]Ident, 1)
-    segments[0] = Ident {
-        s.last_token_pos.file.code[first_ident_start:s.index],
-        s.last_token_pos,
-        has_dollar,
-    }
-    for s.index < len(s.last_token_pos.file.code) && s.last_token_pos.file.code[s.index] == '.' {
-        s.index += 1
-        segment_start := s.index
-        skipper_result := skip(s, utils.is_alphanumeric_char)
-        if skipper_result.skipped_atleast_one_char {
-            has_dollar = false
-            if s.index < len(s.last_token_pos.file.code) &&
-               s.last_token_pos.file.code[s.index] == '$' {
-                s.index += 1
-                has_dollar = true
-            }
-            append_soa_elem(
-                &segments,
-                Ident {
-                    s.last_token_pos.file.code[segment_start:s.index],
-                    utils.Pos{segment_start, s.last_token_pos.file},
-                    has_dollar,
-                },
-            )
-        } else {
-            s.last_token = Error(
-                skipper_result.reached_end_of_file ? "While tokenizing segmented identifier\nExpected an alphanumeric\nGot the end of the file" : fmt.aprintf("While tokenizing segmented identifier\nExpected an alphanumeric\nGot `%c`", s.last_token_pos.file.code[s.index]),
-            )
-            return
-        }
-    }
-    s.last_token = segments[:]
 }
 
 get_next_token :: proc(
@@ -569,7 +521,19 @@ get_next_token :: proc(
         case "re":
             state.last_token = ReToken{}
         case:
-            tokenize_segmented_identifier(state, state.last_token_pos.index)
+            if state.index < len(state.last_token_pos.file.code) &&
+               state.last_token_pos.file.code[state.index] == '$' {
+                state.index += 1
+                state.last_token = Ident {
+                    state.last_token_pos.file.code[state.last_token_pos.index:state.index],
+                    true,
+                }
+            } else {
+                state.last_token = Ident {
+                    state.last_token_pos.file.code[state.last_token_pos.index:state.index],
+                    false,
+                }
+            }
         }
     case '"':
         state.index += 1
@@ -663,15 +627,10 @@ get_next_token :: proc(
             )
         }
     case '.':
-        if state.index + 1 < len(state.last_token_pos.file.code) &&
-           utils.is_letter(state.last_token_pos.file.code[state.index + 1]) {
-            tokenize_segmented_identifier(state, state.index)
-        } else {
-            skip_ignore_first(state, utils.is_symbol_char)
-            state.last_token = SymbolsToken(
-                state.last_token_pos.file.code[state.last_token_pos.index:state.index],
-            )
-        }
+        skip_ignore_first(state, utils.is_symbol_char)
+        state.last_token = SymbolsToken(
+            state.last_token_pos.file.code[state.last_token_pos.index:state.index],
+        )
     case:
         if !utils.is_symbol_char(char) {
             state.last_token = Error(fmt.aprintf("Unrecognized character `%c`", char))

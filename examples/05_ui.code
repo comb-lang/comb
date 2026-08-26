@@ -1,4 +1,4 @@
-UI[State] = /
+UI[State] = \
     Button: {children: UI[State][], onclick: (State) -> State},
     List: {header: String, children: UI[State][]},
     Text: String,

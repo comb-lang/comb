@@ -122,8 +122,6 @@ Unit :: struct {
     rest:  []UnitSegment,
 }
 
-// TODO: Maybe all unit join methods should be left to right?
-
 // Operations with higher prioraty (prioraty 5 is the highest prioraty) are executed first
 // See https://en.wikipedia.org/wiki/Order_of_operations#Programming_languages
 UnitJoinMethod :: enum {

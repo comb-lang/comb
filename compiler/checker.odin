@@ -1783,13 +1783,13 @@ SuccessfulSplitFirst :: struct {
 
 try_split_first_by :: proc(
     u: Unit,
-    should_split: [UnitJoinMethod]bool,
+    possible_splits: bit_set[UnitJoinMethod],
 ) -> Maybe(SuccessfulSplitFirst) {
     if len(u.rest) < 2 {
         return nil
     }
     join_method, is_join_method := u.rest[0].contents.(UnitJoinMethod)
-    if !is_join_method || !should_split[join_method] {
+    if !is_join_method || join_method not_in possible_splits {
         return nil
     }
     return SuccessfulSplitFirst{u.first, join_method, u.rest[0].pos, Unit{u.rest[1], u.rest[2:]}}
@@ -1914,10 +1914,8 @@ check_block :: proc(
                 return nil, false
             }
             last_segment := value.rest[len(value.rest) - 1]
-            if split, split_ok := try_split_first_by(
-                   value,
-                   #partial [UnitJoinMethod]bool{.Assign = true},
-               ).(SuccessfulSplitFirst); split_ok {
+            if split, split_ok := try_split_first_by(value, {.Assign}).(SuccessfulSplitFirst);
+               split_ok {
                 /*
                 if value.extra_units[0].join_method != .Assign {
                     utils.diagnostic(
@@ -3563,15 +3561,6 @@ check_initial_value :: proc(
         utils.diagnostic(s.r, v.pos, "Internal error: got nil value in check_value")
         return utils.to_debug_value(CheckValueResult{nil, .Invalid})
 
-    /*
-        // BEFORE MERGE TODO
-    case TagUnit:
-        tag_name, tag_name_ok := get_text_and_pos_from_ident(s.r, value.tag).(TextAndPos)
-        if !tag_name_ok {
-            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-        }
-        return check_tag_value(s, tag_name, nil, a.body, a.generic_args)
-    */
     case StructUnit:
         if len(value.elements) == 0 {
             utils.diagnostic(
@@ -3591,7 +3580,7 @@ check_initial_value :: proc(
             StructLiteral,
         } = .Unknown
         for element in value.elements {
-            split, ok := try_split_by(element, {.Assign, .Colon}).(SuccessfulSplit)
+            split, ok := try_split_first_by(element, {.Assign, .Colon}).(SuccessfulSplitFirst)
             if !ok {
                 utils.diagnostic(
                     s.r,
@@ -3624,15 +3613,12 @@ check_initial_value :: proc(
                 }
             }
 
-            ident, ident_ok := split.before_split.first.contents.(IdentNode)
-            if len(split.before_split.rest) != 0 ||
-               !ident_ok ||
-               ident.has_re_before ||
-               ident.ident.has_dollar_at_end {
+            ident, ident_ok := split.before_split.contents.(IdentNode)
+            if !ident_ok || ident.has_re_before || ident.ident.has_dollar_at_end {
                 utils.diagnostic(
                     s.r,
-                    split.before_split.first.pos,
-                    "Before `:` or `=` in struct field must be just an identifier with no re before, just one segment, and no dollar sign at the end",
+                    split.before_split.pos,
+                    "Before `:` or `=` in struct field must be just an identifier with no re before and no dollar sign at the end",
                 )
                 return utils.to_debug_value(CheckValueResult{nil, .Invalid})
             }
@@ -3850,7 +3836,13 @@ check_initial_value :: proc(
             out_type := most_general_number_type(s, .Int, TypeAndPos{value.v.type, first.pos})
             return utils.to_debug_value(CheckValueResult{create_negation(value.v.value), out_type})
         case:
-            utils.panicf("BEFORE MERGE TODO %v (%v)", value, v.pos)
+            utils.diagnostic(
+                s.r,
+                v.pos,
+                "Join method that is the first segment of a unit must be either `:` or `-`, got %v",
+                value,
+            )
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
 
     case NonNegativeNumber:
@@ -3903,13 +3895,13 @@ check_array_index_derivation_subset :: proc(
 
 // Returns `nil, .Invalid` on failure
 // The type returned is the type of the derivation alteration's value
-check_derivation_subset2 :: proc(
+check_derivation_subset :: proc(
     s: ^CheckerState,
     derivation_base_type: Type,
     unit: Unit,
     generic_args: map[string]Type,
     body: ^utils.DebugValue([dynamic]CheckedStatement),
-    elements: ^utils.DoubleDynamic(DerivationSubsetElement),
+    elements: ^[dynamic]DerivationSubsetElement,
 ) -> Type {
     /*
     if call, is_call := unit.unit.(CallWithSquareBrackets); is_call {
@@ -3970,11 +3962,11 @@ check_derivation_subset2 :: proc(
         if subset_elem.index == nil {
             return .Invalid
         }
-        utils.dynamic_append_elem(elements, subset_elem)
+        append(elements, subset_elem)
         if len(unit.rest) == 0 {
             return t.item_type
         }
-        return check_derivation_subset2(
+        return check_derivation_subset(
             s,
             t.item_type,
             Unit{unit.rest[0], unit.rest[1:]},
@@ -4011,11 +4003,11 @@ check_derivation_subset2 :: proc(
         if key == nil {
             return .Invalid
         }
-        utils.dynamic_append_elem(elements, StringOrderedHashMapAccess{key})
+        append(elements, StringOrderedHashMapAccess{key})
         if len(unit.rest) == 0 {
             return t.value_type
         }
-        return check_derivation_subset2(
+        return check_derivation_subset(
             s,
             t.value_type,
             Unit{unit.rest[0], unit.rest[1:]},
@@ -4034,14 +4026,25 @@ check_derivation_subset2 :: proc(
             )
             return .Invalid
         }
-        err :: "For struct type `%s`\nExpected an identifier with `re` before it as the second segment of the derivation subset"
+        err_start :: "For struct type `%s`\nExpected an identifier without `re` before it "
+        err_end :: " of the derivation subset"
         if len(unit.rest) == 0 {
-            utils.diagnostic(s.r, unit.first.pos, err, type_to_string(s, derivation_base_type))
+            utils.diagnostic(
+                s.r,
+                unit.first.pos,
+                err_start + "after this segment" + err_end,
+                type_to_string(s, derivation_base_type),
+            )
             return .Invalid
         }
         field_name, field_ok := unit.rest[0].contents.(IdentNode)
         if !field_ok || field_name.has_re_before {
-            utils.diagnostic(s.r, unit.rest[0].pos, err, type_to_string(s, derivation_base_type))
+            utils.diagnostic(
+                s.r,
+                unit.rest[0].pos,
+                err_start + "as the second segment" + err_end,
+                type_to_string(s, derivation_base_type),
+            )
             return .Invalid
         }
         field_index := utils.lookup(t.m, field_name.ident.ident, utils.string_to_index_procs)
@@ -4055,12 +4058,12 @@ check_derivation_subset2 :: proc(
             )
             return .Invalid
         }
-        utils.dynamic_append_elem(elements, FieldAccess{field_index.index})
+        append(elements, FieldAccess{field_index.index})
         out_type := t.types.d[field_index.index]
         if len(unit.rest) == 1 {
             return out_type
         } else {
-            return check_derivation_subset2(
+            return check_derivation_subset(
                 s,
                 out_type,
                 Unit{unit.rest[1], unit.rest[2:]},
@@ -4184,8 +4187,8 @@ check_value :: proc(
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
 
-        derivation_subset: utils.DoubleDynamic(DerivationSubsetElement)
-        derivation_alteration_type := check_derivation_subset2(
+        derivation_subset: [dynamic]DerivationSubsetElement
+        derivation_alteration_type := check_derivation_subset(
             s,
             res.type,
             after_split.before_split,
@@ -4213,7 +4216,7 @@ check_value :: proc(
             CheckValueResult {
                 CheckedDerivation {
                     new_clone(res.value),
-                    DerivationSubset{utils.dynamic_to_fixed(derivation_subset)},
+                    DerivationSubset{derivation_subset[:]},
                     alteration,
                 },
                 res.type,
@@ -4221,10 +4224,7 @@ check_value :: proc(
         )
     }
 
-    if split, split_ok := try_split_first_by(
-           v,
-           #partial [UnitJoinMethod]bool{.Colon = true},
-       ).(SuccessfulSplitFirst); split_ok {
+    if split, split_ok := try_split_first_by(v, {.Colon}).(SuccessfulSplitFirst); split_ok {
         tag_name, tag_name_ok := get_text_and_pos_from_unit_segment(
             s.r,
             split.before_split,
@@ -4366,7 +4366,13 @@ check_value :: proc(
                     CheckValueArgs{a.body, a.generic_args, nil},
                 )
             } else {
-                utils.panicf("TODO (%v)\n%v", contents, utils.get_call_stack_on_debug())
+                utils.diagnostic(
+                    s.r,
+                    rest[0].pos,
+                    "Expected join method `.` to extend value\nGot join method %v",
+                    contents,
+                )
+                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
             }
         case Tuple:
             /*

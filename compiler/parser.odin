@@ -284,7 +284,7 @@ should_continue_parsing_unit :: proc(
     }
 }
 
-// BEFORE MERGE TODO: If we just return digits, rather than fully parsing a non-negative
+// TODO: If we just return digits, rather than fully parsing a non-negative
 // number, then every successful return calls `get_next_token` so the
 // `get_next_token` can be called by the caller rather than within this function
 @(private = "file")
@@ -306,7 +306,7 @@ parse_unit_segment :: proc(
             "a marker token (# followed by one or more alphanumerics)",
             "a name",
             "`\\` to create a sum type",
-            "`[` to create an array type or to initialise a generic type",
+            "`[` to create an array type, or to initialise a generic type, or to create an array literal, or to access a value in an array or hash map",
             "`{` to create a struct type",
             "`re`",
             join_method_desc,

@@ -1470,7 +1470,7 @@ build_type_string :: proc(
         case StructType:
             build_struct_string(types, globals_without_generic, globals_with_generic, b, tv)
         case SumType:
-            strings.write_byte(b, '/')
+            strings.write_byte(b, '\\')
             first_variant := true
             for tag_variant_index, tag_payload in tv.payloads {
                 if !first_variant {
@@ -1914,8 +1914,10 @@ check_block :: proc(
                 return nil, false
             }
             last_segment := value.rest[len(value.rest) - 1]
-            if split, split_ok := try_split_first_by(value, {.Assign}).(SuccessfulSplitFirst);
-               split_ok {
+            if split, split_ok := try_split_first_by(
+                   value,
+                   alteration_methods,
+               ).(SuccessfulSplitFirst); split_ok {
                 /*
                 if value.extra_units[0].join_method != .Assign {
                     utils.diagnostic(
@@ -4082,6 +4084,8 @@ check_derivation_subset :: proc(
         return .Invalid
     }
 }
+
+alteration_methods :: bit_set[UnitJoinMethod]{.Assign, .PipeEquals}
 
 // If DerivationAlteration.arg == nil then the checking failed
 check_derivation_alteration :: proc(

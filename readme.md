@@ -39,6 +39,13 @@ A new language for the web, because it's time to stop working around javascript.
 # Todo
 
 - Make the `examples/std` standard library accessible from source code in any directory
+- I think there should be a better syntax for multiline strings:
+  - Something like:
+    ```
+    my_string =
+      "line one\n"
+      "line two\n"
+    ```
 - Consider using a different syntax for generics, where `$` is used to specify a generic, and the type of that generic is inferred:
   - For functions, something like `typeof(append) = ([]$T, []$T) -> []$T`
   - For types, something like `Result = <Ok{value: $Ok}, Err{value: $Error}>`

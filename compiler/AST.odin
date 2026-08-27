@@ -30,6 +30,7 @@ WholeNonNegativeNumber :: struct {
     digits: string,
 }
 
+/*
 DecimalNonNegativeNumber :: struct {
     integer_part:    string,
     fractional_part: string,
@@ -39,8 +40,9 @@ NonNegativeNumber :: union {
     WholeNonNegativeNumber,
     DecimalNonNegativeNumber,
 }
+*/
 
-String :: distinct []string
+String :: distinct string
 
 Char :: distinct byte
 
@@ -103,7 +105,7 @@ UnitSegmentContents :: union #no_nil {
     UnitsInSquareBrackets,
     FuncDefinitionRef,
     IdentNode,
-    NonNegativeNumber,
+    WholeNonNegativeNumber,
     String,
     Char,
     Bool,
@@ -113,13 +115,29 @@ UnitSegmentContents :: union #no_nil {
 }
 
 UnitSegment :: struct {
-    pos:      utils.Pos,
+    range:    utils.Range,
     contents: UnitSegmentContents,
 }
 
 Unit :: struct {
     first: UnitSegment,
     rest:  []UnitSegment,
+}
+
+get_segment :: proc(unit: Unit, segment_index: uint, loc := #caller_location) -> UnitSegment {
+    when ODIN_DEBUG {
+        utils.call(loc, "get_segment", "")
+    }
+    return segment_index == 0 ? unit.first : unit.rest[segment_index - 1]
+}
+
+is_last_segment :: proc(unit: Unit, segment_index: uint) -> bool {
+    assert(segment_index <= len(unit.rest))
+    return segment_index == len(unit.rest)
+}
+
+is_segment :: proc(unit: Unit, segment_index: uint) -> bool {
+    return segment_index <= len(unit.rest)
 }
 
 // Operations with higher prioraty (prioraty 5 is the highest prioraty) are executed first
@@ -241,27 +259,33 @@ MatchStatement :: struct {
     branches: []MatchBranch,
 }
 
-ReturnStatement :: distinct []Unit
-YieldStatement :: distinct []Unit
+ReturnStatement :: struct {
+    range: utils.Range,
+    args:  []Unit,
+}
+YieldStatement :: struct {
+    range: utils.Range,
+    args:  []Unit,
+}
 LoopControlFlow :: struct {
+    range: utils.Range,
     label: TextAndPos,
     kind:  LoopControlFlowKind,
 }
-UnreachableStatement :: struct {}
+UnreachableStatement :: struct {
+    range: utils.Range,
+}
 
-Statement :: struct {
-    position: utils.Pos,
-    value:    union {
-        Unit,
-        ConditionControlledLoop,
-        ForInLoop,
-        IfElseStatement,
-        ReturnStatement,
-        YieldStatement,
-        MatchStatement,
-        LoopControlFlow,
-        UnreachableStatement,
-    },
+Statement :: union {
+    Unit,
+    ConditionControlledLoop,
+    ForInLoop,
+    IfElseStatement,
+    ReturnStatement,
+    YieldStatement,
+    MatchStatement,
+    LoopControlFlow,
+    UnreachableStatement,
 }
 
 FunctionArg :: struct {
@@ -333,36 +357,20 @@ print_output_list :: proc(s: ^TreePrinterState, label: string, list: []FunctionO
     }
 }
 
-debug_call :: proc(funcs: []FunctionDefinition, c: Call) {
+debug_unit_segment :: proc(funcs: []FunctionDefinition, segment: UnitSegment) {
+    utils.debug("segment at %v", segment.range)
     utils.debug_nesting += 1
-    utils.debug("TODO")
-    // debug_unit(funcs, c.unit_being_called)
-    for arg, i in c.args {
-        utils.debug("arg %d", i)
-        utils.debug_nesting += 1
-        debug_unit(funcs, arg)
-        utils.debug_nesting -= 1
-    }
-    utils.debug_nesting -= 1
-}
-
-debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
-    utils.debug("value at %v", unit.pos)
-    utils.debug_nesting += 1
-    switch v in unit.first_unit {
-    case UnitsInSquareBrackets:
-        panic("TODO")
+    switch v in segment.contents {
     case StructUnit:
         panic("TODO")
     case SumUnit:
         panic("TODO")
-    case Number:
-        utils.debug("is_negated: %v", v.is_negated)
-        utils.debug("absolute_value: %v", v.absolute_value)
+    case WholeNonNegativeNumber:
+        utils.debug("digits: %s", v.digits)
     case Char:
         panic("TODO")
-    case MarkedUnit:
-        panic("TODO")
+    case Marker:
+        utils.debug("marker: %s", v.marker)
     case Import:
         panic("TODO")
     case Bool:
@@ -376,41 +384,36 @@ debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
     // print_argument_list(s, "inputs:", funcs[v].inputs)
     // print_output_list(s, "outputs:", funcs[v].outputs)
     // print_block(s, funcs, funcs[v].body, "body:")
+    case UnitJoinMethod:
+        utils.debug("unit join method: %v", v)
     case Tuple:
         utils.debug("tuple:")
         for elem in v.elements {
             debug_unit(funcs, elem)
         }
-    case CallWithBrackets:
-        utils.debug("call with brackets")
-        debug_call(funcs, Call(v))
-    case CallWithSquareBrackets:
-        utils.debug("call with square brackets")
-        debug_call(funcs, Call(v))
-    case CallWithFrontedSquareBrackets:
-        utils.debug("call with fronted square brackets")
-        debug_call(funcs, Call(v))
-    case HierarchyJoinedUnits:
-        utils.debug("joined units")
-        utils.debug_nesting += 1
-        utils.debug("join method: %v", v.join_method)
-        debug_unit(funcs, v.unit0^)
-        debug_unit(funcs, v.unit1^)
-        utils.debug_nesting -= 1
-    case IdentNode:
-        utils.debug("ident")
-        utils.debug_nesting += 1
-        for segment in v.segments {
-            utils.debug("%q", segment.ident)
+    case UnitsInSquareBrackets:
+        utils.debug("units in square brackets:")
+        for elem in v.elements {
+            debug_unit(funcs, elem)
         }
-        utils.debug_nesting -= 1
+    case IdentNode:
+        utils.debug("Ident")
+        utils.debug("b")
+        utils.debug("b")
+
+        utils.debug("ident: `%s`", v.ident.ident)
+        utils.debug("b")
     case String:
-        utils.debug("string: %v", v)
-    }
-    for _ in unit.extra_units {
-        utils.debug("TODO: Handle extra unit")
+        utils.debug("string: %s", v)
     }
     utils.debug_nesting -= 1
+}
+
+debug_unit :: proc(funcs: []FunctionDefinition, unit: Unit) {
+    for i: uint = 0; is_segment(unit, i); i += 1 {
+        segment := get_segment(unit, i)
+        debug_unit_segment(funcs, segment)
+    }
 }
 */
 

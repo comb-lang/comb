@@ -195,7 +195,7 @@ resize :: proc(allocation: rawptr, new_size: int, loc := #caller_location) {
         uint(mem.ptr_sub(([^]byte)(allocation), info.allocation.block.base) + new_size),
     )
     if err != nil {
-        panic("Failed to resize memory block")
+        panicf("Failed to resize memory block: %v", err)
     }
 }
 

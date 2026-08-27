@@ -302,7 +302,15 @@ skip :: proc(s: ^TokenizerState, should_continue: proc(_: byte) -> bool) -> Skip
 
 wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
     utils.call(loc, "wrong_token_err", "", enable_debug = utils.debug_diagnostics)
-    w := state.r.diagnostic_header(state.r.data, state.last_token_pos, .Error)
+    w := state.r.diagnostic_header(
+        state.r.data,
+        utils.Range {
+            state.last_token_pos.index,
+            utils.to_debug_value(max(state.index - state.last_token_pos.index, 1)),
+            state.last_token_pos.file,
+        },
+        .Error,
+    )
     defer io.close(w)
 
     for c in state.parser_context {
@@ -322,7 +330,7 @@ wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
             panic("Unreachable")
         }
         io.write_string(w, " at ")
-        utils.write_position(w, c.pos)
+        utils.write_pos(w, c.pos)
         io.write_byte(w, '\n')
     }
 
@@ -338,7 +346,7 @@ wrong_token_err :: proc(state: ^ParserState, loc := #caller_location) {
         }
     }
 
-    fmt.wprintf(w, "\nGot %v", state.last_token)
+    fmt.wprintf(w, "\nGot %v\n", state.last_token)
 }
 
 get_next_token :: proc(
@@ -346,7 +354,7 @@ get_next_token :: proc(
     skip_newlines_and_comments_and_semicolons: bool,
     loc := #caller_location,
 ) {
-    utils.call(loc, "get next token", "", enable_debug = utils.debug_tokenizer)
+    utils.call(loc, "get_next_token", "", enable_debug = utils.debug_tokenizer)
     defer {
         utils.debug("last token set to %v at %v", state.last_token, state.last_token_pos)
     }

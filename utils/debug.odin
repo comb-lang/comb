@@ -38,24 +38,20 @@ when ODIN_DEBUG {
         return call_stack != nil && call_stack.handle_debug == true
     }
 
+    write_call_stack :: proc(w: io.Writer, stack: ^CallStack) {
+        fmt.wprintf(w, format + "\n", stack.func_name, stack.call_site, stack.call_info)
+        next_stack := stack.call_site_stack
+        if next_stack != nil {
+            write_call_stack(w, next_stack)
+        }
+    }
+
     print_call_stack :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
         if verb != 'v' {
             return false
         }
-        stack := cast(^CallStack)arg.data
-        for {
-            fmt.wprintf(
-                fi.writer,
-                format + "\n",
-                stack.func_name,
-                stack.call_site,
-                stack.call_info,
-            )
-            stack = stack.call_site_stack
-            if stack == nil {
-                return true
-            }
-        }
+        write_call_stack(fi.writer, cast(^CallStack)arg.data)
+        return true
     }
 
     CallStackOnDebug :: CallStack
@@ -97,6 +93,19 @@ to_debug_value :: proc(
         creation_info := StringOnDebug{}
     }
     return DebugValue(T){v, call_stack, creation_info, call_stack}
+}
+
+update_debug_value :: proc(
+    old_value: DebugValue($T),
+    new_value: T,
+    loc := #caller_location,
+) -> DebugValue(T) {
+    return DebugValue(T) {
+        new_value,
+        old_value.created_at,
+        old_value.creation_info,
+        get_call_stack_on_debug(loc),
+    }
 }
 
 @(deferred_in_out = call_finished)

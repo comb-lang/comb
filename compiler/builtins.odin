@@ -5,7 +5,6 @@ package compiler
 
 import "../utils"
 import "core:fmt"
-import "core:strings"
 
 builtins_err :: "`%s` is a builtin\nCannot override builtins"
 
@@ -127,13 +126,10 @@ get_builtin :: proc(name: string) -> GotBuiltin {
 
 argument_count_mismatch :: proc(
     s: ^CheckerState,
-    pos: utils.Pos,
+    function_range: utils.Range,
     num_provided: uint,
     num_expected: uint,
-    func_name: ..string,
 ) {
-    name := strings.join(func_name, ".")
-    defer delete_string(name)
     num_to_str :: proc(num: uint) -> string {
         return num == 1 ? fmt.aprint("1 argument") : fmt.aprintf("%d arguments", num)
     }
@@ -143,15 +139,19 @@ argument_count_mismatch :: proc(
     defer delete_string(expected)
     utils.diagnostic(
         s.r,
-        pos,
-        "Argument count mismatch\nFunction call provides %s\nThe `%s` function expects %s",
+        function_range,
+        "Argument count mismatch\nFunction call provides %s\nThis function expects %s",
         provided,
-        name,
         expected,
     )
 }
 
-to_str :: proc(s: ^CheckerState, pos: utils.Pos, val: CheckedValue, type: Type) -> CheckedValue {
+to_str :: proc(
+    s: ^CheckerState,
+    val_range: utils.Range,
+    val: CheckedValue,
+    type: Type,
+) -> CheckedValue {
     from_type: ToStringFromType = ---
     #partial switch type {
     case .Bool:
@@ -169,8 +169,8 @@ to_str :: proc(s: ^CheckerState, pos: utils.Pos, val: CheckedValue, type: Type) 
     case:
         utils.diagnostic(
             s.r,
-            pos,
-            "Cannot convert the type `%s` to `String`",
+            val_range,
+            "Cannot convert this value (of type `%s`) to `String`",
             type_to_string(s, type),
         )
         return nil
@@ -212,11 +212,16 @@ add_variable :: proc(
         can_have_dollar_postfix = true,
     )
     if get_builtin(variable.ident).value != nil {
-        utils.diagnostic(s.r, variable.pos, builtins_err, variable.ident)
+        utils.diagnostic(s.r, get_range(variable), builtins_err, variable.ident)
         return VariableRef{}, false
     }
     if variable.ident in s.variables_map {
-        utils.diagnostic(s.r, variable.pos, "Redeclaration of variable `%s`", variable.ident)
+        utils.diagnostic(
+            s.r,
+            get_range(variable),
+            "Redeclaration of variable `%s`",
+            variable.ident,
+        )
         return VariableRef{}, false
     }
     alt_ident := ""
@@ -228,7 +233,7 @@ add_variable :: proc(
     if alt_ident in s.variables_map {
         utils.diagnostic(
             s.r,
-            variable.pos,
+            get_range(variable),
             "Declaring variable called `%s` when variable called `%s` is already declared",
             variable.ident,
             alt_ident,

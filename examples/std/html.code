@@ -55,7 +55,7 @@ reactive_page = |c: Compiler, ui: () -> UI| -> String {
     map = OrderedHashMap("ui" = ui())
     // TODO: Add minification:
     // - Maybe there could be an argument with the type
-    //   `<:Minify, :LeaveNames>` in the future
+    //   `\:Minify, :LeaveNames\` in the future
     // - Alternatively, named arguments and default arguments could be added so
     //   the type of emit_js_code is
     //   `(OrderedHashMap[String, Any], String, minify = true)`, and then you
@@ -65,13 +65,13 @@ reactive_page = |c: Compiler, ui: () -> UI| -> String {
 	// TODO: JS should be tree-shaked so the `reactive_page` function shouldn't even be included in the emitted JS code
     return
         "<!DOCTYPE html>" &
-        "<html lang=\"en\">"
-            "<head>"
-                "<meta charset=\"UTF-8\" />"
-                "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
-                "<script>" & js & "</" & "script>"
-            "</" & "head>"
-            "<body></" & "body>"
+        "<html lang=\"en\">" &
+            "<head>" &
+                "<meta charset=\"UTF-8\" />" &
+                "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">" &
+                "<script>" & js & "</" & "script>" &
+            "</" & "head>" &
+            "<body></" & "body>" &
         "</" & "html>"
 }
 

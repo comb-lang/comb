@@ -93,7 +93,7 @@ create_field_access :: proc(value: CheckedValue, field_index: u32) -> CheckedVal
     #partial switch v in value {
     case CompileTimeValue:
         return v.(CompileTimeStructInitialisation).fields[field_index]
-    case CheckedFunctionCall:
+    case StructInitialisation:
     // Cannot simplify something like `{a: 5, b: do_stuff()}.a` to `5` because the `do_stuff` call may cause side effects
     // TODO: Be able to make simplifications like this and preserve side effects
     }

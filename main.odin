@@ -15,12 +15,21 @@ import "utils"
 
 c_warning :: "WARNING: The C emitter is basically unmaintained at this point, and there are many things which it does not implement\n"
 
-position_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+range_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
     if verb != 'v' {
         return false
     }
-    pos := cast(^utils.Pos)arg.data
-    utils.write_position(fi.writer, pos^)
+    pos := cast(^utils.Range)arg.data
+    utils.write_range(fi.writer, pos^)
+    return true
+}
+
+compiler_file_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+    if verb != 'v' {
+        return false
+    }
+    file := cast(^^utils.CompilerFile)arg.data
+    utils.write_file(fi.writer, file^)
     return true
 }
 
@@ -47,7 +56,8 @@ time_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
 init :: proc "contextless" () {
     context = runtime.default_context()
     user_formatters := new(map[typeid]fmt.User_Formatter)
-    user_formatters[utils.Pos] = position_formatter
+    user_formatters[^utils.CompilerFile] = compiler_file_formatter
+    user_formatters[utils.Range] = range_formatter
     user_formatters[compiler.TokenContents] = compiler.token_formatter
     user_formatters[runtime.Source_Code_Location] = source_code_location_formatter
     user_formatters[time.Time] = time_formatter
@@ -177,7 +187,7 @@ compile :: proc(
                 if function_type != .NoArgsToInt {
                     utils.diagnostic(
                         reporter,
-                        utils.Pos{max(uint), first_file},
+                        first_file,
                         "Got the type `%s`\nExpected the type `%s`",
                         compiler.type_to_string2(
                             checker_output.types,
@@ -197,7 +207,7 @@ compile :: proc(
                 if function_type != .NoArgsToInt && function_type != .CompilerToInt {
                     utils.diagnostic(
                         reporter,
-                        utils.Pos{max(uint), first_file},
+                        first_file,
                         "Got the type `%s`\nExpected the type `%s` or `%s`",
                         compiler.type_to_string2(
                             checker_output.types,

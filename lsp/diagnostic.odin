@@ -3,8 +3,9 @@ package lsp
 import "../compiler"
 import "../utils"
 import "core:io"
+import "core:strings"
 
-lsp_name :: "Programming language LSP" // TODO
+lsp_name :: "Comb LSP"
 
 LspDiagnosticReporterData :: struct {
     diagnostics:                map[uint][]Diagnostic, // The key is the file index
@@ -19,7 +20,12 @@ has_errors :: proc(_: rawptr) -> bool {
 }
 
 @(private = "file")
-diagnostic_header :: proc(_: rawptr, pos: utils.Pos, type: utils.DiagnosticType) -> io.Writer {
+diagnostic_header :: proc(
+    _: rawptr,
+    pos: utils.RangeOrFile,
+    type: utils.DiagnosticType,
+    loc := #caller_location,
+) -> io.Writer {
     message_writer := utils.make_builder(&lsp_state.temp_arena)
     return utils.override_close_handler(
         message_writer,
@@ -27,11 +33,17 @@ diagnostic_header :: proc(_: rawptr, pos: utils.Pos, type: utils.DiagnosticType)
         proc(data: ^utils.OverriddenCloseHandlerStreamData) {
             d := cast(^DiagnosticCloseData)data.new_data
 
-            p: utils.Position = ---
-            if d.pos.index == max(uint) {
-                p = utils.Position{0, 0}
-            } else {
-                p = utils.get_position(d.pos)
+            range: utils.ReadableRange = ---
+            file: ^utils.CompilerFile = ---
+            switch pos in d.pos {
+            case ^utils.CompilerFile:
+                range = utils.ReadableRange{utils.ReadablePos{0, 0}, utils.ReadablePos{0, 0}}
+                file = pos
+            case utils.Range:
+                range = utils.get_range(pos)
+                file = pos.file
+            case:
+                panic("Unreachable")
             }
 
             severity: Severity = ---
@@ -45,7 +57,7 @@ diagnostic_header :: proc(_: rawptr, pos: utils.Pos, type: utils.DiagnosticType)
                 panic("Unreachable")
             }
 
-            file_index := uint(compiler.get_file_index(lsp_state.files_cache.files, d.pos.file))
+            file_index := uint(compiler.get_file_index(lsp_state.files_cache.files, file))
             if file_index not_in lsp_state.diagnostics.diagnostics {
                 lsp_state.diagnostics.diagnostics[file_index] = utils.arena_make(
                     &lsp_state.temp_arena,
@@ -54,20 +66,17 @@ diagnostic_header :: proc(_: rawptr, pos: utils.Pos, type: utils.DiagnosticType)
                     resizable = true,
                 )
             }
+            message := utils.finish_building(data.original_stream)
+            assert(strings.ends_with(message, "\n"))
             utils.append_dynamic(
                 &lsp_state.diagnostics.diagnostics[file_index],
-                Diagnostic {
-                    Range{p, p},
-                    severity,
-                    lsp_name,
-                    utils.finish_building(data.original_stream),
-                },
+                Diagnostic{range, severity, lsp_name, message[:len(message) - 1]},
             )
         },
     )
 }
 
 DiagnosticCloseData :: struct {
-    pos:  utils.Pos,
+    pos:  utils.RangeOrFile,
     type: utils.DiagnosticType,
 }

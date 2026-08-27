@@ -57,16 +57,15 @@ game_of_life = |s: State| -> h.UI {
     for row in s.rows {
 		for pixel in row.cells {
 	        if pixel {
-				// TODO: Update order of operations so brackets are not required
-		        grid_pixels$ = grid_pixels$ :: (Div: {style = "background: #FFFFFF;", children = []})
+		        grid_pixels$ = grid_pixels$ :: Div: {style = "background: #FFFFFF;", children = []}
 	        } else {
-		        grid_pixels$ = grid_pixels$ :: (Div: {style = "background: #000000;", children = []})
+		        grid_pixels$ = grid_pixels$ :: Div: {style = "background: #000000;", children = []}
 	        }
 		}
     }
 	grid_style =
-        "display: grid;"
-        "grid-template-columns: repeat(" & game_width.to_str & ", 1fr);"
+        "display: grid;" &
+        "grid-template-columns: repeat(" & game_width.to_str & ", 1fr);" &
         "aspect-ratio: 1 / 1;"
 	ui_contents = [
         Button: {

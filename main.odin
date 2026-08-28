@@ -177,9 +177,9 @@ compile :: proc(
         reporter,
     )
 
-    function_type := compiler.Type.Unknown
+    pass_compiler_to_main := false
     if checker_output.func_ref.index < len(checker_output.checked_funcs) {
-        function_type = checker_output.checked_funcs[checker_output.func_ref.index].type
+        function_type := checker_output.checked_funcs[checker_output.func_ref.index].type
         if function_type != .Unknown {
             // TODO: Include index in error message position
             switch c in command {
@@ -204,7 +204,11 @@ compile :: proc(
                     )
                 }
             case Run:
-                if function_type != .NoArgsToInt && function_type != .CompilerToInt {
+                #partial switch function_type {
+                case .CompilerToInt:
+                    pass_compiler_to_main = true
+                case .NoArgsToInt:
+                case:
                     utils.diagnostic(
                         reporter,
                         first_file,
@@ -309,7 +313,7 @@ compile :: proc(
         exit_early              = exit_early,
     }
     args: []RuntimeValue
-    if function_type == .CompilerToInt {
+    if pass_compiler_to_main {
         compiler_cache_struct_fields := make([]RuntimeValue, 3)
         compiler_cache_struct_fields[0] = compiler.BuiltinFunction.cache_contains
         compiler_cache_struct_fields[1] = compiler.BuiltinFunction.cache_set

@@ -644,7 +644,7 @@ main :: proc() {
                 }
                 fmt.println("Awaiting source code change...")
                 for !compiler.source_code_changed(&exit_early_value) {
-                    time.sleep(10 * time.Millisecond)
+                    time.sleep(utils.wait_time)
                 }
             case compiler.ExitEarlyAfterSourceCodeChanged:
             }

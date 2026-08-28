@@ -12,6 +12,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
+import "core:time"
 import "utils"
 import "webserver"
 
@@ -254,6 +255,13 @@ interp_execute_function :: proc(s: InterpState, c: compiler.CheckedFunctionCall)
             // TODO: Set timeout on accept_tcp so it does not block the
             // automatic recompilation of the `-watch` flag
             client, _, accept_err := net.accept_tcp(server.socket)
+            if accept_err == .Would_Block {
+                if compiler.should_exit_early(s.exit_early) {
+                    return nil
+                }
+                time.sleep(utils.wait_time)
+                continue
+            }
             if accept_err != nil {
                 // TODO: Better error handling
                 panic(fmt.aprintf("Accept error: %v", accept_err))
@@ -1209,6 +1217,10 @@ default_builtin_handler_procedure :: proc(
             // TODO: Log that the port is being tried
             socket, err := net.listen_tcp(endpoint)
             if err == nil {
+                err2 := net.set_blocking(socket, false)
+                if err2 != nil {
+                    utils.panicf("Failed to disable blocking: %v", err2)
+                }
                 fields[2] = f64(endpoint.port)
                 append(
                     &state.l.http_servers,

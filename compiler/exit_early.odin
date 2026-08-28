@@ -7,7 +7,7 @@ import "core:time"
 
 source_code_changed :: proc(early_exit_value: ^ExitEarlyAwaitingSourceCodeChange) -> bool {
     // TODO: Make this code quicker so caching is not necersarry
-    if time.since(early_exit_value.last_checked) < 10 * time.Millisecond {
+    if time.since(early_exit_value.last_checked) < utils.wait_time {
         return false
     }
     defer early_exit_value.last_checked = time.now()

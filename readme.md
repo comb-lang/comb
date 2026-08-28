@@ -62,10 +62,6 @@ A new language for the web, because it's time to stop working around javascript.
   - Tree shake the emitted JS code
   - Minify the emitted JS code
   - Update the JS emitter to emit less code
-- Extend subtypes/supertypes implementation:
-  - `[]Int` is a supertype of `[32]Int`
-  - `Int` is a supertype of `UInt`
-  - `SumType` is a supertype of `SumType.Variant`
 - Use `len(x)` rather than `x.len`, where `typeof(len) == ([]Any) -> Int`
 - Use `to_str[T](x)` rather than `x.to_str`, where `typeof(to_str[T]) == (T) -> String`
 - Use `append[T](a, b)` rather than `a :: b`, where `typeof(append[T]) = ([]T, []T) -> []T`
@@ -174,7 +170,7 @@ A new language for the web, because it's time to stop working around javascript.
 
 - I feel like the colon being in a different place in something like `TagName: payload` for a variant with a payload and something like `:TagName` for a variant without a payload is odd, but it makes sense because it means that the parser doesn't have to guess whether it should parse a payload
 - Instead of `Bool[100]` or `Bool[]`, I would rather use `[100]Bool` or `[]Bool`, especially for 2D arrays like `Bool[game_width][game_height]`
-- Instead of something like `OrderedHashMap[String, Int]["a" = 5]` to create an ordered hash map value, I would rather use something like `{"a": 5}`
+- Instead of something like `OrderedHashMap("a" = 5)` to create an ordered hash map value, I would rather use something like `{"a": 5}`
 - Instead of `\\`, I would rather use `[]` for union/sum types, but that conflicts with array literals
   - Just `<>` conflicts with comparison operators
 - Instead of `|args| -> ReturnType {...}`, I would rather use `(args) -> ReturnType {}` for function definitions, but that syntax conflicts with order of operations grouping
@@ -212,7 +208,7 @@ A new language for the web, because it's time to stop working around javascript.
         - Certain information is lost when emitting code
           - For example, if you transpile the following to C, it becomes non-trivial for the compiler to emit the javascript because all the metaprogram has is a function pointer:
             ```
-            compiler.emit_js_code(OrderedHashMap[String, Any]["value" = |a: Int| {return a + 1}], "")
+            compiler.emit_js_code(OrderedHashMap("value" = |a: Int| {return a + 1}), "")
             ```
         - The interpreter can act as a sandbox, rather than giving full access to the host system
       - Advantages of the emission and compilation based approach
@@ -235,13 +231,13 @@ A new language for the web, because it's time to stop working around javascript.
           output_path = "counter.html",
           initial_state = CounterState={1},
         }
-        counter = |s: CounterState| -> []Html(CounterState) {
-          return []Html={
-            button(
-              "The count is ${s.count}",
-              |s: CounterState| -> CounterState {return CounterState={s.count + 1}},
-            ),
-          }
+        counter = |s: CounterState| -> Html[CounterState][] {
+          return [
+            Button: {
+              text = "The count is ${s.count}",
+              onclick = |s: CounterState| -> CounterState {return {count = s.count + 1}},
+            },
+          ]
         }
         ```
       - And then the build function would be implemented something like:

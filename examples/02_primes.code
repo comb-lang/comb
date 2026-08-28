@@ -14,8 +14,7 @@ main = || -> Int {
     primes = find_primes()
     for is_prime, i in primes {
 		print("The number ")
-		num = i + 1
-		print(num.to_str)
+		print((i + 1).to_str)
 	    if is_prime {
 			println(" is prime")
 		} else {

@@ -1015,8 +1015,6 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeVa
                 ),
             }
 
-        case .Append, .Concat, .Arrow:
-            panic("Unreachable")
         }
 
     case compiler.CheckedFunctionCall:

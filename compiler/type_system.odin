@@ -52,11 +52,11 @@ Type :: enum u32 {
     // - Zip
     // - Wasm
     //
-    // <
-    //   :Plain String,
-    //   :Css String,
-    //   :Html String,
-    // >
+    // \
+    //   Plain: String,
+    //   Css: String,
+    //   Html: String,
+    // \
     HttpResponse,
 
     // (HttpRequest) -> HttpResponse

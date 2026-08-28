@@ -253,9 +253,11 @@ emit_js_derivation :: proc(
     }
 
     strings.write_byte(&s.b, ',')
-    strings.write_string(&s.b, "(old) => ")
+    // The brackets are needed so that the JS emitted by `emit_js_derivation` is
+    // interpreted as a value rather than a block
+    strings.write_string(&s.b, "(old) => (")
     emit_js_derivation(s, nil, subset_elems[1:], alteration)
-    strings.write_byte(&s.b, ')')
+    strings.write_string(&s.b, "))")
 }
 
 emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
@@ -381,7 +383,7 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
         strings.write_byte(&s.b, '(')
         emit_js_value(s, v.val0^)
         switch v.join_method {
-        case .Append, .Concat, .Arrow, .In:
+        case .In:
             panic("Unreachable")
         case .BooleanAnd:
             strings.write_string(&s.b, "&&")
@@ -494,8 +496,8 @@ emit_js_block_body :: proc(
                    has_value_var {
                     emit_variable(&s.b, value_var)
                     strings.write_string(&s.b, " = ")
-                    emit_variable(&s.b, stmt.value) // TODO: Maybe create a copy without the `variant` field?
-                    strings.write_byte(&s.b, ';')
+                    emit_variable(&s.b, stmt.value)
+                    strings.write_string(&s.b, ".payload;")
                 }
                 emit_js_block_body(s, nesting_level + 1, branch.block.body)
                 strings.write_string(&s.b, "break;}")

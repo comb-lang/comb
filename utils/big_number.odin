@@ -31,6 +31,7 @@ NumberValue :: struct {
 
 uint_zero :: BigUint{nil}
 int_zero :: BigInt{false, uint_zero}
+number_zero :: NumberValue{false, uint_zero, ""}
 
 number_value_to_f64 :: proc(num: NumberValue) -> Maybe(f64) {
     whole_part_as_u64, ok := big_uint_to_u64(num.whole_part)

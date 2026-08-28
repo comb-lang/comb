@@ -7,7 +7,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 
-return_type_count_mismatch :: "Expected %d return types, but got %d return types"
+return_type_count_mismatch :: "Expected %d return types, but the function returns %d return types"
 
 VariableRef :: struct {
     nesting_level: uint,
@@ -122,8 +122,25 @@ StringLiteralValue :: distinct string
 CharValue :: distinct u8
 IntValue :: distinct i64
 BooleanNotValue :: distinct ^CheckedValue
+CheckedJoinMethod :: enum {
+    BooleanAnd           = int(UnitJoinMethod.BooleanAnd),
+    BooleanOr            = int(UnitJoinMethod.BooleanOr),
+    IsEqual              = int(UnitJoinMethod.IsEqual),
+    IsNotEqual           = int(UnitJoinMethod.IsNotEqual),
+    IsGreaterThan        = int(UnitJoinMethod.IsGreaterThan),
+    IsLessThan           = int(UnitJoinMethod.IsLessThan),
+    IsGreaterThanOrEqual = int(UnitJoinMethod.IsGreaterThanOrEqual),
+    IsLessThanOrEqual    = int(UnitJoinMethod.IsLessThanOrEqual),
+    In                   = int(UnitJoinMethod.In),
+    StringConcat         = int(UnitJoinMethod.StringConcat), // &
+    Addition             = int(UnitJoinMethod.Addition),
+    Subtraction          = int(UnitJoinMethod.Subtraction),
+    Modulo               = int(UnitJoinMethod.Modulo),
+    Multiplication       = int(UnitJoinMethod.Multiplication),
+    Division             = int(UnitJoinMethod.Division),
+}
 CheckedJoinedValues :: struct {
-    join_method: HierarchyUnitJoinMethod,
+    join_method: CheckedJoinMethod,
     val0:        ^CheckedValue,
     val1:        ^CheckedValue,
 }
@@ -263,19 +280,19 @@ FuncType :: struct {
     return_types: []Type,
 }
 
-TypeAndPos :: struct {
-    type: Type,
-    pos:  utils.Pos,
+TypeAndRange :: struct {
+    type:  Type,
+    range: utils.Range,
 }
 
-expect_number :: proc(s: ^CheckerState, t: TypeAndPos) -> bool {
+expect_number :: proc(s: ^CheckerState, t: TypeAndRange) -> bool {
     #partial switch t.type {
     case .Int, .UInt, .Float:
         return true
     case:
         utils.diagnostic(
             s.r,
-            t.pos,
+            t.range,
             "Expected a number type, but got the type `%s`",
             type_to_string(s, t.type),
         )
@@ -283,7 +300,11 @@ expect_number :: proc(s: ^CheckerState, t: TypeAndPos) -> bool {
     }
 }
 
-most_general_number_type :: proc(s: ^CheckerState, first_type: Type, types: ..TypeAndPos) -> Type {
+most_general_number_type :: proc(
+    s: ^CheckerState,
+    first_type: Type,
+    types: ..TypeAndRange,
+) -> Type {
     out := first_type
     for type in types {
         ok := expect_number(s, type)
@@ -341,7 +362,11 @@ expect_snake_case :: proc(
             case .InUppercaseBlock:
                 utils.diagnostic(
                     s.r,
-                    utils.Pos{ident.pos.index + i, ident.pos.file},
+                    utils.Range {
+                        ident.pos.index + i,
+                        utils.to_debug_value(uint(1)),
+                        ident.pos.file,
+                    },
                     "Expected %s to be `snake_case`, got `%s`\nUnexpected lowercase letter '%c' in an uppercase block of a snake case identifier\nExpected an underscore, a number, or an uppercase letter",
                     expected,
                     ident.text,
@@ -358,7 +383,11 @@ expect_snake_case :: proc(
             case .InLowercaseBlock:
                 utils.diagnostic(
                     s.r,
-                    utils.Pos{ident.pos.index + i, ident.pos.file},
+                    utils.Range {
+                        ident.pos.index + i,
+                        utils.to_debug_value(uint(1)),
+                        ident.pos.file,
+                    },
                     "Expected %s to be `snake_case`, got `%s`\nUnexpected uppercase letter '%c' in a lowercase block of a snake case identifier\nExpected an underscore, a number, or a lowercase letter",
                     expected,
                     ident.text,
@@ -376,7 +405,11 @@ expect_snake_case :: proc(
             if !can_have_dollar_postfix {
                 utils.diagnostic(
                     s.r,
-                    utils.Pos{ident.pos.index + i, ident.pos.file},
+                    utils.Range {
+                        ident.pos.index + i,
+                        utils.to_debug_value(uint(1)),
+                        ident.pos.file,
+                    },
                     "Cannot have '$' post fix in %s",
                     expected,
                     type = .Warning,
@@ -394,7 +427,7 @@ expect_camel_case :: proc(s: ^CheckerState, expected: string, ident: TextAndPos)
     if get_character_group(ident.text[0]) != .UpperCase {
         utils.diagnostic(
             s.r,
-            ident.pos,
+            utils.Range{ident.pos.index, utils.to_debug_value(uint(1)), ident.pos.file},
             "Expected %s to be `CamelCase`, got `%s`\nFirst character in a camel case identifier must be an uppercase letter\nGot '%c'",
             expected,
             ident.text,
@@ -408,7 +441,7 @@ expect_camel_case :: proc(s: ^CheckerState, expected: string, ident: TextAndPos)
         case .Underscore:
             utils.diagnostic(
                 s.r,
-                utils.Pos{ident.pos.index + i, ident.pos.file},
+                utils.Range{ident.pos.index + i, utils.to_debug_value(uint(1)), ident.pos.file},
                 "Expected %s to be `CamelCase`, got `%s`\nCannot have `_` in a camel case identifier",
                 expected,
                 ident.text,
@@ -421,7 +454,7 @@ expect_camel_case :: proc(s: ^CheckerState, expected: string, ident: TextAndPos)
             assert(ident.text[i] == '$')
             utils.diagnostic(
                 s.r,
-                utils.Pos{ident.pos.index + i, ident.pos.file},
+                utils.Range{ident.pos.index + i, utils.to_debug_value(uint(1)), ident.pos.file},
                 "Cannot have '$' post fix in `CamalCase` identifier `%s`",
                 ident.text,
                 type = .Warning,
@@ -467,12 +500,27 @@ check_struct_type :: proc(
 check_function_type :: proc(
     s: ^CheckerState,
     inputs: []Unit,
-    output: ^Unit, // if the function has no output, then `output` is `nil`
+    output: Maybe(Unit), // if the function has no output, then `output` is `nil`
     generic_args: map[string]Type,
 ) -> (
     FuncType,
     bool,
 ) {
+    get_outputs :: proc(output: Maybe(Unit)) -> []Unit {
+        if output == nil {
+            return nil
+        }
+        o := output.(Unit)
+        if len(o.rest) == 0 {
+            if tuple, is_tuple := o.first.contents.(Tuple); is_tuple {
+                return tuple.elements
+            }
+        }
+        outputs := make([]Unit, 1)
+        outputs[0] = o
+        return outputs
+    }
+
     ok := true
 
     args := make([]Type, len(inputs))
@@ -483,15 +531,7 @@ check_function_type :: proc(
         }
     }
 
-    outputs: []Unit = ---
-    if output == nil {
-        outputs = nil
-    } else if tuple, is_tuple := output.first_unit.(Tuple); is_tuple {
-        outputs = tuple.elements
-    } else {
-        outputs = make([]Unit, 1)
-        outputs[0] = output^
-    }
+    outputs := get_outputs(output)
     return_types := make([]Type, len(outputs))
     for output, i in outputs {
         return_types[i] = check_type(s, output, generic_args)
@@ -510,9 +550,9 @@ check_function_type :: proc(
 // Returns nil if there are errors in the type
 check_array_type :: proc(
     s: ^CheckerState,
-    pos: utils.Pos,
     item_type: Type,
     square_bracket_args: []Unit,
+    square_bracket_args_range: utils.Range,
     generic_args: map[string]Type,
 ) -> (
     ArrayType,
@@ -528,14 +568,14 @@ check_array_type :: proc(
             CheckValueArgs{&body, generic_args, nil},
             .UInt,
         )
-        if !runtime_value_ok(s, square_bracket_args[0].pos, value) {
+        if !runtime_value_ok(s, get_range(square_bracket_args[0]), value) {
             return ArrayType{}, false
         }
         compile_time_value, is_comptime := value.(CompileTimeValue)
         if !is_comptime {
             utils.diagnostic(
                 s.r,
-                square_bracket_args[0].pos,
+                get_range(square_bracket_args[0]),
                 "Expected a compile time value got a runtime value",
             )
             return ArrayType{}, false
@@ -547,7 +587,7 @@ check_array_type :: proc(
         if number.is_negated || !ok || length == 0 {
             utils.diagnostic(
                 s.r,
-                square_bracket_args[0].pos,
+                get_range(square_bracket_args[0]),
                 "Expected an integer, n, where 0 < n <= max(u32)",
             )
             return ArrayType{}, false
@@ -556,7 +596,7 @@ check_array_type :: proc(
     } else {
         utils.diagnostic(
             s.r,
-            pos,
+            square_bracket_args_range,
             "Expected either 0 or 1 unit inside `[]`, got %d units",
             len(square_bracket_args),
         )
@@ -581,27 +621,12 @@ check_type :: proc(
     return value.(CompileTimeValue).(Type)
 }
 
-check_initial_type :: proc(
-    s: ^CheckerState,
-    type: UnitWithPos,
-    generic_args: map[string]Type,
-) -> Type {
-    body := utils.to_debug_value([dynamic]CheckedStatement{})
-    value := check_initial_value_of_type(s, type, CheckValueArgs{&body, generic_args, nil}, .Type)
-    if value == nil {
-        return .Invalid
-    }
-    assert(len(body.v) == 0)
-    return value.(CompileTimeValue).(Type)
-
-}
-
 // TODO: It should not be possible to represent a value which cannot be used at runtime with `CheckedValue`, so this function should not be necersarry
 // A "runtime value" is any value which can be used at runtime
 // The boolean returned is whether `value` can be used as a runtime value
 runtime_value_ok :: proc(
     s: ^CheckerState,
-    pos: utils.Pos,
+    range: utils.Range,
     value: CheckedValue,
     loc := #caller_location,
 ) -> bool {
@@ -610,7 +635,7 @@ runtime_value_ok :: proc(
     case CompileTimeValue:
         #partial switch _ in v {
         case Type, GlobalValueWithGenericRef, UninitialisedOrderedHashMapType, Import:
-            utils.diagnostic(s.r, pos, "This value can only be used at compile time")
+            utils.diagnostic(s.r, range, "This value can only be used at compile time")
             return false
         }
         return true
@@ -733,9 +758,9 @@ ToString :: struct {
 }
 
 CheckedMatchBranch :: struct {
-    pos:       utils.Pos,
-    block:     CheckedBlock,
-    value_var: Maybe(VariableRef), // May be nil
+    label_range: utils.Range,
+    block:       CheckedBlock,
+    value_var:   Maybe(VariableRef), // May be nil
 }
 
 CheckedMatch :: struct {
@@ -785,7 +810,7 @@ generic_initialisation_to_index_procs :: utils.KeyToIndexProcs(GenericInitialisa
 
 check_comptime_func_call :: proc(
     s: ^CheckerState,
-    pos: utils.Pos,
+    function_range: utils.Range,
     global: GlobalValueWithGenericRef,
     generic_args: []Type,
     loc := #caller_location,
@@ -793,7 +818,7 @@ check_comptime_func_call :: proc(
     // return CompileTimeValue(UninitialisedGlobalWithGenerics{global,generic_args})
     generic := &s.global_values_with_generics[global.index]
     if len(generic_args) != len(generic.generics) {
-        argument_count_mismatch(s, pos, len(generic_args), len(generic.generics), generic.name)
+        argument_count_mismatch(s, function_range, len(generic_args), len(generic.generics))
         return CheckValueResult{nil, .Invalid}
     }
 
@@ -841,7 +866,7 @@ check_comptime_func_call :: proc(
         CheckedGlobalValue{checked_value.type, comptime_value},
     )
     if !ok {
-        utils.diagnostic(s.r, generic.value.pos, non_compiletime_global_err)
+        utils.diagnostic(s.r, get_range(generic.value), non_compiletime_global_err)
         return CheckValueResult{nil, .Invalid}
     }
     assert(utils.debug_dynamic_array_len(body) == 0)
@@ -982,7 +1007,7 @@ simplify_type :: proc(s: ^CheckerState, type: Type, loc := #caller_location) -> 
 
 get_sum_type :: proc(
     s: ^CheckerState,
-    pos: Maybe(utils.Pos),
+    range: Maybe(utils.Range),
     type: Type,
     loc := #caller_location,
 ) -> (
@@ -991,7 +1016,7 @@ get_sum_type :: proc(
     bool,
 ) {
     utils.call(loc, "get_sum_type", "")
-    utils.print_arg("pos", pos)
+    utils.print_arg("range", range)
     utils.print_arg("type", type)
     simplified := simplify_type(s, type)
     sum_type, is_sum_type := simplified.key.(SumType)
@@ -999,10 +1024,10 @@ get_sum_type :: proc(
         utils.debug("returned SumType(StructType) is %#v", sum_type)
         return sum_type, simplified.type, true
     }
-    if p, ok := pos.(utils.Pos); ok {
+    if r, ok := range.(utils.Range); ok {
         utils.diagnostic(
             s.r,
-            p,
+            r,
             "Expected a sum type, but got the type `%s`",
             type_to_string(s, type),
         )
@@ -1012,7 +1037,7 @@ get_sum_type :: proc(
 
 get_struct_type :: proc(
     s: ^CheckerState,
-    pos: Maybe(utils.Pos),
+    // range: Maybe(utils.Range),
     type: Type,
 ) -> (
     StructType,
@@ -1023,10 +1048,12 @@ get_struct_type :: proc(
     if is_struct_type {
         return struct_type, true
     }
-    if p, ok := pos.(utils.Pos); ok {
+    /*
+    if r, ok := pos.(utils.Range); ok {
         got := type_to_string(s, type)
-        utils.diagnostic(s.r, p, "Expected a struct type, but got the type `%s`", got)
+        utils.diagnostic(s.r, r, "Expected a struct type, but got the type `%s`", got)
     }
+    */
     return StructType{}, false
 }
 
@@ -1053,7 +1080,7 @@ get_func_type_from_struct_type :: proc(
 // Returns `nil` on failure
 get_func_type :: proc(
     s: ^CheckerState,
-    pos: utils.Pos,
+    value_range: utils.Range,
     value: CheckedValue,
     type: Type,
     loc := #caller_location,
@@ -1086,8 +1113,7 @@ get_func_type :: proc(
         // TODO: Also have this better error message for other functions:
         // - `get_struct_type`
         // - `get_sum_type`
-        // - `expect_value_of_type`
-        // - `expect_exact_type`
+        // - `expect_type`
         global_value_with_generic_ref, ok := value.(CompileTimeValue).(GlobalValueWithGenericRef)
         if ok {
             global_value_with_generic :=
@@ -1107,7 +1133,7 @@ get_func_type :: proc(
             strings.write_byte(&initialisation, ']')
             utils.diagnostic(
                 s.r,
-                pos,
+                value_range,
                 "Expected a func type, but got an uninitialised global value with generics\nHint: Try initialising the global value with something like `%s`",
                 strings.to_string(initialisation),
             )
@@ -1116,116 +1142,158 @@ get_func_type :: proc(
     }
     utils.diagnostic(
         s.r,
-        pos,
+        value_range,
         "Expected a func type, but got the type `%s`",
         type_to_string(s, type),
     )
     return nil
 }
 
-type_is_subset :: proc(
+// Returns `nil` on success
+// Returns a writer that needs closing on failure
+expect_type_helper :: proc(
     s: ^CheckerState,
-    type_unsimplified: Type,
-    superset_unsimplified: Type,
+    range: utils.Range,
+    got_unsimplified: Type,
+    expected_unsimplified: Type,
     loc := #caller_location,
-) -> bool {
+) -> (
+    out: Maybe(io.Writer),
+) {
     when ODIN_DEBUG {
         utils.call(
             loc,
-            "type_is_subset",
+            "expect_type_helper",
             "type: %v, superset: %v",
-            get_type(s.types, type_unsimplified),
-            get_type(s.types, superset_unsimplified),
+            get_type(s.types, got_unsimplified),
+            get_type(s.types, expected_unsimplified),
         )
     }
-    type := simplify_type(s, type_unsimplified)
-    superset := simplify_type(s, superset_unsimplified)
-    if type.type == superset.type {
-        return true
+    defer {
+        if out != nil {
+            w := out.(io.Writer)
+            io.write_string(w, "Expected the type `")
+            io.write_string(w, type_to_string(s, expected_unsimplified))
+            io.write_string(w, "` but got the type `")
+            io.write_string(w, type_to_string(s, got_unsimplified))
+            io.write_string(w, "`\n")
+        }
     }
-    if superset.type == .Any {
-        return true
+    got := simplify_type(s, got_unsimplified)
+    expected := simplify_type(s, expected_unsimplified)
+    if got.type == expected.type {
+        return
     }
-    if superset.type == .Float {
-        return type.type == .Int || type.type == .UInt
+    if expected.type == .Any {
+        return
     }
-    if superset.type == .Int {
-        return type.type == .UInt
+    if expected.type == .Float {
+        if got.type != .Int && got.type != .UInt {
+            out = s.r.diagnostic_header(s.r.data, range, .Error)
+        }
+        return
     }
-    if superset.type > .MaxIndex {
-        return false
+    if expected.type == .Int {
+        if got.type != .UInt {
+            out = s.r.diagnostic_header(s.r.data, range, .Error)
+        }
+        return
     }
-    #partial switch superset_value in superset.key {
+    if expected.type > .MaxIndex {
+        out = s.r.diagnostic_header(s.r.data, range, .Error)
+        return
+    }
+    #partial switch superset_value in expected.key {
     case nil:
         panic("Unreachable")
     case:
-        return false
+        out = s.r.diagnostic_header(s.r.data, range, .Error)
+        return
     case OrderedHashMapType:
-        if type.type == .EmptyOrderedHashMap {
-            return true
+        if got.type == .EmptyOrderedHashMap {
+            return
         }
-        type_value, is_ordered_hashmap_type := type.key.(OrderedHashMapType)
+        type_value, is_ordered_hashmap_type := got.key.(OrderedHashMapType)
         if !is_ordered_hashmap_type {
-            return false
+            out = s.r.diagnostic_header(s.r.data, range, .Error)
+            return
         }
-        if !type_is_subset(s, Type(type_value.key_type), Type(superset_value.key_type)) {
-            return false
+        out = expect_type_helper(
+            s,
+            range,
+            Type(type_value.key_type),
+            Type(superset_value.key_type),
+        )
+        if out != nil {
+            return
         }
-        if !type_is_subset(s, type_value.value_type, superset_value.value_type) {
-            return false
+        out = expect_type_helper(s, range, type_value.value_type, superset_value.value_type)
+        if out != nil {
+            return
         }
-        return true
+        return
     case ArrayType:
-        type_value, is_array_type := type.key.(ArrayType)
+        type_value, is_array_type := got.key.(ArrayType)
         if !is_array_type {
-            return false
+            out = s.r.diagnostic_header(s.r.data, range, .Error)
+            return
         }
         if type_value.length == 0 && (superset_value.length == 0 || superset_value.length == nil) {
-            return true
+            return
         }
         if superset_value.length == nil || superset_value.length == type_value.length {
-            return type_is_subset(s, type_value.item_type, superset_value.item_type)
+            out = expect_type_helper(s, range, type_value.item_type, superset_value.item_type)
+            return
         }
-        return false
+        out = s.r.diagnostic_header(s.r.data, range, .Error)
+        return
     case StructType:
-        type_value, is_struct_type := type.key.(StructType)
+        type_value, is_struct_type := got.key.(StructType)
         if !is_struct_type {
-            return false
+            out = s.r.diagnostic_header(s.r.data, range, .Error)
+            return
         }
         if len(superset_value.m.keys) != len(type_value.m.keys) {
-            return false
+            out = s.r.diagnostic_header(s.r.data, range, .Error)
+            return
         }
         for superset_key, i in superset_value.m.keys {
             if superset_key.key != type_value.m.keys[i].key {
-                return false
+                out = s.r.diagnostic_header(s.r.data, range, .Error)
+                return
             }
-            if !type_is_subset(s, type_value.types.d[i], superset_value.types.d[i]) {
-                return false
+            out = expect_type_helper(s, range, type_value.types.d[i], superset_value.types.d[i])
+            if out != nil {
+                return
             }
         }
-        return true
+        return
     case SumType:
-        type_value, is_sum_type := type.key.(SumType)
+        type_value, is_sum_type := got.key.(SumType)
         if !is_sum_type {
-            return false
+            out = s.r.diagnostic_header(s.r.data, range, .Error)
+            return
         }
         for tag_variant_index, tag_payload in type_value.payloads {
             if tag_variant_index not_in superset_value.payloads {
-                return false
+                out = s.r.diagnostic_header(s.r.data, range, .Error)
+                return
             }
             type_payload, type_has_payload := tag_payload.(Type)
             superset_payload, superset_has_payload := superset_value.payloads[tag_variant_index].(Type)
             if type_has_payload != superset_has_payload {
-                return false
+                out = s.r.diagnostic_header(s.r.data, range, .Error)
+                return
             }
             if !type_has_payload {
                 continue
             }
-            if type_is_subset(s, type_payload, superset_payload) == false {
-                return false
+            out = expect_type_helper(s, range, type_payload, superset_payload)
+            if out != nil {
+                return
             }
         }
-        return true
+        return
     case GenericTypeValue, GlobalType:
         panic("Unreachable")
     }
@@ -1343,27 +1411,20 @@ expect_value_of_type :: proc(
 }
 */
 
-expect_exact_type :: proc(
+expect_type :: proc(
     s: ^CheckerState,
-    pos: utils.Pos,
+    range: utils.Range,
     expected: Type,
     got: Type,
-    extra_text: string,
     loc := #caller_location,
 ) -> bool {
-    utils.call(loc, "expect_exact_type", "")
-    if !type_is_subset(s, got, expected) {
-        utils.diagnostic(
-            s.r,
-            pos,
-            "Expected the type `%s` but got the type `%s`%s",
-            type_to_string(s, expected),
-            type_to_string(s, got),
-            extra_text,
-        )
-        return false
+    utils.call(loc, "expect_type", "")
+    out := expect_type_helper(s, range, got, expected)
+    if out == nil {
+        return true
     }
-    return true
+    io.close(out.(io.Writer))
+    return false
 }
 
 get_variable_type :: proc(
@@ -1462,7 +1523,7 @@ build_type_string :: proc(
         case StructType:
             build_struct_string(types, globals_without_generic, globals_with_generic, b, tv)
         case SumType:
-            strings.write_byte(b, '/')
+            strings.write_byte(b, '\\')
             first_variant := true
             for tag_variant_index, tag_payload in tv.payloads {
                 if !first_variant {
@@ -1592,7 +1653,7 @@ pop_scope :: proc(s: ^CheckerState, loc := #caller_location) {
 
 get_array_type :: proc(
     s: ^CheckerState,
-    pos: utils.Pos,
+    range: utils.Range,
     description: string,
     type_unsimplified: Type,
 ) -> (
@@ -1605,7 +1666,7 @@ get_array_type :: proc(
     }
     utils.diagnostic(
         s.r,
-        pos,
+        range,
         "%s is of type `%s`\nExpected an array type",
         description,
         type_to_string(s, type_unsimplified),
@@ -1669,7 +1730,7 @@ check_mutation_destination :: proc(
 
 check_mutation :: proc(
     s: ^CheckerState,
-    unit: Unit,
+    split: SuccessfulSplitFirst,
     // unit_being_mutated: UnitWithPos,
     // new_value_unit: Unit,
     body: ^utils.DebugValue([dynamic]CheckedStatement),
@@ -1677,36 +1738,31 @@ check_mutation :: proc(
     loc := #caller_location,
 ) -> bool {
     utils.call(loc, "check_mutation", "")
-    ident, is_ident := unit.first_unit.(IdentNode)
-    if !is_ident || len(ident.segments) != 1 {
+    ident, is_ident := split.before_split.contents.(IdentNode)
+    if !is_ident {
         utils.diagnostic(
             s.r,
-            unit.pos,
-            "Expected an identifier with one segment for the unit being mutated",
+            split.before_split.range,
+            "Expected an identifier for the unit being mutated",
         )
         return false
     }
-    if ident.has_re_before && !ident.segments[0].has_dollar_at_end {
+    if ident.has_re_before && !ident.ident.has_dollar_at_end {
         utils.diagnostic(
             s.r,
-            ident.segments[0].pos,
+            split.before_split.range,
             "The name of a reassignable variable must have a `$` postfix",
         )
         return false
     }
-    new_value_unit := Unit {
-        unit.extra_units[0].unit.pos,
-        unit.extra_units[0].unit.unit,
-        unit.extra_units[1:],
-    }
-    if !ident.has_re_before && ident.segments[0].has_dollar_at_end {
-        var_ref, ok := s.variables_map[ident.segments[0].ident]
+    if !ident.has_re_before && ident.ident.has_dollar_at_end {
+        var_ref, ok := s.variables_map[ident.ident.ident]
         if !ok {
             utils.diagnostic(
                 s.r,
-                unit.pos,
+                split.before_split.range,
                 "The variable `%s` is not defined",
-                ident.segments[0].ident,
+                ident.ident.ident,
             )
             return false
         }
@@ -1714,18 +1770,18 @@ check_mutation :: proc(
         if !var.is_reassignable {
             utils.diagnostic(
                 s.r,
-                unit.pos,
+                split.before_split.range,
                 "The variable `%s` is not reassignable",
-                ident.segments[0].ident,
+                ident.ident.ident,
             )
             return false
         }
 
         alteration := check_derivation_alteration(
             s,
-            unit.extra_units[0].join_method,
-            unit.extra_units[0].join_method_pos,
-            new_value_unit,
+            split.split_method,
+            split.split_method_range,
+            split.after_split,
             var.type,
             body,
             generic_args,
@@ -1748,21 +1804,21 @@ check_mutation :: proc(
         return true
     }
 
-    if unit.extra_units[0].join_method != .Assign {
+    if split.split_method != .Assign {
         utils.diagnostic(
             s.r,
-            unit.extra_units[0].join_method_pos,
+            split.split_method_range,
             "For variable declaration: First join method must be `=`",
         )
         return false
     }
 
-    new_value := check_value(s, new_value_unit, CheckValueArgs{body, generic_args, nil}).v
+    new_value := check_value(s, split.after_split, CheckValueArgs{body, generic_args, nil}).v
     if new_value.value == nil {
         return false
     }
 
-    variable, variable_ok := add_variable(s, new_value.type, ident.segments[0])
+    variable, variable_ok := add_variable(s, new_value.type, ident.ident)
     if !variable_ok {
         return false
     }
@@ -1771,29 +1827,46 @@ check_mutation :: proc(
     return true
 }
 
+SuccessfulSplitFirst :: struct {
+    before_split:       UnitSegment,
+    split_method:       UnitJoinMethod,
+    split_method_range: utils.Range,
+    after_split:        Unit,
+}
+
+try_split_first_by :: proc(
+    u: Unit,
+    possible_splits: bit_set[UnitJoinMethod],
+) -> Maybe(SuccessfulSplitFirst) {
+    if len(u.rest) < 2 {
+        return nil
+    }
+    join_method, is_join_method := u.rest[0].contents.(UnitJoinMethod)
+    if !is_join_method || join_method not_in possible_splits {
+        return nil
+    }
+    return SuccessfulSplitFirst{u.first, join_method, u.rest[0].range, Unit{u.rest[1], u.rest[2:]}}
+}
+
 SuccessfulSplit :: struct {
-    before_split:     Unit,
-    split_method:     LeftToRightUnitJoinMethod,
-    split_method_pos: utils.Pos,
-    after_split:      Unit,
+    before_split:       Unit,
+    split_method:       UnitJoinMethod,
+    split_method_range: utils.Range,
+    after_split:        Unit,
 }
 
 // Returns `nil` on failure
-try_split_by :: proc(
-    u: Unit,
-    possible_splits: ..LeftToRightUnitJoinMethod,
-) -> Maybe(SuccessfulSplit) {
-    for extra_unit, i in u.extra_units {
-        for possible_split in possible_splits {
-            if extra_unit.join_method == possible_split {
-                return SuccessfulSplit {
-                    Unit{u.pos, u.first_unit, u.extra_units[:i]},
-                    extra_unit.join_method,
-                    extra_unit.join_method_pos,
-                    Unit{extra_unit.unit.pos, extra_unit.unit.unit, u.extra_units[i + 1:]},
-                }
+try_split_by :: proc(u: Unit, possible_splits: bit_set[UnitJoinMethod]) -> Maybe(SuccessfulSplit) {
+    // Start from the end for correct order of operations
+    for i := len(u.rest) - 2; i >= 0; i -= 1 {
+        join_method, is_join_method := u.rest[i].contents.(UnitJoinMethod)
+        if is_join_method && join_method in possible_splits {
+            return SuccessfulSplit {
+                Unit{u.first, u.rest[:i]},
+                join_method,
+                u.rest[i].range,
+                Unit{u.rest[i + 1], u.rest[i + 2:]},
             }
-
         }
     }
     return nil
@@ -1805,28 +1878,28 @@ GetTagResult :: struct {
 }
 
 get_tag :: proc(r: utils.DiagnosticReporter, u: Unit) -> Maybe(GetTagResult) {
-    if len(u.extra_units) == 0 {
-        if tag, is_tag := u.first_unit.(TagUnit); is_tag {
-            tag_name, ok := get_text_and_pos_from_ident(r, tag.tag).(TextAndPos)
-            if !ok {return nil}
-            return GetTagResult{tag_name, nil}
+    #partial switch first in u.first.contents {
+    case UnitJoinMethod:
+        if first == .Colon && len(u.rest) == 1 {
+            ident, is_ident := u.rest[0].contents.(IdentNode)
+            if is_ident && !ident.has_re_before {
+                return GetTagResult{TextAndPos{ident.ident.ident, ident.ident.pos}, nil}
+            }
         }
-    } else if u.extra_units[0].join_method == .Colon {
-        tag_name, tag_name_ok := get_text_and_pos_from_unit_with_pos(
-            r,
-            UnitWithPos{u.first_unit, u.pos},
-        ).(TextAndPos)
-        if !tag_name_ok {
-            return nil
-        }
-        return GetTagResult {
-            tag_name,
-            Unit{u.extra_units[0].unit.pos, u.extra_units[0].unit.unit, u.extra_units[1:]},
+    case IdentNode:
+        if first.has_re_before == false && len(u.rest) >= 2 {
+            join_method, is_join_method := u.rest[0].contents.(UnitJoinMethod)
+            if is_join_method && join_method == .Colon {
+                return GetTagResult {
+                    TextAndPos{first.ident.ident, first.ident.pos},
+                    Unit{u.rest[1], u.rest[2:]},
+                }
+            }
         }
     }
     utils.diagnostic(
         r,
-        u.pos,
+        get_range(u),
         "Expected a tag like `:TagName` or `TagName: var_name` to create a sum type variant",
     )
     return nil
@@ -1845,7 +1918,7 @@ check_block :: proc(
 ) {
     utils.call(loc, "check_block", "")
     for stmt, stmt_index in block {
-        switch value in stmt.value {
+        switch value in stmt {
 
         /*
         case VariableManagement:
@@ -1885,7 +1958,19 @@ check_block :: proc(
         */
 
         case Unit:
-            if len(value.extra_units) != 0 {
+            if len(value.rest) == 0 {
+                utils.diagnostic(
+                    s.r,
+                    get_range(value),
+                    "Must have atleast 2 unit segments in a statement",
+                )
+                return nil, false
+            }
+            last_segment := value.rest[len(value.rest) - 1]
+            if split, split_ok := try_split_first_by(
+                   value,
+                   alteration_methods,
+               ).(SuccessfulSplitFirst); split_ok {
                 /*
                 if value.extra_units[0].join_method != .Assign {
                     utils.diagnostic(
@@ -1898,7 +1983,7 @@ check_block :: proc(
                     */
                 ok := check_mutation(
                     s,
-                    value,
+                    split,
                     /*
                     UnitWithPos{value.first_unit, value.pos},
                     Unit {
@@ -1913,45 +1998,42 @@ check_block :: proc(
                 if !ok {
                     return nil, false
                 }
-            } else {
-                #partial switch unit in value.first_unit {
-                case CallWithBrackets:
-                    value_being_called := check_initial_value(
-                        s,
-                        unit.unit_being_called.pos,
-                        unit.unit_being_called.unit,
-                        CheckValueArgs{body, generic_args, nil},
-                    )
-                    if value_being_called.v.value == nil {
-                        return nil, false
-                    }
-                    call, call_ok := check_function_call(
-                        s,
-                        value.pos,
-                        value_being_called.v,
-                        unit.unit_being_called.pos,
-                        unit.args,
-                        body,
-                        generic_args,
-                    ).(CheckedFuncCall)
-                    if !call_ok {
-                        return nil, false
-                    }
-                    if len(call.return_types) != 0 {
-                        utils.diagnostic(
-                            s.r,
-                            value.pos,
-                            return_type_count_mismatch,
-                            0,
-                            len(call.return_types),
-                        )
-                        return nil, false
-                    }
-                    utils.debug_dynamic_array_append(body, call.value)
-                case:
-                    utils.diagnostic(s.r, value.pos, "Cannot use this kind of unit as a statement")
+            } else if args, args_ok := last_segment.contents.(Tuple); args_ok {
+                unit_being_called := Unit{value.first, value.rest[:len(value.rest) - 1]}
+                value_being_called := check_value(
+                    s,
+                    unit_being_called,
+                    CheckValueArgs{body, generic_args, nil},
+                )
+                if value_being_called.v.value == nil {
                     return nil, false
                 }
+                call, call_ok := check_function_call(
+                    s,
+                    value_being_called.v,
+                    get_range(unit_being_called),
+                    args.elements,
+                    last_segment.range,
+                    body,
+                    generic_args,
+                ).(CheckedFuncCall)
+                if !call_ok {
+                    return nil, false
+                }
+                if len(call.return_types) != 0 {
+                    utils.diagnostic(
+                        s.r,
+                        get_range(unit_being_called),
+                        return_type_count_mismatch,
+                        0,
+                        len(call.return_types),
+                    )
+                    return nil, false
+                }
+                utils.debug_dynamic_array_append(body, call.value)
+            } else {
+                utils.diagnostic(s.r, get_range(value), "Cannot use this unit as a statement")
+                return nil, false
             }
 
         case ConditionControlledLoop:
@@ -1984,7 +2066,7 @@ check_block :: proc(
                 &loop_body_array,
                 generic_args,
             )
-            if !runtime_value_ok(s, value.condition.pos, condition) || !loop_body_ok {
+            if !runtime_value_ok(s, get_range(value.condition), condition) || !loop_body_ok {
                 return nil, false
             }
 
@@ -2007,7 +2089,7 @@ check_block :: proc(
                 if value.label.text in s.labels_map {
                     utils.diagnostic(
                         s.r,
-                        value.label.pos,
+                        get_range(value.label),
                         "The label `%s` is already defined",
                         value.label.text,
                     )
@@ -2021,7 +2103,7 @@ check_block :: proc(
             outer: switch iter in value.iterator {
             case Unit:
                 v := check_value(s, iter, CheckValueArgs{body, generic_args, nil}).v
-                if !runtime_value_ok(s, iter.pos, v.value) {
+                if !runtime_value_ok(s, get_range(iter), v.value) {
                     return nil, false
                 }
                 #partial switch t in simplify_type(s, v.type).key {
@@ -2030,7 +2112,7 @@ check_block :: proc(
                     if value.variables[2].text != "" {
                         utils.diagnostic(
                             s.r,
-                            stmt.position,
+                            get_range(value.variables[2]),
                             "You can only capture at most 2 variables from iterating over an array",
                         )
                         return nil, false
@@ -2038,12 +2120,12 @@ check_block :: proc(
                     elem_ref, elem_ok := add_variable(
                         s,
                         array_item_type,
-                        Ident{value.variables[0].text, value.variables[0].pos, false},
+                        IdentAndPos{value.variables[0].text, false, value.variables[0].pos},
                     )
                     index_ref, index_ok := add_variable(
                         s,
                         .UInt,
-                        Ident{value.variables[1].text, value.variables[1].pos, false},
+                        IdentAndPos{value.variables[1].text, false, value.variables[1].pos},
                     )
                     if !elem_ok || !index_ok {
                         return nil, false
@@ -2074,17 +2156,17 @@ check_block :: proc(
                     key, key_ok := add_variable(
                         s,
                         Type(t.key_type),
-                        Ident{value.variables[0].text, value.variables[0].pos, false},
+                        IdentAndPos{value.variables[0].text, false, value.variables[0].pos},
                     )
                     value_var, value_var_ok := add_variable(
                         s,
                         t.value_type,
-                        Ident{value.variables[1].text, value.variables[1].pos, false},
+                        IdentAndPos{value.variables[1].text, false, value.variables[1].pos},
                     )
                     index, index_ok := add_variable(
                         s,
                         .UInt,
-                        Ident{value.variables[2].text, value.variables[2].pos, false},
+                        IdentAndPos{value.variables[2].text, false, value.variables[2].pos},
                     )
                     if !key_ok || !value_var_ok || !index_ok {
                         return nil, false
@@ -2114,24 +2196,25 @@ check_block :: proc(
                 }
                 utils.diagnostic(
                     s.r,
-                    iter.pos,
+                    get_range(iter),
                     "Expected an array or an `OrderedHashMap`, got the type `%s`",
                     type_to_string(s, v.type),
                 )
 
             case NumericIterator:
-                if value.variables[1].text != "" || value.variables[2].text != "" {
+                if value.variables[1].text != "" {
                     utils.diagnostic(
                         s.r,
-                        stmt.position,
+                        get_range(value.variables[1]),
                         "You can only capture at most one variable in a numeric iterator",
                     )
                     return nil, false
                 }
+                assert(value.variables[2].text == "")
                 index_variable, var_ok := add_variable(
-                    s,
-                    .Int, // TODO: Support types other than Int
-                    Ident{value.variables[0].text, value.variables[0].pos, false},
+                s,
+                .Int, // TODO: Support types other than Int
+                IdentAndPos{value.variables[0].text, false, value.variables[0].pos},
                 )
                 expected_type: Type = .Int
                 start := check_value_of_type(
@@ -2158,13 +2241,13 @@ check_block :: proc(
                         CheckValueArgs{&loop_body_array, generic_args, nil},
                         expected_type,
                     )
-                    if !runtime_value_ok(s, iter.step.pos, step) {
+                    if !runtime_value_ok(s, get_range(iter.step^), step) {
                         return nil, false
                     }
                 }
                 if !var_ok ||
-                   !runtime_value_ok(s, iter.start.pos, start) ||
-                   !runtime_value_ok(s, iter.end.pos, end) ||
+                   !runtime_value_ok(s, get_range(iter.start), start) ||
+                   !runtime_value_ok(s, get_range(iter.end), end) ||
                    step == nil {
                     return nil, false
                 }
@@ -2223,7 +2306,7 @@ check_block :: proc(
             else_block := CheckedBlock{else_variables, else_block_array.v[:]}
             pop_scope(s)
 
-            if !runtime_value_ok(s, value.condition.pos, condition) ||
+            if !runtime_value_ok(s, get_range(value.condition), condition) ||
                !if_block_ok ||
                !else_block_ok {
                 return nil, false
@@ -2234,7 +2317,7 @@ check_block :: proc(
             if stmt_index + 1 != len(block) {
                 utils.diagnostic(
                     s.r,
-                    stmt.position,
+                    value.range,
                     "Loop control flow statement must be last statement in block",
                 )
                 return nil, false
@@ -2242,7 +2325,7 @@ check_block :: proc(
             if s.parent_loop_index == max(uint) {
                 utils.diagnostic(
                     s.r,
-                    stmt.position,
+                    value.range,
                     "Loop control flow statement must go inside a loop",
                 )
                 return nil, false
@@ -2257,7 +2340,7 @@ check_block :: proc(
                 if !ok {
                     utils.diagnostic(
                         s.r,
-                        value.label.pos,
+                        get_range(value.label),
                         "There is no parent loop labelled with `%s`",
                         value.label.text,
                     )
@@ -2273,7 +2356,7 @@ check_block :: proc(
             if stmt_index + 1 != len(block) {
                 utils.diagnostic(
                     s.r,
-                    stmt.position,
+                    value.range,
                     "Unreachable statement must be last statement in block",
                 )
                 return nil, false
@@ -2284,55 +2367,55 @@ check_block :: proc(
             if stmt_index + 1 != len(block) {
                 utils.diagnostic(
                     s.r,
-                    stmt.position,
+                    value.range,
                     "Return statement must be last statement in block",
                 )
                 return nil, false
             }
-            if len(value) != len(s.return_types) {
+            if len(value.args) != len(s.return_types) {
                 utils.diagnostic(
                     s.r,
-                    stmt.position,
+                    value.range,
                     "Function returns %d values, but %d values given",
                     len(s.return_types),
-                    len(value),
+                    len(value.args),
                 )
                 return nil, false
             }
-            switch len(value) {
+            switch len(value.args) {
             case 0:
                 utils.debug_dynamic_array_append(body, CheckedReturn{nil})
             case 1:
                 checked := check_value_of_type(
                     s,
-                    value[0],
+                    value.args[0],
                     CheckValueArgs{body, generic_args, nil},
                     s.return_types[0],
                 )
-                if !runtime_value_ok(s, value[0].pos, checked) {
+                if !runtime_value_ok(s, get_range(value.args[0]), checked) {
                     return nil, false
                 }
                 utils.debug_dynamic_array_append(body, CheckedReturn{checked})
             case:
                 utils.diagnostic(
                     s.r,
-                    stmt.position,
+                    value.range,
                     "Can only have <=1 value in return statement (TODO: add support for returning >1 values)",
                 )
                 return nil, false
             }
 
         case YieldStatement:
-            utils.diagnostic(s.r, stmt.position, "TODO: Handle yield statement")
+            utils.diagnostic(s.r, value.range, "TODO: Handle yield statement")
             return nil, false
 
         case MatchStatement:
             res := check_value(s, value.value, CheckValueArgs{body, generic_args, nil}).v
-            if !runtime_value_ok(s, value.value.pos, res.value) {
+            if !runtime_value_ok(s, get_range(value.value), res.value) {
                 return nil, false
             }
 
-            val_sum_type, _, val_sum_type_ok := get_sum_type(s, value.value.pos, res.type)
+            val_sum_type, _, val_sum_type_ok := get_sum_type(s, get_range(value.value), res.type)
             if !val_sum_type_ok {
                 return nil, false
             }
@@ -2358,7 +2441,7 @@ check_block :: proc(
                 if variant == utils.does_not_exist || variant.index not_in val_sum_type.payloads {
                     utils.diagnostic(
                         s.r,
-                        tag.tag_name.pos,
+                        get_range(tag.tag_name),
                         "The sum type `%s` does not have the variant `%s`",
                         type_to_string(s, res.type),
                         tag.tag_name.text,
@@ -2369,10 +2452,10 @@ check_block :: proc(
                 if variant.index in branches {
                     utils.diagnostic(
                         s.r,
-                        tag.tag_name.pos,
+                        get_range(tag.tag_name),
                         "The variant `%s` already has a branch defined at %v",
                         tag.tag_name.text,
-                        branches[variant.index].pos,
+                        branches[variant.index].label_range,
                     )
                     return nil, false
                 }
@@ -2383,7 +2466,7 @@ check_block :: proc(
                     if !sum_type_has_payload {
                         utils.diagnostic(
                             s.r,
-                            payload.pos,
+                            get_range(payload),
                             "Cannot have variable for sum type variant with no payload",
                         )
                         return nil, false
@@ -2395,7 +2478,7 @@ check_block :: proc(
                     var, var_ok = add_variable(
                         s,
                         sum_type_payload,
-                        Ident{var_name.text, var_name.pos, false},
+                        IdentAndPos{var_name.text, false, var_name.pos},
                     )
                     if !var_ok {
                         return nil, false
@@ -2409,7 +2492,7 @@ check_block :: proc(
                 }
 
                 branches[variant.index] = CheckedMatchBranch {
-                    branch.label.pos,
+                    get_range(branch.label),
                     CheckedBlock{variables, body.v[:]},
                     var,
                 }
@@ -2420,7 +2503,7 @@ check_block :: proc(
                     if tag_variant_index not_in val_sum_type.payloads {
                         utils.diagnostic(
                             s.r,
-                            stmt.position,
+                            get_range(value.value),
                             "Unhandled variant `%s`",
                             s.types.sum_type_tags.keys[tag_variant_index].key,
                         )
@@ -2443,30 +2526,26 @@ value_err1 :: "Compiler cannot generate a `.` function without knowing the retur
 check_namespaced_var_ref :: proc(
     s: ^CheckerState,
     namespace: ^utils.CompilerFile,
-    segments: #soa[]Ident,
-    index: int,
-) -> (
-    CheckedValue,
-    Type,
-    int,
-) {
+    ident: IdentAndPos,
+) -> CheckValueResult {
     namespace_index := get_file_index(s.files, namespace)
     file_globals := s.parsed_files.d[namespace_index]
-    parsed_global, global_exists := file_globals[segments[index].ident]
+    parsed_global, global_exists := file_globals[ident.ident]
     if !global_exists {
         utils.diagnostic(
             s.r,
-            segments[index].pos,
+            get_range(ident),
             "The variable `%s` is not defined in the file `%s`",
-            segments[index].ident,
+            ident.ident,
             s.files[namespace_index].file_path,
         )
-        return nil, .Invalid, 0
+        return CheckValueResult{nil, .Invalid}
     }
     if parsed_global.has_generics {
-        return CompileTimeValue(GlobalValueWithGenericRef{parsed_global.index}),
+        return CheckValueResult {
+            CompileTimeValue(GlobalValueWithGenericRef{parsed_global.index}),
             .Unknown,
-            index + 1
+        }
     } else {
         global_value := check_global_value_without_generic(
             s,
@@ -2474,12 +2553,12 @@ check_namespaced_var_ref :: proc(
         )
         if global_value.type == .Invalid {
             assert(global_value.value == nil)
-            return nil, .Invalid, 0
+            return CheckValueResult{nil, .Invalid}
         }
         // if global_value.type == imported_file_type && index + 1 < len(ref.segments) {
         // return check_namespaced_var_ref(s, global_value.value.(Import).file, ref, index + 1)
         // }
-        return global_value.value, global_value.type, index + 1
+        return CheckValueResult{global_value.value, global_value.type}
         // switch value in global.value {
         // case:
         //     panic("Unreachable")
@@ -2545,19 +2624,14 @@ check_namespaced_var_ref :: proc(
 // Returns `nil, Invalid, 0` if there was an error in the ref start
 check_var_ref_start :: proc(
     s: ^CheckerState,
-    pos: utils.Pos,
-    segments: #soa[]Ident,
+    ident: IdentAndPos,
     generic_args: map[string]Type,
-) -> (
-    CheckedValue,
-    Type,
-    int,
-) {
-    if segments[0].ident != "" && segments[0].ident in generic_args {
-        return CompileTimeValue(generic_args[segments[0].ident]), .Type, 1
+) -> CheckValueResult {
+    if ident.ident in generic_args {
+        return CheckValueResult{CompileTimeValue(generic_args[ident.ident]), .Type}
     }
-    if builtin := get_builtin(segments[0].ident); builtin.value != nil {
-        return builtin.value, builtin.type, 1
+    if builtin := get_builtin(ident.ident); builtin.value != nil {
+        return CheckValueResult{builtin.value, builtin.type}
     }
     /*
     if ref.segments[0].ident == "compiler" {
@@ -2575,23 +2649,14 @@ check_var_ref_start :: proc(
         }
     }
     */
-    if var_ref, ok := s.variables_map[segments[0].ident]; ok {
-        return var_ref, get_variable_type(s, var_ref), 1
+    if var_ref, ok := s.variables_map[ident.ident]; ok {
+        return CheckValueResult{var_ref, get_variable_type(s, var_ref)}
     }
-    return check_namespaced_var_ref(s, pos.file, segments, 0)
+    return check_namespaced_var_ref(s, ident.pos.file, ident)
 }
 
-check_var_ref :: proc(
-    s: ^CheckerState,
-    segments: #soa[]Ident,
-    pos: utils.Pos,
-    a: CheckValueArgs,
-    loc := #caller_location,
-) -> CheckValueResult {
-    utils.call(loc, "check_var_ref", "")
-    utils.print_arg("segments", segments)
-    utils.print_arg("a", a)
-    /*
+/*
+    // OLD
     if len(segments) == 2 && segments[0].ident == "" {
         expected_return_type: Type = ---
         switch expected in a.type {
@@ -2677,74 +2742,71 @@ check_var_ref :: proc(
         return dest
         */
     }
-    */
+*/
 
-    out, out_type, start_i := check_var_ref_start(s, pos, segments, a.generic_args)
-    if out == nil {
+check_var_ref :: proc(
+    s: ^CheckerState,
+    value_range: utils.Range,
+    value: CheckValueResult,
+    extra_segment: IdentAndPos,
+    a: CheckValueArgs,
+    loc := #caller_location,
+) -> CheckValueResult {
+    utils.call(loc, "check_var_ref", "")
+    utils.print_arg("extra_segment", extra_segment.has_dollar_at_end)
+    utils.print_arg("extra_segment", extra_segment.ident)
+    utils.print_arg("extra_segment", extra_segment.pos)
+    utils.print_arg("a", a)
+
+    if extra_segment.ident == "len" {
+        simplified := simplify_type(s, value.type)
+        if simplified.type == .String {
+            return CheckValueResult{LengthOfString{new_clone(value.value)}, .UInt}
+        }
+        #partial switch type in simplified.key {
+        case ArrayType:
+            return CheckValueResult{length_of_array(type, value.value), .UInt}
+        case OrderedHashMapType:
+            return CheckValueResult{LengthOfOrderedHashMap{new_clone(value.value)}, .UInt}
+        }
+        utils.diagnostic(
+            s.r,
+            value_range,
+            "This value is of type `%s`\nCan only use `.len` for a value which is a string, an array, or an OrderedHashSet",
+            type_to_string(s, value.type),
+        )
         return CheckValueResult{nil, .Invalid}
+    } else if extra_segment.ident == "to_str" {
+        converted := to_str(s, value_range, value.value, value.type)
+        if converted == nil {
+            return CheckValueResult{nil, .Invalid}
+        }
+        return CheckValueResult{converted, .String}
+    } else if value.type == .ImportedFile {
+        return check_namespaced_var_ref(
+            s,
+            value.value.(CompileTimeValue).(Import).file,
+            extra_segment,
+        )
     }
-    for i := start_i; i < len(segments); i += 1 {
-        extra_segment := segments[i]
-        if extra_segment.ident == "len" {
-            simplified := simplify_type(s, out_type)
-            if simplified.type == .String {
-                out_type = .UInt
-                out = LengthOfString{new_clone(out)}
-                continue
-            }
-            #partial switch type in simplified.key {
-            case ArrayType:
-                out_type = .UInt
-                out = length_of_array(type, out)
-                continue
-            case OrderedHashMapType:
-                out_type = .UInt
-                out = LengthOfOrderedHashMap{new_clone(out)}
-                continue
-            }
-            utils.diagnostic(
-                s.r,
-                extra_segment.pos,
-                "The value before `.len` is of type `%s`\nExpected a string type, an array type, or an OrderedHashSet type",
-                type_to_string(s, out_type),
-            )
-            return CheckValueResult{nil, .Invalid}
-        } else if extra_segment.ident == "to_str" {
-            converted := to_str(s, extra_segment.pos, out, out_type)
-            if converted == nil {
-                return CheckValueResult{nil, .Invalid}
-            }
-            out_type = .String
-            out = converted
-            continue
-        } else if out_type == .ImportedFile {
-            out, out_type, i = check_namespaced_var_ref(
-                s,
-                out.(CompileTimeValue).(Import).file,
-                segments,
-                i,
-            )
-            continue
-        }
-        struct_type, ok := get_struct_type(s, segments[i].pos, out_type)
-        if !ok {
-            return CheckValueResult{nil, .Invalid}
-        }
+    struct_type, ok := get_struct_type(s, value.type)
+    if ok {
         field := utils.lookup(struct_type.m, extra_segment.ident, utils.string_to_index_procs)
-        if field == utils.does_not_exist {
-            utils.diagnostic(
-                s.r,
-                extra_segment.pos,
-                "The field `%s` does not exist on the struct type `%s`",
-                extra_segment.ident,
-                type_to_string(s, out_type),
-            )
-            return CheckValueResult{nil, .Invalid}
+        if field != utils.does_not_exist {
+            return CheckValueResult {
+                create_field_access(value.value, field.index),
+                struct_type.types.d[field.index],
+            }
         }
-        out_type = struct_type.types.d[field.index]
-        out = create_field_access(out, field.index)
     }
-    return CheckValueResult{out, out_type}
+    utils.diagnostic(
+        s.r,
+        value_range,
+        "This value (of type `%s`) does not have a `.%s` field",
+        type_to_string(s, value.type),
+        extra_segment.ident,
+    )
+    return CheckValueResult{nil, .Invalid}
 }
 
 check_array_initialisation :: proc(
@@ -2754,7 +2816,7 @@ check_array_initialisation :: proc(
 ) -> CheckValueResult {
     ok := true
     has_non_compiletime_value := false
-    types := make(map[Type]utils.Pos)
+    types := make(map[Type]struct{})
     values := make([]CheckedValue, len(elements))
     for elem, i in elements {
         checked := check_value(s, elem, CheckValueArgs{a.body, a.generic_args, nil})
@@ -2766,7 +2828,7 @@ check_array_initialisation :: proc(
             has_non_compiletime_value = true
         }
         values[i] = checked.v.value
-        types[checked.v.type] = elem.pos
+        types[checked.v.type] = struct{}{}
     }
     if !ok {
         return CheckValueResult{nil, .Invalid}
@@ -2870,7 +2932,6 @@ check_array_initialisation :: proc(
 }
 */
 
-// A function call which returns one or more values
 CheckedFuncCall :: struct {
     value:        CheckedFunctionCall,
     return_types: []Type,
@@ -2879,10 +2940,10 @@ CheckedFuncCall :: struct {
 // Returns `nil` on failure
 check_function_call :: proc(
     s: ^CheckerState,
-    pos: utils.Pos,
     value_being_called: CheckValueResult,
-    value_being_called_pos: utils.Pos,
+    value_being_called_range: utils.Range,
     args: []Unit,
+    args_range: utils.Range,
     body: ^utils.DebugValue([dynamic]CheckedStatement),
     generic_args: map[string]Type,
     loc := #caller_location,
@@ -2890,19 +2951,19 @@ check_function_call :: proc(
     utils.call(loc, "check_function_call", "")
     func, is_func := get_func_type(
         s,
-        value_being_called_pos,
+        value_being_called_range,
         value_being_called.value,
         value_being_called.type,
     ).(FuncType)
     if !is_func {
         return nil
     }
-    if !runtime_value_ok(s, value_being_called_pos, value_being_called.value) {
+    if !runtime_value_ok(s, value_being_called_range, value_being_called.value) {
         return nil
     }
 
     if len(args) != len(func.args) {
-        argument_count_mismatch(s, pos, len(args), len(func.args), "TODO")
+        argument_count_mismatch(s, value_being_called_range, len(args), len(func.args))
         return nil
     }
 
@@ -2914,7 +2975,7 @@ check_function_call :: proc(
             CheckValueArgs{body, generic_args, nil},
             func.args[i],
         )
-        if !runtime_value_ok(s, arg.pos, arg_value) {
+        if !runtime_value_ok(s, get_range(arg), arg_value) {
             return nil
         }
         checked_args[i] = arg_value
@@ -2943,46 +3004,45 @@ ExpectedType :: union {
 }
 */
 
-check_value_with_markers :: proc(
+check_value_with_marker :: proc(
     s: ^CheckerState,
+    marker: TextAndPos,
     v: Unit,
-    markers: []TextAndPos,
+    i: ^uint,
     a: CheckValueArgs,
 ) -> CheckValueResult {
-    if len(markers) == 0 {
-        return check_value(s, v, a).v
-    }
-    switch markers[0].text {
+    switch marker.text {
     case "load":
-        value := check_value_with_markers(
-            s,
-            v,
-            markers[1:],
-            CheckValueArgs{a.body, a.generic_args, nil},
-        )
+        value := check_initial_value(s, v, i, CheckValueArgs{a.body, a.generic_args, nil}).v
         if value.value == nil {
             return CheckValueResult{nil, .Invalid}
         }
-        if !expect_exact_type(s, v.pos, .String, value.type, "") {
+        if !expect_type(s, get_segment(v, i^).range, .String, value.type) {
             return CheckValueResult{nil, .Invalid}
         }
         comptime_value, is_comptime := value.value.(CompileTimeValue)
         if !is_comptime {
-            utils.diagnostic(s.r, v.pos, "Expected a compile time known value")
+            utils.diagnostic(s.r, get_segment(v, i^).range, "Expected a compile time known value")
             return CheckValueResult{nil, .Invalid}
         }
 
         joined, join_err := filepath.join(
-            []string{v.pos.file.dir_path, string(comptime_value.(StringLiteralValue))},
+            []string{v.first.range.file.dir_path, string(comptime_value.(StringLiteralValue))},
             context.allocator,
         )
         if join_err != nil {
-            utils.diagnostic(s.r, v.pos, "Failed to join strings: %v", join_err)
+            utils.diagnostic(s.r, get_range(marker), "Failed to join strings: %v", join_err)
             return CheckValueResult{nil, .Invalid}
         }
         data, data_err := os.read_entire_file(joined, context.allocator)
         if data_err != nil {
-            utils.diagnostic(s.r, markers[0].pos, "Failed to read `%s`: %#v\n", joined, data_err)
+            utils.diagnostic(
+                s.r,
+                get_range(marker),
+                "Failed to read `%s`: %#v\n",
+                joined,
+                data_err,
+            )
             return CheckValueResult{nil, .Invalid}
         }
         return CheckValueResult{CompileTimeValue(StringLiteralValue(data)), .String}
@@ -2992,14 +3052,14 @@ check_value_with_markers :: proc(
     case:
         utils.diagnostic(
             s.r,
-            markers[0].pos,
+            get_range(marker),
             "TODO: Handle the `%s` marker",
-            markers[0].text,
+            marker.text,
             type = .Warning,
         )
     }
 
-    return check_value_with_markers(s, v, markers[1:], a)
+    return check_initial_value(s, v, i, a).v
 }
 
 // For `check_value` and `check_joined_unit_value`:
@@ -3009,38 +3069,46 @@ check_value_with_markers :: proc(
 
 check_joined_unit_value :: proc(
     s: ^CheckerState,
-    pos: utils.Pos,
-    value: HierarchyJoinedUnits,
+    join_method: UnitJoinMethod,
+    join_method_range: utils.Range,
+    before: Unit,
+    after: Unit,
     a: CheckValueArgs,
     loc := #caller_location,
 ) -> CheckValueResult {
     when ODIN_DEBUG {
-        utils.call(loc, "check_joined_unit_value", "pos: %v", pos)
+        utils.call(loc, "check_joined_unit_value", "")
     }
     // TODO: In lots of this code, `check_runtime_value` is used when the
     // operations should be performable on values that can only be used at
     // compile time, like a value of the type `Type`
     array_err :: "Expected an array type\nGot the type `%s`"
-    switch value.join_method {
+    switch join_method {
+
+    case .Assign, .Tilde, .Colon, .PipeEquals, .Dot:
+        utils.panicf("Unreachable (join method is %v)", join_method)
+
+    case:
+        utils.panicf("Unreachable (join method is %v)", join_method)
 
     case .In:
-        val0 := check_value(s, value.unit0^, CheckValueArgs{a.body, a.generic_args, nil}).v
-        val1 := check_value(s, value.unit1^, CheckValueArgs{a.body, a.generic_args, nil}).v
-        if !runtime_value_ok(s, value.unit0.pos, val0.value) ||
-           !runtime_value_ok(s, value.unit1.pos, val1.value) {
+        val0 := check_value(s, before, CheckValueArgs{a.body, a.generic_args, nil}).v
+        val1 := check_value(s, after, CheckValueArgs{a.body, a.generic_args, nil}).v
+        if !runtime_value_ok(s, get_range(before), val0.value) ||
+           !runtime_value_ok(s, get_range(after), val1.value) {
             return CheckValueResult{nil, .Invalid}
         }
         hash_map_type, is_hash_map_type := simplify_type(s, val1.type).key.(OrderedHashMapType)
         if !is_hash_map_type {
             utils.diagnostic(
                 s.r,
-                value.unit1.pos,
+                get_range(after),
                 "Expected an ordered hash map type\nGot the type %s",
                 type_to_string(s, val1.type),
             )
             return CheckValueResult{nil, .Invalid}
         }
-        if !expect_exact_type(s, value.unit0.pos, Type(hash_map_type.key_type), val0.type, "") {
+        if !expect_type(s, get_range(before), Type(hash_map_type.key_type), val0.type) {
             return CheckValueResult{nil, .Invalid}
         }
         out: CheckedValue = CheckedJoinedValues{.In, new_clone(val0.value), new_clone(val1.value)}
@@ -3050,17 +3118,16 @@ check_joined_unit_value :: proc(
         if a.early_exit_if_value_is_type != nil {
             return finish_checking_early_return_type(s, a).v
         }
-        tuple, is_tuple := value.unit0.first_unit.(Tuple)
-        if !is_tuple {
+        tuple, is_tuple := before.first.contents.(Tuple)
+        if len(before.rest) != 0 || !is_tuple {
             utils.diagnostic(
                 s.r,
-                value.unit1.pos,
+                get_range(after),
                 "While checking function type: The unit before the `->` should be a tuple (for example `(String, U64)`)",
             )
             return CheckValueResult{CompileTimeValue(Type.Invalid), .Type}
         }
-        assert(value.unit1 != nil)
-        t, ok := check_function_type(s, tuple.elements, value.unit1, a.generic_args)
+        t, ok := check_function_type(s, tuple.elements, after, a.generic_args)
         if !ok {
             return CheckValueResult{nil, .Type}
         }
@@ -3068,63 +3135,53 @@ check_joined_unit_value :: proc(
         return CheckValueResult{out, .Type}
 
     case .BooleanAnd, .BooleanOr:
-        val0 := check_value_of_type(
-            s,
-            value.unit0^,
-            CheckValueArgs{a.body, a.generic_args, nil},
-            .Bool,
-        )
-        val1 := check_value_of_type(
-            s,
-            value.unit1^,
-            CheckValueArgs{a.body, a.generic_args, nil},
-            .Bool,
-        )
+        val0 := check_value_of_type(s, before, CheckValueArgs{a.body, a.generic_args, nil}, .Bool)
+        val1 := check_value_of_type(s, after, CheckValueArgs{a.body, a.generic_args, nil}, .Bool)
         if val0 == nil || val1 == nil {
             return CheckValueResult{nil, .Invalid}
         }
-        return CheckValueResult{create_joined_values(value.join_method, val0, val1), .Bool}
+        return CheckValueResult{create_joined_values(join_method, val0, val1), .Bool}
 
     case .IsEqual, .IsNotEqual:
-        val0 := check_value(s, value.unit0^, CheckValueArgs{a.body, a.generic_args, nil}).v
-        if !runtime_value_ok(s, value.unit0.pos, val0.value) {
+        val0 := check_value(s, before, CheckValueArgs{a.body, a.generic_args, nil}).v
+        if !runtime_value_ok(s, get_range(before), val0.value) {
             return CheckValueResult{nil, .Invalid}
         }
         val1 := check_value_of_type(
             s,
-            value.unit1^,
+            after,
             CheckValueArgs{a.body, a.generic_args, nil},
             val0.type,
         )
-        if !runtime_value_ok(s, value.unit1.pos, val1) {
+        if !runtime_value_ok(s, get_range(after), val1) {
             return CheckValueResult{nil, .Invalid}
         }
         t_simplified := simplify_type(s, val0.type)
         if t_simplified.type == .String {
             str_comp: CheckedValue = StringsAreEqual{new_clone(val0.value), new_clone(val1)}
-            if value.join_method == .IsNotEqual {
+            if join_method == .IsNotEqual {
                 return CheckValueResult{create_not(str_comp), .Bool}
             }
             return CheckValueResult{str_comp, .Bool}
         }
-        return CheckValueResult{create_joined_values(value.join_method, val0.value, val1), .Bool}
+        return CheckValueResult{create_joined_values(join_method, val0.value, val1), .Bool}
 
     case .Append:
-        val0 := check_value(s, value.unit0^, CheckValueArgs{a.body, a.generic_args, nil}).v
-        if !runtime_value_ok(s, value.unit0.pos, val0.value) {
+        val0 := check_value(s, before, CheckValueArgs{a.body, a.generic_args, nil}).v
+        if !runtime_value_ok(s, get_range(before), val0.value) {
             return CheckValueResult{nil, .Invalid}
         }
-        length, item_type := check_array(s, value.unit0.pos, val0.value, val0.type, array_err)
+        length, item_type := check_array(s, get_range(before), val0.value, val0.type, array_err)
         if length == nil {
             return CheckValueResult{nil, .Invalid}
         }
         val1 := check_value_of_type(
             s,
-            value.unit1^,
+            after,
             CheckValueArgs{a.body, a.generic_args, nil},
             item_type,
         )
-        if !runtime_value_ok(s, value.unit1.pos, val1) {
+        if !runtime_value_ok(s, get_range(after), val1) {
             return CheckValueResult{nil, .Invalid}
         }
         return_type1 := ArrayType{nil, item_type}
@@ -3137,38 +3194,33 @@ check_joined_unit_value :: proc(
     case .StringConcat:
         val0 := check_value_of_type(
             s,
-            value.unit0^,
+            before,
             CheckValueArgs{a.body, a.generic_args, nil},
             .String,
         )
-        val1 := check_value_of_type(
-            s,
-            value.unit1^,
-            CheckValueArgs{a.body, a.generic_args, nil},
-            .String,
-        )
-        if !runtime_value_ok(s, value.unit0.pos, val0) ||
-           !runtime_value_ok(s, value.unit1.pos, val1) {
+        val1 := check_value_of_type(s, after, CheckValueArgs{a.body, a.generic_args, nil}, .String)
+        if !runtime_value_ok(s, get_range(before), val0) ||
+           !runtime_value_ok(s, get_range(after), val1) {
             return CheckValueResult{nil, .Invalid}
         }
         return CheckValueResult{create_joined_values(.StringConcat, val0, val1), .String}
 
     case .Concat:
-        val0 := check_value(s, value.unit0^, CheckValueArgs{a.body, a.generic_args, nil}).v
-        val1 := check_value(s, value.unit1^, CheckValueArgs{a.body, a.generic_args, nil}).v
-        if !runtime_value_ok(s, value.unit0.pos, val0.value) ||
-           !runtime_value_ok(s, value.unit1.pos, val1.value) {
+        val0 := check_value(s, before, CheckValueArgs{a.body, a.generic_args, nil}).v
+        val1 := check_value(s, after, CheckValueArgs{a.body, a.generic_args, nil}).v
+        if !runtime_value_ok(s, get_range(before), val0.value) ||
+           !runtime_value_ok(s, get_range(after), val1.value) {
             return CheckValueResult{nil, .Invalid}
         }
-        length0, item_type0 := check_array(s, value.unit0.pos, val0.value, val0.type, array_err)
-        length1, item_type1 := check_array(s, value.unit1.pos, val1.value, val1.type, array_err)
+        length0, item_type0 := check_array(s, get_range(before), val0.value, val0.type, array_err)
+        length1, item_type1 := check_array(s, get_range(after), val1.value, val1.type, array_err)
         if length0 == nil || length1 == nil {
             return CheckValueResult{nil, .Invalid}
         }
         if item_type0 != item_type1 {
             utils.diagnostic(
                 s.r,
-                pos,
+                join_method_range,
                 "Array item type mismatch:\nItem type on left is %s\nItem type on right is %s",
                 type_to_string(s, item_type0),
                 type_to_string(s, item_type1),
@@ -3183,26 +3235,16 @@ check_joined_unit_value :: proc(
         return CheckValueResult{ArrayLiteral{return_type, segments}, return_type}
 
     case .IsGreaterThan, .IsGreaterThanOrEqual, .IsLessThan, .IsLessThanOrEqual:
-        val0 := check_value_of_type(
-            s,
-            value.unit0^,
-            CheckValueArgs{a.body, a.generic_args, nil},
-            .Float,
-        )
-        val1 := check_value_of_type(
-            s,
-            value.unit1^,
-            CheckValueArgs{a.body, a.generic_args, nil},
-            .Float,
-        )
-        if !runtime_value_ok(s, value.unit0.pos, val0) ||
-           !runtime_value_ok(s, value.unit1.pos, val1) {
+        val0 := check_value_of_type(s, before, CheckValueArgs{a.body, a.generic_args, nil}, .Float)
+        val1 := check_value_of_type(s, after, CheckValueArgs{a.body, a.generic_args, nil}, .Float)
+        if !runtime_value_ok(s, get_range(before), val0) ||
+           !runtime_value_ok(s, get_range(after), val1) {
             return CheckValueResult{nil, .Invalid}
         }
-        return CheckValueResult{create_joined_values(value.join_method, val0, val1), .Bool}
+        return CheckValueResult{create_joined_values(join_method, val0, val1), .Bool}
 
     case .Multiplication, .Subtraction, .Division, .Addition, .Modulo:
-        get_output_type :: proc(m: HierarchyUnitJoinMethod) -> Type {
+        get_output_type :: proc(m: UnitJoinMethod) -> Type {
             #partial switch m {
             case .Multiplication, .Addition, .Modulo:
                 return .UInt
@@ -3214,34 +3256,30 @@ check_joined_unit_value :: proc(
                 panic("Unreachable")
             }
         }
-        val0 := check_value(s, value.unit0^, CheckValueArgs{a.body, a.generic_args, nil}).v
-        val1 := check_value(s, value.unit1^, CheckValueArgs{a.body, a.generic_args, nil}).v
-        if !runtime_value_ok(s, value.unit0.pos, val0.value) ||
-           !runtime_value_ok(s, value.unit1.pos, val1.value) {
+        val0 := check_value(s, before, CheckValueArgs{a.body, a.generic_args, nil}).v
+        val1 := check_value(s, after, CheckValueArgs{a.body, a.generic_args, nil}).v
+        if !runtime_value_ok(s, get_range(before), val0.value) ||
+           !runtime_value_ok(s, get_range(after), val1.value) {
             return CheckValueResult{nil, .Invalid}
         }
         out_type := most_general_number_type(
             s,
-            get_output_type(value.join_method),
-            TypeAndPos{val0.type, value.unit0.pos},
-            TypeAndPos{val1.type, value.unit1.pos},
+            get_output_type(join_method),
+            TypeAndRange{val0.type, get_range(before)},
+            TypeAndRange{val1.type, get_range(after)},
         )
         if out_type == .Invalid {
             return CheckValueResult{nil, .Invalid}
         }
         return CheckValueResult {
-            create_joined_values(value.join_method, val0.value, val1.value),
+            create_joined_values(join_method, val0.value, val1.value),
             out_type,
         }
-
-    case:
-        utils.panicf("Unreachable (join method is %v)", value.join_method)
     }
-
 }
 
 import_use_err :: "Cannot use an import as a runtime value"
-mut_then_ident_use_err :: "Cannot use `mut` followed by an identifier as a value"
+re_then_ident_use_err :: "Cannot use `re` followed by an identifier as a value"
 
 /*
 ValueWithGenericHint :: struct {
@@ -3341,7 +3379,7 @@ check_index :: proc(
     body: ^utils.DebugValue([dynamic]CheckedStatement),
     generic_args: map[string]Type,
 ) -> CheckedIndex {
-    split, is_range := try_split_by(u, .Colon).(SuccessfulSplit)
+    split, is_range := try_split_by(u, {.Colon}).(SuccessfulSplit)
     if !is_range {
         start_index := check_value_of_type(
             s,
@@ -3349,7 +3387,7 @@ check_index :: proc(
             CheckValueArgs{body, generic_args, nil},
             index_type,
         )
-        if !runtime_value_ok(s, u.pos, start_index) {
+        if !runtime_value_ok(s, get_range(u), start_index) {
             return CheckedIndex{}
         }
         return CheckedIndex{new_clone(start_index), nil}
@@ -3366,8 +3404,8 @@ check_index :: proc(
         CheckValueArgs{body, generic_args, nil},
         index_type,
     )
-    if !runtime_value_ok(s, split.before_split.pos, start_index) ||
-       !runtime_value_ok(s, split.after_split.pos, end_index) {
+    if !runtime_value_ok(s, get_range(split.before_split), start_index) ||
+       !runtime_value_ok(s, get_range(split.after_split), end_index) {
         return CheckedIndex{}
     }
     return CheckedIndex{new_clone(start_index), new_clone(end_index)}
@@ -3417,9 +3455,10 @@ HashMapKey :: union {
 }
 
 CheckedKeyValuePair :: struct {
-    key:      HashMapKey,
-    key_type: HashMapKeyType,
-    value:    CheckValueResult,
+    key:       HashMapKey,
+    key_range: utils.Range,
+    key_type:  HashMapKeyType,
+    value:     CheckValueResult,
 }
 
 // Returns `nil` on failure
@@ -3429,40 +3468,25 @@ check_key_value_pair :: proc(
     body: ^utils.DebugValue([dynamic]CheckedStatement),
     generic_args: map[string]Type,
 ) -> Maybe(CheckedKeyValuePair) {
-    // Check structure
-    if len(arg.extra_units) == 0 {
-        utils.diagnostic(
-            s.r,
-            arg.pos,
-            "Expected `key = value` so there needs to be a `= value` after this",
-            len(arg.extra_units),
-        )
-        return nil
-    }
-    if arg.extra_units[0].join_method != .Assign {
-        utils.diagnostic(
-            s.r,
-            arg.extra_units[0].join_method_pos,
-            "Expected `key = value`, so the first join method should be `=`\nGot join method `%v`",
-            arg.extra_units[0].join_method,
-        )
+    split, split_ok := try_split_by(arg, {.Assign}).(SuccessfulSplit)
+    if !split_ok {
+        utils.diagnostic(s.r, get_range(arg), "Expected `key = value`")
         return nil
     }
 
     // Check key
     key_body := utils.to_debug_value([dynamic]CheckedStatement{})
-    key_value := check_initial_value(
-        s,
-        arg.pos,
-        arg.first_unit,
-        CheckValueArgs{&key_body, generic_args, nil},
-    )
+    key_value := check_value(s, split.before_split, CheckValueArgs{&key_body, generic_args, nil})
     if key_value.v.value == nil {
         return nil
     }
     key_comptime, is_comptime := key_value.v.value.(CompileTimeValue)
     if !is_comptime {
-        utils.diagnostic(s.r, arg.pos, "Key must be comptile-time known value")
+        utils.diagnostic(
+            s.r,
+            get_range(split.before_split),
+            "Key must be comptile-time known value",
+        )
         return nil
     }
     assert(len(key_body.v) == 0)
@@ -3483,7 +3507,7 @@ check_key_value_pair :: proc(
     case:
         utils.diagnostic(
             s.r,
-            arg.pos,
+            get_range(split.before_split),
             "Expected the type `String`, `Int`, `UInt`, or `Float` for hash map key\nGot the type `%s`",
             type_to_string(s, key_value.v.type),
         )
@@ -3491,15 +3515,11 @@ check_key_value_pair :: proc(
     }
 
     // Check value
-    value := check_value(
-        s,
-        Unit{arg.extra_units[0].unit.pos, arg.extra_units[0].unit.unit, arg.extra_units[1:]},
-        CheckValueArgs{body, generic_args, nil},
-    )
-    if !runtime_value_ok(s, arg.extra_units[0].unit.pos, value.v.value) {
+    value := check_value(s, split.after_split, CheckValueArgs{body, generic_args, nil})
+    if !runtime_value_ok(s, get_range(split.after_split), value.v.value) {
         return nil
     }
-    return CheckedKeyValuePair{key, key_type, value.v}
+    return CheckedKeyValuePair{key, get_range(split.before_split), key_type, value.v}
 }
 
 check_ordered_hashmap_initialisation :: proc(
@@ -3537,19 +3557,19 @@ check_ordered_hashmap_initialisation :: proc(
     compile_time_items: map[HashMapKey]CompileTimeValue
     runtime_items: map[HashMapKey]CheckedValue
     order := make([dynamic]HashMapKey)
-    value_types: map[Type]utils.Pos
-    key_types: map[Type]utils.Pos
+    value_types: map[Type]struct{} // map[Type]utils.Pos
+    key_types: map[Type]struct{} // map[Type]utils.Pos
     for arg in args {
         pair, ok := check_key_value_pair(s, arg, body, generic_args).(CheckedKeyValuePair)
         if !ok {
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
-        value_types[pair.value.type] = arg.pos
-        key_types[Type(pair.key_type)] = arg.pos
+        value_types[pair.value.type] = struct{}{} // arg.first.pos
+        key_types[Type(pair.key_type)] = struct{}{} // arg.first.pos
         if pair.key in compile_time_items || pair.key in runtime_items {
             utils.diagnostic(
                 s.r,
-                arg.pos,
+                pair.key_range,
                 "The key `%v` is already specified in this map",
                 pair.key,
             )
@@ -3596,27 +3616,25 @@ check_ordered_hashmap_initialisation :: proc(
 
 check_initial_value :: proc(
     s: ^CheckerState,
-    pos: utils.Pos,
-    v: UnitWithoutPos,
+    v: Unit,
+    i: ^uint,
     a: CheckValueArgs,
     loc := #caller_location,
 ) -> utils.DebugValue(CheckValueResult) {
-    switch value in v {
+    when ODIN_DEBUG {
+        utils.call(loc, "check_initial_value", "")
+    }
+    segment := get_segment(v, i^)
+    switch value in segment.contents {
     case:
-        utils.diagnostic(s.r, pos, "Internal error: got nil value in check_value")
+        utils.diagnostic(s.r, segment.range, "Internal error: got nil value in check_value")
         return utils.to_debug_value(CheckValueResult{nil, .Invalid})
 
-    case TagUnit:
-        tag_name, tag_name_ok := get_text_and_pos_from_ident(s.r, value.tag).(TextAndPos)
-        if !tag_name_ok {
-            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-        }
-        return check_tag_value(s, tag_name, nil, a.body, a.generic_args)
     case StructUnit:
         if len(value.elements) == 0 {
             utils.diagnostic(
                 s.r,
-                pos,
+                segment.range,
                 "Cannot have empty `{{}}` because the checker cannot tell if the value is a struct type or a struct literal",
             )
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
@@ -3631,11 +3649,11 @@ check_initial_value :: proc(
             StructLiteral,
         } = .Unknown
         for element in value.elements {
-            split, ok := try_split_by(element, .Assign, .Colon).(SuccessfulSplit)
+            split, ok := try_split_first_by(element, {.Assign, .Colon}).(SuccessfulSplitFirst)
             if !ok {
                 utils.diagnostic(
                     s.r,
-                    element.pos,
+                    get_range(element),
                     "Elements in `{{}}` must be like `name: Type` or `name = type`",
                 )
                 return utils.to_debug_value(CheckValueResult{nil, .Invalid})
@@ -3648,7 +3666,7 @@ check_initial_value :: proc(
                 if split.split_method != .Colon {
                     utils.diagnostic(
                         s.r,
-                        split.split_method_pos,
+                        split.split_method_range,
                         "Expected `:` for struct type field",
                     )
                     return utils.to_debug_value(CheckValueResult{nil, .Invalid})
@@ -3657,28 +3675,24 @@ check_initial_value :: proc(
                 if split.split_method != .Assign {
                     utils.diagnostic(
                         s.r,
-                        split.split_method_pos,
+                        split.split_method_range,
                         "Expected `=` for struct literal field",
                     )
                     return utils.to_debug_value(CheckValueResult{nil, .Invalid})
                 }
             }
 
-            ident, ident_ok := split.before_split.first_unit.(IdentNode)
-            if len(split.before_split.extra_units) != 0 ||
-               !ident_ok ||
-               ident.has_re_before ||
-               len(ident.segments) != 1 ||
-               ident.segments[0].has_dollar_at_end {
+            ident, ident_ok := split.before_split.contents.(IdentNode)
+            if !ident_ok || ident.has_re_before || ident.ident.has_dollar_at_end {
                 utils.diagnostic(
                     s.r,
-                    split.before_split.pos,
-                    "Before `:` or `=` in struct field must be just an identifier with no re before, just one segment, and no dollar sign at the end",
+                    split.before_split.range,
+                    "Before `:` or `=` in struct field must be just an identifier with no re before and no dollar sign at the end",
                 )
                 return utils.to_debug_value(CheckValueResult{nil, .Invalid})
             }
 
-            name := ident.segments[0]
+            name := ident.ident
             i, result := utils.lookup_or_insert(
                 &fields_map,
                 name.ident,
@@ -3687,7 +3701,7 @@ check_initial_value :: proc(
             if result == .LookedUp {
                 utils.diagnostic(
                     s.r,
-                    name.pos,
+                    get_range(name),
                     "There is already a field called `%s` defined in this struct at `%v`",
                     name.ident,
                     field_positions.d[i.index],
@@ -3783,7 +3797,7 @@ check_initial_value :: proc(
             if index.index in sum_type.payloads {
                 utils.diagnostic(
                     s.r,
-                    tag.tag_name.pos,
+                    get_range(tag.tag_name),
                     "The variant `%s` is already defined at %v in this sum type",
                     tag.tag_name.text,
                     variant_positions[index.index],
@@ -3810,20 +3824,25 @@ check_initial_value :: proc(
         )
 
     case Import:
-        utils.diagnostic(s.r, pos, import_use_err)
+        utils.diagnostic(s.r, get_range(v), import_use_err)
         return utils.to_debug_value(CheckValueResult{nil, .Invalid})
 
     case UnitsInSquareBrackets:
         return utils.to_debug_value(check_array_initialisation(s, value.elements, a))
 
-    case MarkedUnit:
-        return utils.to_debug_value(check_value_with_markers(s, value.value^, value.markers, a))
+    case Marker:
+        if is_last_segment(v, i^) {
+            utils.diagnostic(s.r, segment.range, "Expected another segment after marker")
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+        i^ += 1
+        return utils.to_debug_value(check_value_with_marker(s, value.marker, v, i, a))
 
     case Tuple:
         if len(value.elements) != 1 {
             utils.diagnostic(
                 s.r,
-                pos,
+                segment.range,
                 "Only tuples with one element are supported\nThis tuple has %d elements",
                 len(value.elements),
             )
@@ -3831,244 +3850,83 @@ check_initial_value :: proc(
         }
         return check_value(s, value.elements[0], a)
 
-    case CallWithSquareBrackets:
-        being_called :=
-            check_initial_value(s, value.unit_being_called.pos, value.unit_being_called.unit, CheckValueArgs{a.body, a.generic_args, nil}).v
-        if being_called.value == nil {
-            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-        }
-        being_called.type = simplify_type(s, being_called.type).type
-        if being_called.type == .Unknown {
-            checked_args := make([]Type, len(value.args))
-            ok := true
-            for arg, i in value.args {
-                checked_args[i] = check_type(s, arg, a.generic_args)
-                if checked_args[i] == .Invalid {
-                    ok = false
-                }
-            }
-            if !ok {
-                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-            }
-            #partial switch comptime_value in being_called.value.(CompileTimeValue) {
-            case GlobalValueWithGenericRef:
-                return utils.to_debug_value(
-                    check_comptime_func_call(s, pos, comptime_value, checked_args),
-                )
-            case UninitialisedOrderedHashMapType:
-                if a.early_exit_if_value_is_type != nil {
-                    return finish_checking_early_return_type(s, a)
-                }
-                if len(checked_args) != 2 {
-                    argument_count_mismatch(s, pos, len(checked_args), 2, "OrderedHashMap")
-                    return utils.to_debug_value(CheckValueResult{nil, .Type})
-                }
-                key := simplify_type(s, checked_args[0])
-                type_key: TypeKey
-                #partial switch key.type {
-                case .String, .Int, .UInt, .Float, .Any:
-                    type_key = OrderedHashMapType{HashMapKeyType(key.type), checked_args[1]}
-                case:
-                    utils.diagnostic(
-                        s.r,
-                        pos,
-                        "The key of an `OrderedHashMap` must be either `String`, `Int`, `UInt`, `Float` or `Any`\nGot the key `%s`\nTODO: Support more `OrderedHashMap` keys",
-                        type_to_string(s, checked_args[0]),
-                    )
-                    return utils.to_debug_value(CheckValueResult{nil, .Type})
-                }
-                out: CheckedValue = CompileTimeValue(create_type(&s.types, type_key).type)
-                return utils.to_debug_value(CheckValueResult{out, .Type})
-            case BuiltinFunction:
-                assert(comptime_value == .cast_func)
-                if len(checked_args) != 1 {
-                    argument_count_mismatch(s, pos, len(checked_args), 1, "cast")
-                    return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-                }
-                args := make([]Type, 1)
-                args[0] = .Any
-                return_types := make([]Type, 1)
-                return_types[0] = checked_args[0]
-                return utils.to_debug_value(
-                    CheckValueResult {
-                        CompileTimeValue(CastFunction{checked_args[0]}),
-                        create_type(&s.types, FuncType{args, return_types}).type,
-                    },
-                )
-            }
-            panic("Unreachable")
-        } else if being_called.type == .Type {
-            if a.early_exit_if_value_is_type != nil {
-                return finish_checking_early_return_type(s, a)
-            }
-            array, ok := check_array_type(
-                s,
-                pos,
-                being_called.value.(CompileTimeValue).(Type),
-                value.args,
-                a.generic_args,
-            )
-            if !ok {
-                return utils.to_debug_value(CheckValueResult{nil, .Type})
-            }
-            return utils.to_debug_value(
-                CheckValueResult{CompileTimeValue(create_type(&s.types, array).type), .Type},
-            )
-        }
-        if len(value.args) != 1 {
-            utils.diagnostic(
-                s.r,
-                pos,
-                "Indexed accesses into an array or ordered hash map must pass one value into the square brackets\nGot %d values",
-                len(value.args),
-            )
-            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-        }
-        if being_called.type == .String {
-            index := check_index(s, value.args[0], a.body, a.generic_args)
-            if index.start_index == nil {
-                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-            }
-            return utils.to_debug_value(
-                CheckValueResult {
-                    CheckedIndexedAccess{.String, new_clone(being_called.value), index},
-                    index.end_index == nil ? .Char : .String,
-                },
-            )
-        }
-        #partial switch t in get_type(s.types, being_called.type).key {
-        case ArrayType:
-            utils.diagnostic(s.r, pos, bounds_checks_warning, type = .Warning)
-            index := check_index(s, value.args[0], a.body, a.generic_args)
-            if index.start_index == nil {
-                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-            }
-            //if t.length == 0 {
-            //    utils.diagnostic(
-            //        s,
-            //        value.array.pos,
-            //        "TODO: Implement element access for dynamically sized arrays",
-            //    )
-            //    return nil, false
-            //}
-            return utils.to_debug_value(
-                CheckValueResult {
-                    CheckedIndexedAccess{.Array, new_clone(being_called.value), index},
-                    // TODO: Gives wrong type if being_called is a fixed-size array
-                    index.end_index == nil ? t.item_type : being_called.type,
-                },
-            )
-        case OrderedHashMapType:
-            key_value := check_value_of_type(
-                s,
-                value.args[0],
-                CheckValueArgs{a.body, a.generic_args, nil},
-                Type(t.key_type),
-            )
-            if !runtime_value_ok(s, value.args[0].pos, key_value) {
-                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-            }
-            return utils.to_debug_value(
-                CheckValueResult {
-                    CheckedOrderedHashMapAccess {
-                        new_clone(being_called.value),
-                        new_clone(key_value),
-                    },
-                    t.value_type,
-                },
-            )
-        }
-        utils.diagnostic(
-            s.r,
-            value.unit_being_called.pos,
-            "The value is of type `%s`\nExpected a string type, an array type or an `OrderedHashMap` type for indexed/keyed access",
-            type_to_string(s, being_called.type),
-        )
-        return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-
     case Bool:
         return utils.to_debug_value(CheckValueResult{CompileTimeValue(BoolValue(value)), .Bool})
     case FuncDefinitionRef:
         out_func, out_type := check_anonymous_func_head(s, value, a.generic_args)
         return utils.to_debug_value(CheckValueResult{out_func, out_type})
-    case CallWithBrackets:
-        /*
-        if array_type, is_array := value.unit_being_called.unit.(CallWithFrontedSquareBrackets);
-           is_array {
-            return utils.to_debug_value(
-                check_array_initialisation(
-                    s,
-                    pos,
-                    array_type,
-                    value.unit_being_called.pos,
-                    value.args,
-                    CheckValueArgs{a.body, a.generic_args, nil},
-                ),
-            )
-        }
-        */
-        value_being_called := check_initial_value(
-            s,
-            value.unit_being_called.pos,
-            value.unit_being_called.unit,
-            CheckValueArgs{a.body, a.generic_args, nil},
-        )
-        if value_being_called.v.value == nil {
-            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-        }
-        if comptime, is_comptime := value_being_called.v.value.(CompileTimeValue); is_comptime {
-            _, is_ordered_hash_map := comptime.(UninitialisedOrderedHashMapType)
-            if is_ordered_hash_map {
-                assert(value_being_called.v.type == .Unknown)
-                return check_ordered_hashmap_initialisation(s, value.args, a.body, a.generic_args)
-            }
-        }
-        call, call_ok := check_function_call(
-            s,
-            pos,
-            value_being_called.v,
-            value.unit_being_called.pos,
-            value.args,
-            a.body,
-            a.generic_args,
-        ).(CheckedFuncCall)
-        if !call_ok {
-            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-        }
-        if len(call.return_types) != 1 {
-            utils.diagnostic(s.r, pos, return_type_count_mismatch, 1, len(call.return_types))
-            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-        }
-        return utils.to_debug_value(CheckValueResult{call.value, call.return_types[0]})
-
+    /*
     case HierarchyJoinedUnits:
         return utils.to_debug_value(check_joined_unit_value(s, pos, value, a))
+    */
 
     case IdentNode:
         if value.has_re_before {
-            utils.diagnostic(s.r, pos, mut_then_ident_use_err)
+            utils.diagnostic(s.r, segment.range, re_then_ident_use_err)
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
-        return utils.to_debug_value(check_var_ref(s, value.segments, pos, a))
+        return utils.to_debug_value(check_var_ref_start(s, value.ident, a.generic_args))
 
-    case Number:
-        whole_part: utils.BigUint = ---
-        fraction_part: string = ---
-        switch num in value.absolute_value {
-        case WholeNonNegativeNumber:
-            whole_part = utils.big_uint_from_string(num.digits)
-            fraction_part = ""
-        case DecimalNonNegativeNumber:
-            whole_part = utils.big_uint_from_string(num.integer_part)
-            fraction_part = num.fractional_part
-        case:
-            panic("Unreachable")
+    case UnitJoinMethod:
+        if is_last_segment(v, i^) {
+            utils.diagnostic(s.r, segment.range, "Expected another segment after join method")
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
-        n := utils.NumberValue{value.is_negated, whole_part, fraction_part}
+        i^ += 1
+        first := get_segment(v, i^)
+        #partial switch value {
+        case .Colon:
+            ident, is_ident := first.contents.(IdentNode)
+            if !is_ident || ident.has_re_before {
+                utils.diagnostic(
+                    s.r,
+                    first.range,
+                    "After `:`, expected an identifier without `re` before to create a tag",
+                )
+                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+            }
+            return check_tag_value(
+                s,
+                TextAndPos{ident.ident.ident, ident.ident.pos},
+                nil,
+                a.body,
+                a.generic_args,
+            )
+        case .Subtraction:
+            value := check_initial_value(s, v, i, CheckValueArgs{a.body, a.generic_args, nil})
+            if !runtime_value_ok(s, first.range, value.v.value) {
+                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+            }
+            out_type := most_general_number_type(s, .Int, TypeAndRange{value.v.type, first.range})
+            return utils.to_debug_value(CheckValueResult{create_negation(value.v.value), out_type})
+        case:
+            utils.diagnostic(
+                s.r,
+                segment.range,
+                "Join method that is the first segment of a unit must be either `:` or `-`, got %v",
+                value,
+            )
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+
+    case WholeNonNegativeNumber:
+        whole_part := utils.big_uint_from_string(value.digits)
+        fraction_part := ""
+        if is_segment(v, i^ + 2) {
+            dot_segment := get_segment(v, i^ + 1)
+            fraction_segment := get_segment(v, i^ + 2)
+            dot_value, dot_value_ok := dot_segment.contents.(UnitJoinMethod)
+            fraction_value, fraction_value_ok := fraction_segment.contents.(WholeNonNegativeNumber)
+            if dot_value_ok && fraction_value_ok && dot_value == .Dot {
+                i^ += 2
+                fraction_part = fraction_value.digits
+            }
+        }
+        n := utils.NumberValue{false, whole_part, fraction_part}
         return utils.to_debug_value(CheckValueResult{CompileTimeValue(n), guess_number_type(n)})
 
     case String:
-        out := CompileTimeValue(StringLiteralValue(strings.join(([]string)(value), "")))
+        out := CompileTimeValue(StringLiteralValue(value))
         return utils.to_debug_value(CheckValueResult{out, .String})
 
     case Char:
@@ -4080,17 +3938,22 @@ check_initial_value :: proc(
 // Returns `ArrayElementAccess{}` on failure
 check_array_index_derivation_subset :: proc(
     s: ^CheckerState,
-    pos: utils.Pos,
     args: []Unit,
+    args_range: utils.Range,
     body: ^utils.DebugValue([dynamic]CheckedStatement),
     generic_args: map[string]Type,
 ) -> ArrayElementAccess {
     if len(args) != 1 {
-        utils.diagnostic(s.r, pos, "Expected 1 value in square brackets\nGot %d values", len(args))
+        utils.diagnostic(
+            s.r,
+            args_range,
+            "Expected 1 value in square brackets\nGot %d values",
+            len(args),
+        )
         return ArrayElementAccess{}
     }
     index := check_value_of_type(s, args[0], CheckValueArgs{body, generic_args, nil}, index_type)
-    utils.diagnostic(s.r, pos, bounds_checks_warning, type = .Warning)
+    utils.diagnostic(s.r, args_range, bounds_checks_warning, type = .Warning)
     return ArrayElementAccess{index}
 }
 
@@ -4099,13 +3962,12 @@ check_array_index_derivation_subset :: proc(
 check_derivation_subset :: proc(
     s: ^CheckerState,
     derivation_base_type: Type,
-    unit: UnitWithPos,
+    unit: Unit,
     generic_args: map[string]Type,
     body: ^utils.DebugValue([dynamic]CheckedStatement),
-) -> (
-    utils.DoubleDynamic(DerivationSubsetElement),
-    Type,
-) {
+    elements: ^[dynamic]DerivationSubsetElement,
+) -> Type {
+    /*
     if call, is_call := unit.unit.(CallWithSquareBrackets); is_call {
         subset, type := check_derivation_subset(
             s,
@@ -4140,62 +4002,61 @@ check_derivation_subset :: proc(
         utils.dynamic_append_elem(&subset, subset_elem)
         return subset, array_type.item_type
     }
+    */
     #partial switch t in simplify_type(s, derivation_base_type).key {
     case ArrayType:
-        args: []Unit = ---
-        unit_being_called: ^UnitWithPos = ---
-        #partial switch u in unit.unit {
-        case UnitsInSquareBrackets:
-            args = u.elements
-            unit_being_called = nil
-        case:
+        args, args_ok := unit.first.contents.(UnitsInSquareBrackets)
+        if !args_ok {
             utils.diagnostic(
                 s.r,
-                unit.pos,
+                unit.first.range,
                 "For array type `%s`\nCan only use unit in square brackets as derivation subset\nGot %v",
                 type_to_string(s, derivation_base_type),
-                unit.unit,
+                unit.first.contents,
             )
-            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return .Invalid
         }
-        subset_elem := check_array_index_derivation_subset(s, unit.pos, args, body, generic_args)
+        subset_elem := check_array_index_derivation_subset(
+            s,
+            args.elements,
+            unit.first.range,
+            body,
+            generic_args,
+        )
         if subset_elem.index == nil {
-            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return .Invalid
         }
-        if unit_being_called != nil {
-            elems, type := check_derivation_subset(
-                s,
-                t.item_type,
-                unit_being_called^,
-                generic_args,
-                body,
-            )
-            utils.dynamic_insert(&elems, subset_elem)
-            return elems, type
-        } else {
-            elems := utils.DoubleDynamic(DerivationSubsetElement){}
-            utils.dynamic_append_elem(&elems, subset_elem)
-            return elems, t.item_type
+        append(elements, subset_elem)
+        if len(unit.rest) == 0 {
+            return t.item_type
         }
+        return check_derivation_subset(
+            s,
+            t.item_type,
+            Unit{unit.rest[0], unit.rest[1:]},
+            generic_args,
+            body,
+            elements,
+        )
     case OrderedHashMapType:
-        unit_in_square_brackets, ok := unit.unit.(UnitsInSquareBrackets)
+        unit_in_square_brackets, ok := unit.first.contents.(UnitsInSquareBrackets)
         if !ok {
             utils.diagnostic(
                 s.r,
-                unit.pos,
+                unit.first.range,
                 "For ordered hash map type `%s`\nCan only use unit in square brackets as derivation subset",
                 type_to_string(s, derivation_base_type),
             )
-            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return .Invalid
         }
         if len(unit_in_square_brackets.elements) != 1 {
             utils.diagnostic(
                 s.r,
-                unit.pos,
+                unit.first.range,
                 "Expected 1 value in square brackets\nGot %d values",
                 len(unit_in_square_brackets.elements),
             )
-            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return .Invalid
         }
         key := check_value_of_type(
             s,
@@ -4204,84 +4065,95 @@ check_derivation_subset :: proc(
             Type(t.key_type),
         )
         if key == nil {
-            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return .Invalid
         }
-        elements := utils.DoubleDynamic(DerivationSubsetElement){}
-        utils.dynamic_append_elem(&elements, StringOrderedHashMapAccess{key})
-        return elements, t.value_type
+        append(elements, StringOrderedHashMapAccess{key})
+        if len(unit.rest) == 0 {
+            return t.value_type
+        }
+        return check_derivation_subset(
+            s,
+            t.value_type,
+            Unit{unit.rest[0], unit.rest[1:]},
+            generic_args,
+            body,
+            elements,
+        )
     case StructType:
-        field, ok := unit.unit.(IdentNode)
-        if !ok || field.has_re_before || field.segments[0].ident != "" {
+        join_method, join_method_ok := unit.first.contents.(UnitJoinMethod)
+        if !join_method_ok || join_method != .Dot {
             utils.diagnostic(
                 s.r,
-                unit.pos,
-                "For struct type `%s`\nCan only use ident with 2 segments where first segment is empty and `re` is not before the ident as derivation subset",
+                unit.first.range,
+                "For struct type `%s`\nExpected `.` to be the first segment of the derivation subset",
                 type_to_string(s, derivation_base_type),
             )
-            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return .Invalid
         }
-        field_name := field.segments[1]
-        field_index := utils.lookup(t.m, field_name.ident, utils.string_to_index_procs)
+        err_start :: "For struct type `%s`\nExpected an identifier without `re` before it "
+        err_end :: " of the derivation subset"
+        if len(unit.rest) == 0 {
+            utils.diagnostic(
+                s.r,
+                unit.first.range,
+                err_start + "after this segment" + err_end,
+                type_to_string(s, derivation_base_type),
+            )
+            return .Invalid
+        }
+        field_name, field_ok := unit.rest[0].contents.(IdentNode)
+        if !field_ok || field_name.has_re_before {
+            utils.diagnostic(
+                s.r,
+                unit.rest[0].range,
+                err_start + "as the second segment" + err_end,
+                type_to_string(s, derivation_base_type),
+            )
+            return .Invalid
+        }
+        field_index := utils.lookup(t.m, field_name.ident.ident, utils.string_to_index_procs)
         if field_index == utils.does_not_exist {
             utils.diagnostic(
                 s.r,
-                unit.pos,
+                get_range(field_name.ident),
                 "The field `%s` does not exist in the struct type `%s`",
-                field_name.ident,
+                field_name.ident.ident,
                 type_to_string(s, derivation_base_type),
             )
-            return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
+            return .Invalid
         }
-        elements := utils.DoubleDynamic(DerivationSubsetElement){}
-        utils.dynamic_append_elem(&elements, FieldAccess{field_index.index})
+        append(elements, FieldAccess{field_index.index})
         out_type := t.types.d[field_index.index]
-        for i := 2; i < len(field.segments); i += 1 {
-            field_name = field.segments[i]
-            struct_type, is_struct := simplify_type(s, out_type).key.(StructType)
-            if !is_struct {
-                utils.diagnostic(
-                    s.r,
-                    field_name.pos,
-                    "Cannot use `.` for non-struct type `%s`",
-                    type_to_string(s, out_type),
-                )
-                return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
-            }
-            field_index = utils.lookup(
-                struct_type.m,
-                field_name.ident,
-                utils.string_to_index_procs,
+        if len(unit.rest) == 1 {
+            return out_type
+        } else {
+            return check_derivation_subset(
+                s,
+                out_type,
+                Unit{unit.rest[1], unit.rest[2:]},
+                generic_args,
+                body,
+                elements,
             )
-            if field_index == utils.does_not_exist {
-                utils.diagnostic(
-                    s.r,
-                    unit.pos,
-                    "The field `%s` dost not exist in the struct type `%s`",
-                    field_name.ident,
-                    type_to_string(s, out_type),
-                )
-                return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
-            }
-            utils.dynamic_append_elem(&elements, FieldAccess{field_index.index})
-            out_type = struct_type.types.d[field_index.index]
         }
-        return elements, out_type
     case:
         utils.diagnostic(
             s.r,
-            unit.pos,
+            get_range(unit),
             "Cannot have derivation subset when the type of the derivation base is `%s`",
             type_to_string(s, derivation_base_type),
         )
-        return utils.DoubleDynamic(DerivationSubsetElement){}, .Invalid
+        return .Invalid
     }
 }
+
+alteration_methods :: bit_set[UnitJoinMethod]{.Assign, .PipeEquals}
 
 // If DerivationAlteration.arg == nil then the checking failed
 check_derivation_alteration :: proc(
     s: ^CheckerState,
-    join_method: LeftToRightUnitJoinMethod,
-    join_method_pos: utils.Pos,
+    join_method: UnitJoinMethod,
+    join_method_range: utils.Range,
     unit: Unit,
     value_type: Type,
     body: ^utils.DebugValue([dynamic]CheckedStatement),
@@ -4314,34 +4186,8 @@ check_derivation_alteration :: proc(
         }
         return DerivationAlteration{.PipeThroughFunction, new_clone(func)}
     case:
-        utils.diagnostic(
-            s.r,
-            join_method_pos,
-            "Expected join method to be `=` to set the subset's new value or `|=` to update the subset's value",
-            "",
-        )
-        return DerivationAlteration{}
+        panic("Unreachable")
     }
-}
-
-check_initial_value_of_type :: proc(
-    s: ^CheckerState,
-    v: UnitWithPos,
-    a: CheckValueArgs,
-    expected_type: Type,
-    loc := #caller_location,
-) -> CheckedValue {
-    when ODIN_DEBUG {
-        utils.call(loc, "check_initial_value_of_type", "")
-    }
-    r := check_initial_value(s, v.pos, v.unit, a)
-    if r.v.value == nil {
-        return nil
-    }
-    if expect_exact_type(s, v.pos, expected_type, r.v.type, "") {
-        return r.v.value
-    }
-    return nil
 }
 
 check_value_of_type :: proc(
@@ -4358,7 +4204,7 @@ check_value_of_type :: proc(
     if r.v.value == nil {
         return nil
     }
-    if expect_exact_type(s, v.pos, expected_type, r.v.type, "") {
+    if expect_type(s, get_range(v), expected_type, r.v.type) {
         return r.v.value
     }
     return nil
@@ -4375,72 +4221,59 @@ check_value :: proc(
     a: CheckValueArgs,
     loc := #caller_location,
 ) -> utils.DebugValue(CheckValueResult) {
-    utils.call(
-        loc,
-        "check_value",
-        "a.early_exit_if_value_is_type: %v",
-        a.early_exit_if_value_is_type,
-    )
-    utils.print_arg("v", v)
+    when ODIN_DEBUG {
+        utils.call(
+            loc,
+            "check_value",
+            "a.early_exit_if_value_is_type: %v",
+            a.early_exit_if_value_is_type,
+        )
+        utils.print_arg("v", v)
+    }
 
-    if len(v.extra_units) == 0 {
-        return check_initial_value(s, v.pos, v.first_unit, a)
-    } else if v.extra_units[0].join_method == .Colon {
-        tag_name, tag_name_ok := get_text_and_pos_from_unit_with_pos(
-            s.r,
-            UnitWithPos{v.first_unit, v.pos},
-        ).(TextAndPos)
-        if !tag_name_ok {
+    if len(v.rest) == 0 {
+        i: uint = 0
+        return check_initial_value(s, v, &i, a)
+    }
+
+    if split, split_ok := try_split_by(v, {.Tilde}).(SuccessfulSplit); split_ok {
+        res := check_value(s, split.before_split, CheckValueArgs{a.body, a.generic_args, nil}).v
+        if res.value == nil {
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
-        return check_tag_value(
-            s,
-            tag_name,
-            Unit{v.extra_units[0].unit.pos, v.extra_units[0].unit.unit, v.extra_units[1:]},
-            a.body,
-            a.generic_args,
-        )
-    }
 
-    res :=
-        check_initial_value(s, v.pos, v.first_unit, CheckValueArgs{a.body, a.generic_args, nil}).v
-    if res.value == nil {
-        return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-    }
-
-    i := 0
-    for i < len(v.extra_units) {
-        extra_unit := v.extra_units[i]
-        if extra_unit.join_method != .Tilde {
+        after_split, after_split_ok := try_split_by(
+            split.after_split,
+            {.Assign, .PipeEquals},
+        ).(SuccessfulSplit)
+        if !after_split_ok {
             utils.diagnostic(
                 s.r,
-                extra_unit.join_method_pos,
-                "Expected join method to be `~` to set the derivation subset",
+                get_range(split.after_split),
+                "Expected an `=` to set the subset's new value or an `|=` to update the subset's value within this text area",
+                "",
             )
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
-        derivation_subset, derivation_alteration_type := check_derivation_subset(
+
+        derivation_subset: [dynamic]DerivationSubsetElement
+        derivation_alteration_type := check_derivation_subset(
             s,
             res.type,
-            extra_unit.unit,
+            after_split.before_split,
             a.generic_args,
             a.body,
+            &derivation_subset,
         )
         if derivation_alteration_type == .Invalid {
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
 
-        i += 1
-        if i >= len(v.extra_units) {
-            utils.diagnostic(s.r, extra_unit.join_method_pos, "Expected a derivation alteration")
-            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-        }
-
         alteration := check_derivation_alteration(
             s,
-            v.extra_units[i].join_method,
-            v.extra_units[i].join_method_pos,
-            Unit{v.extra_units[i].unit.pos, v.extra_units[i].unit.unit, nil},
+            after_split.split_method,
+            after_split.split_method_range,
+            after_split.after_split,
             derivation_alteration_type,
             a.body,
             a.generic_args,
@@ -4448,15 +4281,372 @@ check_value :: proc(
         if alteration.arg == nil {
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
-        res.value = CheckedDerivation {
-            new_clone(res.value),
-            DerivationSubset{utils.dynamic_to_fixed(derivation_subset)},
-            alteration,
-        }
-
-        i += 1
+        return utils.to_debug_value(
+            CheckValueResult {
+                CheckedDerivation {
+                    new_clone(res.value),
+                    DerivationSubset{derivation_subset[:]},
+                    alteration,
+                },
+                res.type,
+            },
+        )
     }
 
+    if split, split_ok := try_split_first_by(v, {.Colon}).(SuccessfulSplitFirst); split_ok {
+        tag_name, tag_name_ok := get_text_and_pos_from_unit_segment(
+            s.r,
+            split.before_split,
+        ).(TextAndPos)
+        if !tag_name_ok {
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+        return check_tag_value(s, tag_name, split.after_split, a.body, a.generic_args)
+    }
+
+    if split, split_ok := try_split_by(v, {.BooleanOr, .BooleanAnd}).(SuccessfulSplit); split_ok {
+        return utils.to_debug_value(
+            check_joined_unit_value(
+                s,
+                split.split_method,
+                split.split_method_range,
+                split.before_split,
+                split.after_split,
+                a,
+            ),
+        )
+    }
+
+    if split, split_ok := try_split_by(
+           v,
+           {
+               .IsEqual,
+               .IsNotEqual,
+               .IsGreaterThan,
+               .IsLessThan,
+               .IsGreaterThanOrEqual,
+               .IsLessThanOrEqual,
+           },
+       ).(SuccessfulSplit); split_ok {
+        return utils.to_debug_value(
+            check_joined_unit_value(
+                s,
+                split.split_method,
+                split.split_method_range,
+                split.before_split,
+                split.after_split,
+                a,
+            ),
+        )
+    }
+
+    if split, split_ok := try_split_by(v, {.In}).(SuccessfulSplit); split_ok {
+        return utils.to_debug_value(
+            check_joined_unit_value(
+                s,
+                split.split_method,
+                split.split_method_range,
+                split.before_split,
+                split.after_split,
+                a,
+            ),
+        )
+    }
+
+    if split, split_ok := try_split_by(
+           v,
+           {.Append, .Concat, .StringConcat, .Arrow},
+       ).(SuccessfulSplit); split_ok {
+        return utils.to_debug_value(
+            check_joined_unit_value(
+                s,
+                split.split_method,
+                split.split_method_range,
+                split.before_split,
+                split.after_split,
+                a,
+            ),
+        )
+    }
+
+    if split, split_ok := try_split_by(v, {.Addition, .Subtraction, .Modulo}).(SuccessfulSplit);
+       split_ok {
+        return utils.to_debug_value(
+            check_joined_unit_value(
+                s,
+                split.split_method,
+                split.split_method_range,
+                split.before_split,
+                split.after_split,
+                a,
+            ),
+        )
+    }
+
+    if split, split_ok := try_split_by(v, {.Multiplication, .Division}).(SuccessfulSplit);
+       split_ok {
+        return utils.to_debug_value(
+            check_joined_unit_value(
+                s,
+                split.split_method,
+                split.split_method_range,
+                split.before_split,
+                split.after_split,
+                a,
+            ),
+        )
+    }
+
+    i: uint = 0
+    res := check_initial_value(s, v, &i, CheckValueArgs{a.body, a.generic_args, nil}).v
+    i += 1
+    if res.value == nil {
+        return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+    }
+    for ; is_segment(v, i); i += 1 {
+        res_range := get_range(Unit{v.first, v.rest[:i - 1]})
+        segment := get_segment(v, i)
+        #partial switch contents in segment.contents {
+        case:
+            utils.diagnostic(
+                s.r,
+                segment.range,
+                "Cannot use this kind of unit segment to extend value",
+            )
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        case UnitJoinMethod:
+            if is_last_segment(v, i) {
+                utils.diagnostic(
+                    s.r,
+                    segment.range,
+                    "Unexpected trailing join method\nHint: Try adding an extra unit segment after this join method",
+                )
+                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+            }
+            i += 1
+            if contents == .Dot {
+                ident, is_ident := get_segment(v, i).contents.(IdentNode)
+                if !is_ident || ident.has_re_before {
+                    utils.diagnostic(
+                        s.r,
+                        segment.range,
+                        "After `.`, expected identifier with `re` before it",
+                    )
+                    return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                }
+                res = check_var_ref(
+                    s,
+                    res_range,
+                    res,
+                    ident.ident,
+                    CheckValueArgs{a.body, a.generic_args, nil},
+                )
+            } else {
+                utils.diagnostic(
+                    s.r,
+                    segment.range,
+                    "Expected join method `.` to extend value\nGot join method %v",
+                    contents,
+                )
+                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+            }
+        case Tuple:
+            /*
+        if array_type, is_array := value.unit_being_called.unit.(CallWithFrontedSquareBrackets);
+           is_array {
+            return utils.to_debug_value(
+                check_array_initialisation(
+                    s,
+                    pos,
+                    array_type,
+                    value.unit_being_called.pos,
+                    value.args,
+                    CheckValueArgs{a.body, a.generic_args, nil},
+                ),
+            )
+        }
+        */
+            if comptime, is_comptime := res.value.(CompileTimeValue); is_comptime {
+                _, is_ordered_hash_map := comptime.(UninitialisedOrderedHashMapType)
+                if is_ordered_hash_map {
+                    assert(res.type == .Unknown)
+                    return check_ordered_hashmap_initialisation(
+                        s,
+                        contents.elements,
+                        a.body,
+                        a.generic_args,
+                    )
+                }
+            }
+            call, call_ok := check_function_call(
+                s,
+                res,
+                res_range,
+                contents.elements,
+                segment.range,
+                a.body,
+                a.generic_args,
+            ).(CheckedFuncCall)
+            if !call_ok {
+                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+            }
+            if len(call.return_types) != 1 {
+                utils.diagnostic(
+                    s.r,
+                    res_range,
+                    return_type_count_mismatch,
+                    1,
+                    len(call.return_types),
+                )
+                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+            }
+            res = CheckValueResult{call.value, call.return_types[0]}
+            continue
+
+        case UnitsInSquareBrackets:
+            res.type = simplify_type(s, res.type).type
+            if res.type == .Unknown {
+                checked_args := make([]Type, len(contents.elements))
+                ok := true
+                for arg, i in contents.elements {
+                    checked_args[i] = check_type(s, arg, a.generic_args)
+                    if checked_args[i] == .Invalid {
+                        ok = false
+                    }
+                }
+                if !ok {
+                    return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                }
+                #partial switch comptime_value in res.value.(CompileTimeValue) {
+                case GlobalValueWithGenericRef:
+                    res = check_comptime_func_call(s, res_range, comptime_value, checked_args)
+                    continue
+
+                case UninitialisedOrderedHashMapType:
+                    if a.early_exit_if_value_is_type != nil {
+                        return finish_checking_early_return_type(s, a)
+                    }
+                    if len(checked_args) != 2 {
+                        argument_count_mismatch(s, res_range, len(checked_args), 2)
+                        return utils.to_debug_value(CheckValueResult{nil, .Type})
+                    }
+                    key := simplify_type(s, checked_args[0])
+                    type_key: TypeKey
+                    #partial switch key.type {
+                    case .String, .Int, .UInt, .Float, .Any:
+                        type_key = OrderedHashMapType{HashMapKeyType(key.type), checked_args[1]}
+                    case:
+                        utils.diagnostic(
+                            s.r,
+                            segment.range,
+                            "The key of an `OrderedHashMap` must be either `String`, `Int`, `UInt`, `Float` or `Any`\nGot the key `%s`\nTODO: Support more `OrderedHashMap` keys",
+                            type_to_string(s, checked_args[0]),
+                        )
+                        return utils.to_debug_value(CheckValueResult{nil, .Type})
+                    }
+                    res.value = CompileTimeValue(create_type(&s.types, type_key).type)
+                    res.type = .Type
+                    continue
+                case BuiltinFunction:
+                    assert(comptime_value == .cast_func)
+                    if len(checked_args) != 1 {
+                        argument_count_mismatch(s, res_range, len(checked_args), 1)
+                        return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                    }
+                    args := make([]Type, 1)
+                    args[0] = .Any
+                    return_types := make([]Type, 1)
+                    return_types[0] = checked_args[0]
+                    res = CheckValueResult {
+                        CompileTimeValue(CastFunction{checked_args[0]}),
+                        create_type(&s.types, FuncType{args, return_types}).type,
+                    }
+                    continue
+                }
+                panic("Unreachable")
+            } else if res.type == .Type {
+                if a.early_exit_if_value_is_type != nil {
+                    return finish_checking_early_return_type(s, a)
+                }
+                array, ok := check_array_type(
+                    s,
+                    res.value.(CompileTimeValue).(Type),
+                    contents.elements,
+                    segment.range,
+                    a.generic_args,
+                )
+                if !ok {
+                    return utils.to_debug_value(CheckValueResult{nil, .Type})
+                }
+                res = CheckValueResult{CompileTimeValue(create_type(&s.types, array).type), .Type}
+                continue
+            }
+            if len(contents.elements) != 1 {
+                utils.diagnostic(
+                    s.r,
+                    segment.range,
+                    "Indexed accesses into an array or ordered hash map must pass one value into the square brackets\nGot %d values",
+                    len(contents.elements),
+                )
+                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+            }
+            if res.type == .String {
+                index := check_index(s, contents.elements[0], a.body, a.generic_args)
+                if index.start_index == nil {
+                    return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                }
+                res = CheckValueResult {
+                    CheckedIndexedAccess{.String, new_clone(res.value), index},
+                    index.end_index == nil ? .Char : .String,
+                }
+                continue
+            }
+            #partial switch t in get_type(s.types, res.type).key {
+            case ArrayType:
+                utils.diagnostic(s.r, segment.range, bounds_checks_warning, type = .Warning)
+                index := check_index(s, contents.elements[0], a.body, a.generic_args)
+                if index.start_index == nil {
+                    return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                }
+                //if t.length == 0 {
+                //    utils.diagnostic(
+                //        s,
+                //        value.array.pos,
+                //        "TODO: Implement element access for dynamically sized arrays",
+                //    )
+                //    return nil, false
+                //}
+                res = CheckValueResult {
+                    CheckedIndexedAccess{.Array, new_clone(res.value), index},
+                    // TODO: Gives wrong type if being_called is a fixed-size array
+                    index.end_index == nil ? t.item_type : res.type,
+                }
+                continue
+            case OrderedHashMapType:
+                key_value := check_value_of_type(
+                    s,
+                    contents.elements[0],
+                    CheckValueArgs{a.body, a.generic_args, nil},
+                    Type(t.key_type),
+                )
+                if !runtime_value_ok(s, get_range(contents.elements[0]), key_value) {
+                    return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                }
+                res = CheckValueResult {
+                    CheckedOrderedHashMapAccess{new_clone(res.value), new_clone(key_value)},
+                    t.value_type,
+                }
+                continue
+            }
+            utils.diagnostic(
+                s.r,
+                res_range,
+                "The value is of type `%s`\nExpected a string type, an array type or an `OrderedHashMap` type for indexed/keyed access",
+                type_to_string(s, res.type),
+            )
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+    }
     return utils.to_debug_value(res)
 }
 
@@ -4593,8 +4783,8 @@ check_global_value_without_generic :: proc(
     //    s.global_values_without_generic[i].value = ref
     //    return check_anonymous_func_body(s, func, func_type, ref, no_generic_args)
     //}
-    if len(value.unit.extra_units) == 0 {
-        if import_value, is_import := value.unit.first_unit.(Import); is_import {
+    if len(value.unit.rest) == 0 {
+        if import_value, is_import := value.unit.first.contents.(Import); is_import {
             global.v = CheckedGlobalValue{.ImportedFile, import_value}
             return global.v
         }
@@ -4623,7 +4813,7 @@ check_global_value_without_generic :: proc(
     }
     comptime_value, ok := checked_value.v.value.(CompileTimeValue)
     if !ok {
-        utils.diagnostic(s.r, value.unit.pos, non_compiletime_global_err)
+        utils.diagnostic(s.r, get_range(value.unit), non_compiletime_global_err)
         global.v = CheckedGlobalValue{.Invalid, nil}
         return global.v
     }
@@ -4658,7 +4848,7 @@ length_of_array :: proc(type: ArrayType, value: CheckedValue) -> CheckedValue {
 // The `Type` returned is the array's item_type
 check_array :: proc(
     s: ^CheckerState,
-    pos: utils.Pos,
+    range: utils.Range,
     value: CheckedValue,
     value_type: Type,
 
@@ -4669,7 +4859,7 @@ check_array :: proc(
     CheckedValue,
     Type,
 ) {
-    array, ok := get_array_type(s, pos, "This value", value_type)
+    array, ok := get_array_type(s, range, "This value", value_type)
     if !ok {
         // utils.diagnostic(s, pos, err_msg, type_to_string(s, value_type))
         return nil, Type{}
@@ -4680,17 +4870,25 @@ check_array :: proc(
 // Returns `CheckedFuncRef{max(uint)}` on failure
 get_global_function :: proc(
     s: ^CheckerState,
-    usage_pos: utils.Pos,
+    usage_range: utils.RangeOrFile,
     file_to_search: ^utils.CompilerFile,
     name: string,
     extra_text: string,
 ) -> CheckedFuncRef {
     parsed_global, exists := s.parsed_files.d[get_file_index(s.files, file_to_search)][name]
     if !exists {
-        utils.diagnostic(s.r, usage_pos, "The global `%s` is not defined%s", name, extra_text)
+        utils.diagnostic(s.r, usage_range, "The global `%s` is not defined%s", name, extra_text)
         return CheckedFuncRef{max(uint)}
     }
-    pos := usage_pos.index == max(uint) ? utils.Pos{parsed_global.pos, file_to_search} : usage_pos
+    pos: utils.Range = ---
+    switch r in usage_range {
+    case utils.Range:
+        pos = r
+    case ^utils.CompilerFile:
+        pos = utils.Range{parsed_global.pos, utils.to_debug_value(uint(len(name))), file_to_search}
+    case:
+        panic("Unreachable")
+    }
     if parsed_global.has_generics {
         utils.diagnostic(
             s.r,
@@ -4731,9 +4929,8 @@ CheckerOutput :: struct {
 
 add_sum_type :: proc(
     s: ^CheckerState,
-    variants: ^map[u32]Maybe(map[Type]utils.Pos),
+    variants: ^map[u32]Maybe(map[Type]struct{}),
     sum_type: SumType,
-    pos: utils.Pos,
 ) -> Maybe(Type) {
     for tag_index, payload in sum_type.payloads {
         if tag_index in variants {
@@ -4746,13 +4943,13 @@ add_sum_type :: proc(
                 if payload == nil {
                     return .Any
                 }
-                (&m.(map[Type]utils.Pos))[payload.(Type)] = pos
+                (&m.(map[Type]struct{}))[payload.(Type)] = struct{}{}
             }
         } else if payload == nil {
             variants[tag_index] = nil
         } else {
-            m := make(map[Type]utils.Pos)
-            m[payload.(Type)] = pos
+            m := make(map[Type]struct{})
+            m[payload.(Type)] = struct{}{}
             variants[tag_index] = m
         }
     }
@@ -4760,8 +4957,8 @@ add_sum_type :: proc(
 }
 
 // Never fails by returning `.Any`
-find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]utils.Pos) -> Type {
-    key, pos := utils.pop_map(args)
+find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]struct{}) -> Type {
+    key, _ := utils.pop_map(args)
     if len(args) == 0 {
         return key
     }
@@ -4788,17 +4985,17 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]utils.Pos
     }
     switch type in simplified.key {
     case SumType:
-        variants := make(map[u32]Maybe(map[Type]utils.Pos))
-        out, should_return := add_sum_type(s, &variants, type, pos).(Type)
+        variants := make(map[u32]Maybe(map[Type]struct{}))
+        out, should_return := add_sum_type(s, &variants, type).(Type)
         if should_return {
             return out
         }
-        for k, pos in args {
+        for k in args {
             sum_type, is_sum_type := simplify_type(s, k).key.(SumType)
             if !is_sum_type {
                 return .Any
             }
-            out, should_return = add_sum_type(s, &variants, sum_type, pos).(Type)
+            out, should_return = add_sum_type(s, &variants, sum_type).(Type)
             if should_return {
                 return out
             }
@@ -4810,16 +5007,16 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]utils.Pos
             } else {
                 sum_type.payloads[tag_index] = find_most_specific_supertype(
                     s,
-                    &payload.(map[Type]utils.Pos),
+                    &payload.(map[Type]struct{}),
                 )
             }
         }
         return create_type(&s.types, sum_type).type
     case StructType:
         fields := type.m
-        field_types := make([]map[Type]utils.Pos, len(fields.keys))
+        field_types := make([]map[Type]struct{}, len(fields.keys))
         for type, i in utils.multi_to_array(type.types, len(type.m.keys)) {
-            field_types[i][type] = pos
+            field_types[i][type] = struct{}{}
         }
 
         for key, pos in args {
@@ -4850,9 +5047,9 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]utils.Pos
         return .Any
     case ArrayType:
         length: Maybe(u32) = type.length
-        item_types := make(map[Type]utils.Pos)
+        item_types := make(map[Type]struct{})
         if type.length == nil || type.length.(u32) != 0 {
-            item_types[type.item_type] = pos
+            item_types[type.item_type] = struct{}{}
         }
 
         for key, pos in args {
@@ -4878,11 +5075,11 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]utils.Pos
         )
         return out.type
     case OrderedHashMapType:
-        key_types: map[Type]utils.Pos
-        value_types: map[Type]utils.Pos
+        key_types: map[Type]struct{}
+        value_types: map[Type]struct{}
 
-        key_types[Type(type.key_type)] = pos
-        value_types[type.value_type] = pos
+        key_types[Type(type.key_type)] = struct{}{}
+        value_types[type.value_type] = struct{}{}
 
         for key, pos in args {
             simplified := simplify_type(s, key)
@@ -4922,7 +5119,7 @@ check :: proc(
     diagnostic_reporter: utils.DiagnosticReporter,
     loc := #caller_location,
 ) -> CheckerOutput {
-    utils.call(loc, "check", "", utils.debug_checker)
+    utils.call(loc, "check", "", enable_debug = utils.debug_checker)
     state := CheckerState {
         a                             = a,
         generic_initialisations       = GenericInitialisations {
@@ -4970,7 +5167,7 @@ check :: proc(
         for arg in type.generics {
             expect_camel_case(&state, "generic names", arg)
             if get_builtin(arg.text).value != nil {
-                utils.diagnostic(state.r, arg.pos, builtins_err, arg.text)
+                utils.diagnostic(state.r, get_range(arg), builtins_err, arg.text)
             }
         }
         // TODO: Check that unused generics are valid
@@ -4998,7 +5195,11 @@ check :: proc(
             if get_builtin(global_name).value != nil {
                 utils.diagnostic(
                     diagnostic_reporter,
-                    utils.Pos{global.pos, &read_file},
+                    utils.Range {
+                        global.pos,
+                        utils.to_debug_value(uint(len(global_name))),
+                        &read_file,
+                    },
                     builtins_err,
                     global_name,
                 )
@@ -5037,7 +5238,7 @@ check :: proc(
     if func_name != "" {
         func_ref = get_global_function(
             &state,
-            utils.Pos{max(uint), func_file},
+            func_file,
             func_file,
             func_name,
             "\nTODO: Write hint",

@@ -17,8 +17,12 @@ create_not :: proc(value: CheckedValue) -> CheckedValue {
     return BooleanNotValue(new_clone(value))
 }
 
+create_negation :: proc(value: CheckedValue) -> CheckedValue {
+    return create_joined_values(.Subtraction, CompileTimeValue(utils.number_zero), value)
+}
+
 create_joined_values :: proc(
-    method: HierarchyUnitJoinMethod,
+    method: UnitJoinMethod,
     val0: CheckedValue,
     val1: CheckedValue,
     loc := #caller_location,
@@ -28,6 +32,8 @@ create_joined_values :: proc(
     }
     flip_values := false
     switch method {
+    case .Assign, .Tilde, .PipeEquals, .Colon, .Append, .Concat, .Arrow, .Dot:
+        panic("Unreachable")
     case .BooleanAnd, .BooleanOr:
         comptime0, val0_is_comptime := val0.(CompileTimeValue)
         comptime1, val1_is_comptime := val1.(CompileTimeValue)
@@ -47,8 +53,6 @@ create_joined_values :: proc(
          .Modulo,
          .StringConcat,
          .In: // TODO
-    case .Append, .Concat, .Arrow:
-        utils.panicf("Unreachable (%v)", method)
     case .Multiplication, .Division, .Addition, .Subtraction:
         comptime0, val0_is_comptime := val0.(CompileTimeValue)
         comptime1, val1_is_comptime := val1.(CompileTimeValue)
@@ -80,16 +84,16 @@ create_joined_values :: proc(
         flip_values = val0_is_comptime && (method == .Multiplication || method == .Addition)
     }
     if flip_values {
-        return CheckedJoinedValues{method, new_clone(val1), new_clone(val0)}
+        return CheckedJoinedValues{CheckedJoinMethod(method), new_clone(val1), new_clone(val0)}
     }
-    return CheckedJoinedValues{method, new_clone(val0), new_clone(val1)}
+    return CheckedJoinedValues{CheckedJoinMethod(method), new_clone(val0), new_clone(val1)}
 }
 
 create_field_access :: proc(value: CheckedValue, field_index: u32) -> CheckedValue {
     #partial switch v in value {
     case CompileTimeValue:
         return v.(CompileTimeStructInitialisation).fields[field_index]
-    case CheckedFunctionCall:
+    case StructInitialisation:
     // Cannot simplify something like `{a: 5, b: do_stuff()}.a` to `5` because the `do_stuff` call may cause side effects
     // TODO: Be able to make simplifications like this and preserve side effects
     }

@@ -4,7 +4,7 @@
 // - `Hello`
 // - There may be more, IDK ¯\_(ツ)_/¯
 
-result[ok, err] = /
+result[ok, err] = \
   ok: ok,
   err: err,
 \

@@ -548,7 +548,7 @@ invalid_example_00_uninitialised_global_value_with_generics :: proc(t: ^testing.
     out := ran.(CompilationFailed)
     e := utils.TestingTextExpecter{0, out.compiler.stderr, t}
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + file + "` (15:13)\n")
+    utils.expect_string(&e, "Error compiling `" + file + "` (15:13 - 15:17)\n")
     utils.expect_string(
         &e,
         "Expected a func type, but got an uninitialised global value with generics\n",
@@ -781,13 +781,13 @@ invalid_example_03_constants_and_reassignables_with_same_name :: proc(t: ^testin
     utils.expect_string(&e, "Parsing `" + utils_path + "`...\n")
     utils.expect_string(&e, "Checking...\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Warning compiling `" + path + "` (7:2)\n")
+    utils.expect_string(&e, "Warning compiling `" + path + "` (7:2 - 7:6)\n")
     utils.expect_string(
         &e,
         "Declaring variable called `hello` when variable called `hello$` is already declared\n",
     )
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Warning compiling `" + path + "` (13:5)\n")
+    utils.expect_string(&e, "Warning compiling `" + path + "` (13:5 - 13:7)\n")
     utils.expect_string(
         &e,
         "Declaring variable called `hi$` when variable called `hi` is already declared\n",
@@ -823,22 +823,22 @@ invalid_example_04_invalid_globals :: proc(t: ^testing.T) {
 
     e = utils.TestingTextExpecter{0, ran.compiler.stderr, t}
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + path + "` (4:12)\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (4:12 - 4:15)\n")
     utils.expect_string(&e, "Expected the type `String` but got the type `UInt`\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + path + "` (4:19)\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (4:19 - 4:22)\n")
     utils.expect_string(&e, "Expected the type `String` but got the type `UInt`\n")
     utils.expect_string(&e, "\n")
     utils.expect_string(&e, "Error compiling `" + path + "` (8:15)\n")
     utils.expect_string(&e, "The variable `E` is not defined in the file `" + path + "`\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + path + "` (10:26)\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (10:26 - 10:35)\n")
     utils.expect_string(&e, "Expected the type `Type` but got the type `Invalid`\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + path + "` (10:41)\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (10:41 - 10:50)\n")
     utils.expect_string(&e, "Expected the type `Type` but got the type `Invalid`\n")
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + path + "` (19:22)\n")
+    utils.expect_string(&e, "Error compiling `" + path + "` (19:22 - 19:32)\n")
     utils.expect_string(
         &e,
         "The variable `InvalidType` is not defined in the file `" + path + "`\n",
@@ -876,9 +876,26 @@ invalid_example_05_invalid_global_sum_type :: proc(t: ^testing.T) {
     file :: #directory + "examples/invalid/05_invalid_global_sum_type.code"
     ran := interpret_example(t, &a, FunctionRef{file, "main"}, "")
     testing.expect(t, ran.exit_code == 1)
-    // TODO: Check ran.compiler
+    // TODO: Check ran.compiler.stdout
     testing.expect(t, ran.program.stdout == "")
     testing.expect(t, ran.program.stderr == "")
+    e := utils.TestingTextExpecter{0, ran.compiler.stderr, t}
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Error compiling `" + file + "` (3:5 - 3:15)\n")
+    utils.expect_string(
+        &e,
+        "The variable `InvalidType` is not defined in the file `" + file + "`\n",
+    )
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Error compiling `" + file + "` (7:35 - 7:36)\n")
+    utils.expect_string(&e, "Expected the type `InvalidSumType` but got the type `\\:A\\`\n")
+    utils.expect_string(&e, "\n")
+    utils.expect_string(&e, "Erroneously checked with 2 errors and 0 warnings in ")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, ".")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, " ms\n")
+    utils.expect_finished(&e)
 }
 
 @(test)
@@ -890,7 +907,7 @@ invalid_example_06_mismatching_types :: proc(t: ^testing.T) {
     testing.expect(t, ran.exit_code == 1)
     e := utils.TestingTextExpecter{0, ran.compiler.stderr, t}
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + file + "` (13:10)\n")
+    utils.expect_string(&e, "Error compiling `" + file + "` (13:10 - 13:13)\n")
     utils.expect_string(&e, "Expected the type `Pos` but got the type `String`\n")
     utils.expect_string(&e, "\n")
     utils.expect_string(&e, "Erroneously checked with 1 error and 0 warnings in ")
@@ -914,7 +931,7 @@ invalid_example_07_uses_compiletime_value_at_runtime :: proc(t: ^testing.T) {
     testing.expect(t, ran.program.stderr == "")
     e := utils.TestingTextExpecter{0, ran.compiler.stderr, t}
     utils.expect_string(&e, "\n")
-    utils.expect_string(&e, "Error compiling `" + file + "` (2:13)\n")
+    utils.expect_string(&e, "Error compiling `" + file + "` (2:13 - 2:18)\n")
     utils.expect_string(&e, "This value can only be used at compile time\n")
     utils.expect_string(&e, "\n")
     utils.expect_string(&e, "Erroneously checked with 1 error and 0 warnings in ")

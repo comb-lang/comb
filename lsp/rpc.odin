@@ -77,7 +77,7 @@ DidOpenTextDocumentParams :: struct {
 
 TextDocumentPositionParams :: struct {
     text_document: TextDocumentIdentifier `json:"textDocument"`,
-    position:      utils.Position,
+    position:      utils.ReadablePos,
 }
 
 RequestData :: struct {
@@ -113,13 +113,8 @@ Severity :: enum {
     Hint        = 4,
 }
 
-Range :: struct {
-    start: utils.Position,
-    end:   utils.Position,
-}
-
 Diagnostic :: struct {
-    range:    Range,
+    range:    utils.ReadableRange,
     severity: Severity,
     source:   string,
     message:  string,
@@ -172,7 +167,7 @@ Info :: struct {
 
 // TODO: Update server version
 @(private = "package")
-server_info :: Info{"Comb LSP", "0.0.1"}
+server_info :: Info{lsp_name, "0.0.1"}
 
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#positionEncodingKind
 @(private = "package")

@@ -4,7 +4,6 @@ factorial = |n: UInt| -> UInt {
 }
 
 main = || -> Int {
-    num = factorial(5)
-    println(num.to_str)
+    println(factorial(5).to_str)
     return 0
 }

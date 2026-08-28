@@ -250,7 +250,7 @@ emit_c_value :: proc(s: ^CEmitterState, v: compiler.CheckedValue) {
         strings.write_byte(&s.b, '(')
         emit_c_value(s, value.val0^)
         switch value.join_method {
-        case .Append, .Concat, .StringConcat, .Arrow, .In:
+        case .StringConcat, .In:
             panic("Unreachable")
         case .BooleanAnd:
             strings.write_string(&s.b, "&&")

@@ -1,4 +1,4 @@
-InvalidSumType = /
+InvalidSumType = \
 	:A,
 	B: InvalidType,
 \

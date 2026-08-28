@@ -16,14 +16,20 @@ pop_map :: proc(m: ^map[$K]$V) -> (K, V) {
     panic("Empty map")
 }
 
-Position :: struct {
+ReadableRange :: struct {
+    start: ReadablePos,
+    end:   ReadablePos,
+}
+
+ReadablePos :: struct {
     line: uint,
     col:  uint `json:"character"`,
 }
 
-get_position :: proc(p: Pos) -> Position {
-    out := Position{0, 0}
-    for char in p.file.code[:p.index] {
+@(private = "file")
+get_final_pos :: proc(str: string, start := ReadablePos{0, 0}) -> ReadablePos {
+    out := start
+    for char in str {
         if char == '\n' {
             out.line += 1
             out.col = 0
@@ -32,6 +38,21 @@ get_position :: proc(p: Pos) -> Position {
         }
     }
     return out
+}
+
+// `get_pos` and `get_range` output LSP positions and ranges which get converted
+// into human positions and ranges by `write_pos` and `write_range`
+get_pos :: proc(p: Pos) -> ReadablePos {
+    return get_final_pos(p.file.code[:p.index])
+}
+
+get_range :: proc(p: Range, loc := #caller_location) -> ReadableRange {
+    when ODIN_DEBUG {
+        call(loc, "get_range", "")
+    }
+    start := get_final_pos(p.file.code[:p.start])
+    end := get_final_pos(p.file.code[p.start:p.start + p.length.v], start = start)
+    return ReadableRange{start, end}
 }
 
 OverriddenCloseHandlerStreamData :: struct {

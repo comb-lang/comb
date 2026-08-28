@@ -39,6 +39,13 @@ A new language for the web, because it's time to stop working around javascript.
 # Todo
 
 - Make the `examples/std` standard library accessible from source code in any directory
+- I think there should be a better syntax for multiline strings:
+  - Something like:
+    ```
+    my_string =
+      "line one\n"
+      "line two\n"
+    ```
 - Consider using a different syntax for generics, where `$` is used to specify a generic, and the type of that generic is inferred:
   - For functions, something like `typeof(append) = ([]$T, []$T) -> []$T`
   - For types, something like `Result = <Ok{value: $Ok}, Err{value: $Error}>`
@@ -168,7 +175,7 @@ A new language for the web, because it's time to stop working around javascript.
 - I feel like the colon being in a different place in something like `TagName: payload` for a variant with a payload and something like `:TagName` for a variant without a payload is odd, but it makes sense because it means that the parser doesn't have to guess whether it should parse a payload
 - Instead of `Bool[100]` or `Bool[]`, I would rather use `[100]Bool` or `[]Bool`, especially for 2D arrays like `Bool[game_width][game_height]`
 - Instead of something like `OrderedHashMap[String, Int]["a" = 5]` to create an ordered hash map value, I would rather use something like `{"a": 5}`
-- Instead of `/\`, I would rather use `[]` for union/sum types, but that conflicts with array literals
+- Instead of `\\`, I would rather use `[]` for union/sum types, but that conflicts with array literals
   - Just `<>` conflicts with comparison operators
 - Instead of `|args| -> ReturnType {...}`, I would rather use `(args) -> ReturnType {}` for function definitions, but that syntax conflicts with order of operations grouping
 - (No longer applies now structs are created like `{field = value}`) Notes on the syntax for the payload of struct literals, tagged union literals, and array literals:

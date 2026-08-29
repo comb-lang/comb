@@ -2626,11 +2626,15 @@ check_var_ref_start :: proc(
     s: ^CheckerState,
     ident: IdentAndPos,
     generic_args: map[string]Type,
+    early_exit_if_value_is_type: TypeKey,
 ) -> CheckValueResult {
     if ident.ident in generic_args {
         return CheckValueResult{CompileTimeValue(generic_args[ident.ident]), .Type}
     }
     if builtin := get_builtin(ident.ident); builtin.value != nil {
+        if builtin.type == .Type && early_exit_if_value_is_type != nil {
+            return finish_checking_early_return_type2(s, early_exit_if_value_is_type)
+        }
         return CheckValueResult{builtin.value, builtin.type}
     }
     /*
@@ -3366,8 +3370,17 @@ finish_checking_early_return_type :: proc(
     s: ^CheckerState,
     a: CheckValueArgs,
 ) -> utils.DebugValue(CheckValueResult) {
-    out := CompileTimeValue(create_type(&s.types, a.early_exit_if_value_is_type).type)
-    return utils.to_debug_value(CheckValueResult{out, .Type})
+    return utils.to_debug_value(
+        finish_checking_early_return_type2(s, a.early_exit_if_value_is_type),
+    )
+}
+
+finish_checking_early_return_type2 :: proc(
+    s: ^CheckerState,
+    early_exit_if_value_is_type: TypeKey,
+) -> CheckValueResult {
+    out := CompileTimeValue(create_type(&s.types, early_exit_if_value_is_type).type)
+    return CheckValueResult{out, .Type}
 }
 
 index_type :: Type.Int // TODO: Maybe uInt should be used instead
@@ -3865,7 +3878,9 @@ check_initial_value :: proc(
             utils.diagnostic(s.r, segment.range, re_then_ident_use_err)
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
-        return utils.to_debug_value(check_var_ref_start(s, value.ident, a.generic_args))
+        return utils.to_debug_value(
+            check_var_ref_start(s, value.ident, a.generic_args, a.early_exit_if_value_is_type),
+        )
 
     case UnitJoinMethod:
         if is_last_segment(v, i^) {

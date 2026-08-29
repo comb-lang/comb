@@ -330,6 +330,7 @@ compile :: proc(
         args = make([]RuntimeValue, 1)
         args[0] = RuntimeStruct{true, compiler_struct_fields, .Compiler}
     }
+    reset_persisted_handlers(run.long_lived_interp_state)
     result := interp_execute_function2(
         InterpState{&state, run.long_lived_interp_state},
         RuntimeFunc{checker_output.func_ref, nil},

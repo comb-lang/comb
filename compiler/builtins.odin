@@ -117,6 +117,8 @@ get_builtin :: proc(name: string) -> GotBuiltin {
         return GotBuiltin{Type.HttpResponse, .Type}
     case "HttpServer":
         return GotBuiltin{Type.HttpServer, .Type}
+    case "WebSocketMessage":
+        return GotBuiltin{Type.WebSocketMessage, .Type}
     case "OrderedHashMap":
         return GotBuiltin{UninitialisedOrderedHashMapType{}, .Unknown}
     case "EmptyOrderedHashMap":

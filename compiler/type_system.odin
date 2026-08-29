@@ -65,10 +65,28 @@ Type :: enum u32 {
     // (HttpRequestHandler) -> ()
     HttpRequestHandlerToNil,
 
+    // \
+    //   None,
+    //   Text: String,
+    //   Binary: String,
+    // \
+    WebSocketMessage,
+
+    // (WebSocketMessage) -> WebSocketMessage
+    WebSocketMessageHandler,
+
+    // (WebSocketMessageHandler) -> ()
+    WebSocketMessageHandlerToNil,
+
+    // (WebSocketMessage) -> ()
+    WebSocketMessageToNil,
+
     // {
     //   set_handler: (HttpRequestHandler) -> (),
     //   listen_and_serve: () -> (),
     //   port: Int,
+    //   set_websocket_handler: (WebSocketMessageHandler) -> (),
+    //   send_to_websockets: (WebSocketMessage) -> (),
     // }
     HttpServer,
 
@@ -320,6 +338,45 @@ create_types :: proc(a: ^utils.Arena) -> Types {
         create_type(&out, FuncType{array_with_http_request_handler, nil}).type,
     )
 
+    none_tag, _ := utils.lookup_or_insert(&out.sum_type_tags, "None", utils.string_to_index_procs)
+    text_tag, _ := utils.lookup_or_insert(&out.sum_type_tags, "Text", utils.string_to_index_procs)
+    binary_tag, _ := utils.lookup_or_insert(
+        &out.sum_type_tags,
+        "Binary",
+        utils.string_to_index_procs,
+    )
+
+    websocket_message_types := make(map[u32]Maybe(Type))
+    websocket_message_types[none_tag.index] = nil
+    websocket_message_types[text_tag.index] = .String
+    websocket_message_types[binary_tag.index] = .String
+
+    assert(.WebSocketMessage == create_type(&out, SumType{websocket_message_types}).type)
+
+    array_with_websocket_message := utils.arena_make(a, []Type, 1)
+    array_with_websocket_message[0] = .WebSocketMessage
+
+    array_with_websocket_message_return := utils.arena_make(a, []Type, 1)
+    array_with_websocket_message_return[0] = .WebSocketMessage
+
+    array_with_websocket_message_handler := utils.arena_make(a, []Type, 1)
+    array_with_websocket_message_handler[0] = .WebSocketMessageHandler
+
+    assert(
+        .WebSocketMessageHandler ==
+        create_type(&out, FuncType{array_with_websocket_message, array_with_websocket_message_return}).type,
+    )
+
+    assert(
+        .WebSocketMessageHandlerToNil ==
+        create_type(&out, FuncType{array_with_websocket_message_handler, nil}).type,
+    )
+
+    assert(
+        .WebSocketMessageToNil ==
+        create_type(&out, FuncType{array_with_websocket_message, nil}).type,
+    )
+
     http_server_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
     i, _ = utils.lookup_or_insert(&http_server_map, "set_handler", utils.string_to_index_procs)
     assert(i.index == 0)
@@ -331,12 +388,26 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     assert(i.index == 1)
     i, _ = utils.lookup_or_insert(&http_server_map, "port", utils.string_to_index_procs)
     assert(i.index == 2)
+    i, _ = utils.lookup_or_insert(
+        &http_server_map,
+        "set_websocket_handler",
+        utils.string_to_index_procs,
+    )
+    assert(i.index == 3)
+    i, _ = utils.lookup_or_insert(
+        &http_server_map,
+        "send_to_websockets",
+        utils.string_to_index_procs,
+    )
+    assert(i.index == 4)
     utils.fix_key_to_index(http_server_map)
 
-    http_server_types := utils.arena_make(a, []Type, 3)
+    http_server_types := utils.arena_make(a, []Type, 5)
     http_server_types[0] = .HttpRequestHandlerToNil
     http_server_types[1] = .NoArgsToNil
     http_server_types[2] = .Int
+    http_server_types[3] = .WebSocketMessageHandlerToNil
+    http_server_types[4] = .WebSocketMessageToNil
     assert(
         .HttpServer ==
         create_type(&out, StructType{http_server_map, utils.array_to_multi(http_server_types)}).type,

@@ -160,7 +160,9 @@ emit_js_runtime_value :: proc(b: ^strings.Builder, value: RuntimeValue) {
     case compiler.CastFunction,
          compiler.BuiltinFunction,
          SetHttpServerHandler,
-         HttpServerListenAndServe:
+         HttpServerListenAndServe,
+         SetWebsocketHandler,
+         SendToWebsockets:
         panic("TODO")
     case RuntimeSumType:
         strings.write_string(b, "{variant:")

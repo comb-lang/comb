@@ -10,6 +10,20 @@ handler = |req: HttpRequest| -> HttpResponse {
 	}
 }
 
+websocket_handler = |msg: WebSocketMessage| -> WebSocketMessage {
+    match msg {
+        :None {
+            return :None
+        }
+        Text: text {
+            return Text: ("Echo: " & text)
+        }
+        :Binary {
+            return :None
+        }
+    }
+}
+
 get_command = || -> \:Serve, :Quit\ {
     command = readline("Enter `serve` or `quit`: ")
     if command == "serve" {
@@ -33,6 +47,8 @@ serve = |cache: CompilerCache| {
     //   executions when using the `-watch` flag
     // - For this demo, all saving the initialised HTTP server in the
     //   `CompilerCache` does is ensure that the same port is used
+    // - The websocket connections also stay open across program executions,
+    //   so they are not stored in the `CompilerCache`
     // - But in the future, the compiler's cache will allow the program to send
     //   data to a websocket which tells the client to update the UI being shown
     // - In the future, this will make it possible to implement state-preserving
@@ -40,6 +56,11 @@ serve = |cache: CompilerCache| {
     //   source code files
     server = http.get_http_server(cache, "server")
 	server.set_handler(handler)
+	server.set_websocket_handler(websocket_handler)
+    // Websocket connections which were opened before this run are still open,
+    // this lets those clients know that the program was restarted. On the
+    // first run there are no connections, so this does nothing
+    server.send_to_websockets(Text: "The program was restarted")
     println("Listening and serving on port " & server.port.to_str & "...")
 	server.listen_and_serve()
 }

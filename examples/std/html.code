@@ -8,6 +8,81 @@
 //                 |--|
 // Implemented in the programming language 
 
+u = import "./utils.code"
+
+Type = UInt
+
+HashMap[Key, Value] = OrderedHashMap[Key, Value] // Maybe we should support non-ordered hash maps
+
+TypeInfo = \
+    Struct: OrderedHashMap[String, Type],
+    SumType: OrderedHashMap[String, u.Maybe[Type]],
+    OrderedHashMap: {key: Type, value: Type},
+    Array: {length: u.Maybe[UInt], item_type: Type},
+    Builtin: \\, // TODO
+\
+
+get_with_fallback[K, V] = |map: HashMap[K, V], key: K, fallback: V| -> V {
+    if key in map {
+        return map[key]
+    }
+    return fallback
+}
+
+walk_type = |t: Type, prefix: String, map$: HashMap[Type, String]| -> HashMap[Type, String[]] {
+    // map$ = map$ ~ [t] = get_with_fallback[Type, String](map$, t, []) :: prefix
+    match get_type_info(t) {
+        Struct: fields {
+            for field_name, field_type in fields {
+                map$ = walk_type(field_type, prefix & "." & field_name, map$)
+            }
+        }
+        SumType: variants {
+            for variant_name, payload in variants {
+                match payload {
+                    :None {}
+                    Some: p {
+                        map$ = walk_type(p, prefix & ":" & variant_name, map$)
+                    }
+                }
+            }
+        }
+        OrderedHashMap: m {
+           map$ = walk_type(m.key, prefix & "(key)", map$)
+           map$ = walk_type(m.value, prefix & "(value)", map$)
+        }
+        Array: a {
+            map$ = walk_type(a.item_type, prefix & "[]", map$)
+        }
+        Builtin: b {
+            eprintln("todo")
+        }
+    }
+}
+
+get_type_info = |t: Type| -> TypeInfo {
+    
+}
+
+update_state[NewState] = |state_with_old_type: Any, default_state: NewState| -> NewState {
+    if type_of(state_with_old_type) == NewState {
+        return state_with_old_type
+    }
+
+    old_type_walked = walk_type(type_of(state_with_old_type), "", OrderedHashMap())
+    new_type_walked = walk_type(type_of(NewState), "", OrderedHashMap())
+
+    match get_type_info(NewState) {
+        Struct: s {
+            if s.fields.len == 0 {
+                return {}
+            } else if s.fields.len == 1 {
+                
+            }
+        }
+    }
+}
+
 h = import "http.code"
 p = import "path.code"
 

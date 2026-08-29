@@ -62,8 +62,8 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: compiler.CompileTimeV
 
     case compiler.Func:
         strings.write_string(&s.b, "func")
-        strings.write_uint(&s.b, comptime.ref.index)
-        lambda_args_len := len(s.checked_funcs[comptime.ref.index].inline_stuff.scope0.variables)
+        strings.write_uint(&s.b, comptime.ref.index.v)
+        lambda_args_len := len(s.checked_funcs[comptime.ref.index.v].inline_stuff.scope0.variables)
         if lambda_args_len > 0 {
             strings.write_byte(&s.b, '(')
             for i in 0 ..< lambda_args_len {
@@ -127,7 +127,7 @@ emit_js_runtime_value :: proc(b: ^strings.Builder, value: RuntimeValue) {
     switch v in value {
     case RuntimeFunc:
         strings.write_string(b, "func")
-        strings.write_uint(b, v.ref.index)
+        strings.write_uint(b, v.ref.index.v)
         if len(v.lambda_args) != 0 {
             strings.write_byte(b, '(')
             for arg in v.lambda_args {

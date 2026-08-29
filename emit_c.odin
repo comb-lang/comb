@@ -106,7 +106,7 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.CompileTimeValu
     case compiler.Func:
         // TODO: Handle comptime.lambda_args
         strings.write_string(&s.b, "func")
-        strings.write_uint(&s.b, comptime.ref.index)
+        strings.write_uint(&s.b, comptime.ref.index.v)
     case utils.NumberValue:
         if comptime.is_negated {
             strings.write_byte(&s.b, '-')
@@ -687,7 +687,7 @@ emit_c :: proc(
     }
 
     strings.write_string(&s.b, "int main() {int ret = func")
-    strings.write_uint(&s.b, main_func_ref.index)
+    strings.write_uint(&s.b, main_func_ref.index.v)
     strings.write_string(&s.b, "();")
     strings.write_string(&s.b, "return ret;}")
 

@@ -60,7 +60,7 @@ get_value_type :: proc(s: InterpState, value: RuntimeValue) -> compiler.Type {
     case RuntimeSumType:
         return v.type
     case RuntimeFunc:
-        return s.checked_funcs[v.ref.index].type
+        return s.checked_funcs[v.ref.index.v].type
     case compiler.BuiltinFunction:
         panic("TODO")
     case compiler.CastFunction:
@@ -117,8 +117,8 @@ RuntimeSumType :: struct {
 }
 
 Frame :: struct {
-    func_index: uint,
-    scopes:     [dynamic][]RuntimeValue,
+    func:   compiler.CheckedFuncRef,
+    scopes: [dynamic][]RuntimeValue,
 }
 
 BuiltinHandler :: struct {
@@ -156,6 +156,7 @@ ShortLivedInterpState :: struct {
     globals_without_generic: []compiler.GlobalValueWithoutGeneric,
     globals_with_generic:    []compiler.GlobalValueWithGeneric,
     checked_funcs:           []compiler.CheckedFunction,
+    func_ranges:             utils.Multi(utils.Range),
     builtin_handler:         BuiltinHandler,
     frames:                  [dynamic]Frame,
     current_loop:            uint,
@@ -191,7 +192,7 @@ interp_execute_function :: proc(s: InterpState, c: compiler.CheckedFunctionCall)
     fn_val := interp_eval_value(s, c.function^)
     args := make([]RuntimeValue, len(c.args))
     for arg_val, i in c.args {
-        args[i] = interp_clone_value(interp_eval_value(s, arg_val))
+        args[i] = interp_clone_value(s.s^, interp_eval_value(s, arg_val))
     }
 
     #partial switch val in fn_val {
@@ -246,7 +247,7 @@ interp_execute_function :: proc(s: InterpState, c: compiler.CheckedFunctionCall)
     case HttpServerListenAndServe:
         assert(len(args) == 0)
         server := s.l.http_servers[val.server]
-        if server.handler.ref.index == max(uint) {
+        if server.handler.ref.index.v == max(uint) {
             panic("`listen_and_serve` called when handler has not been set")
         }
         buf: [65536]byte
@@ -321,12 +322,12 @@ interp_execute_function2 :: proc(
     loc := #caller_location,
 ) -> RuntimeValue {
     utils.call(loc, "interp_execute_function2", "", enable_debug = utils.debug_interpreter)
-    checked_func := state.checked_funcs[func.ref.index]
+    checked_func := state.checked_funcs[func.ref.index.v]
     utils.debug("checked_func.body: %v", checked_func.body)
 
     frame := Frame {
-        func_index = func.ref.index,
-        scopes     = make([dynamic][]RuntimeValue),
+        func   = func.ref,
+        scopes = make([dynamic][]RuntimeValue),
     }
     append_elem(&frame.scopes, func.lambda_args)
     append_elem(&frame.scopes, args)
@@ -504,34 +505,50 @@ interp_destroy_value :: proc(val: ^RuntimeValue, loc := #caller_location) {
     */
 }
 
-interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> RuntimeValue {
+// TODO: Be able to read the call stack from within comb for debugging
+dump_call_stack :: proc(s: ShortLivedInterpState) {
+    for frame in s.frames {
+        checked_func := s.checked_funcs[frame.func.index.v]
+        fmt.printfln("Function defined at %v", s.func_ranges.d[checked_func.definition.index])
+        when ODIN_DEBUG {
+            fmt.printfln("Reference index created at %v", frame.func.index.created_at)
+        }
+    }
+}
+
+interp_clone_value :: proc(
+    s: ShortLivedInterpState,
+    val: RuntimeValue,
+    loc := #caller_location,
+) -> RuntimeValue {
     utils.call(loc, "interp_clone_value", "")
     switch v in val {
     case nil:
+        dump_call_stack(s)
         panic("Unreachable: Uninitialised")
     case RuntimeOrderedHashMap:
         out_hashmap := make(map[compiler.HashMapKey]RuntimeValue, len(v.hashmap))
         for key, value in v.hashmap {
-            out_hashmap[key] = interp_clone_value(value)
+            out_hashmap[key] = interp_clone_value(s, value)
         }
         out_order := slice.clone(v.order)
         return RuntimeOrderedHashMap{v.type, true, out_hashmap, out_order}
     case RuntimeArray:
         new_elems := make([]RuntimeValue, len(v.elems))
         for elem, i in v.elems {
-            new_elems[i] = interp_clone_value(elem)
+            new_elems[i] = interp_clone_value(s, elem)
         }
         return RuntimeArray{v.type, true, new_elems}
     case RuntimeStruct:
         new_fields := make([]RuntimeValue, len(v.field_values))
         for field, i in v.field_values {
-            new_fields[i] = interp_clone_value(field)
+            new_fields[i] = interp_clone_value(s, field)
         }
         return RuntimeStruct{true, new_fields, v.type}
     case RuntimeSumType:
         out := RuntimeSumType{v.type, true, v.variant_index, nil}
         if v.payload != nil {
-            out.payload = new_clone(interp_clone_value(v.payload^))
+            out.payload = new_clone(interp_clone_value(s, v.payload^))
         }
         return out
     case RuntimeString:
@@ -551,12 +568,13 @@ interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> Runtim
 interp_exec_statement :: proc(state: InterpState, stmt: compiler.CheckedStatement) {
     switch s in stmt {
     case compiler.UnreachableStatement:
+        dump_call_stack(state.s^)
         panic("Reached unreachable code")
 
     case compiler.CheckedReturn:
         if s.value != nil {
             state.control_flow_op = ReturnFromFunction {
-                interp_clone_value(interp_eval_value(state, s.value)),
+                interp_clone_value(state.s^, interp_eval_value(state, s.value)),
             }
         } else {
             state.control_flow_op = ReturnFromFunction{nil}
@@ -746,7 +764,7 @@ interp_eval_comptime_value :: proc(
     case compiler.Func:
         lambda_args := make(
             []RuntimeValue,
-            len(s.checked_funcs[comptime.ref.index].inline_stuff.scope0.variables),
+            len(s.checked_funcs[comptime.ref.index.v].inline_stuff.scope0.variables),
         )
         for _, i in lambda_args {
             var_ref := comptime.lambda_args.d[i]
@@ -1212,7 +1230,10 @@ default_builtin_handler_procedure :: proc(
                 fields[2] = f64(endpoint.port)
                 append(
                     &state.l.http_servers,
-                    HttpServer{socket, RuntimeFunc{compiler.CheckedFuncRef{max(uint)}, nil}},
+                    HttpServer {
+                        socket,
+                        RuntimeFunc{compiler.CheckedFuncRef{utils.to_debug_value(max(uint))}, nil},
+                    },
                 )
                 return RuntimeStruct{true, fields, .HttpServer}
             }

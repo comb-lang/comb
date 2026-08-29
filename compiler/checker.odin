@@ -1914,7 +1914,7 @@ check_block :: proc(
     loc := #caller_location,
 ) -> (
     []Type,
-    bool,
+    utils.DebugValue(bool),
 ) {
     utils.call(loc, "check_block", "")
     for stmt, stmt_index in block {
@@ -1964,7 +1964,7 @@ check_block :: proc(
                     get_range(value),
                     "Must have atleast 2 unit segments in a statement",
                 )
-                return nil, false
+                return nil, utils.to_debug_value(false)
             }
             last_segment := value.rest[len(value.rest) - 1]
             if split, split_ok := try_split_first_by(
@@ -1996,7 +1996,7 @@ check_block :: proc(
                     generic_args,
                 )
                 if !ok {
-                    return nil, false
+                    return nil, utils.to_debug_value(false)
                 }
             } else if args, args_ok := last_segment.contents.(Tuple); args_ok {
                 unit_being_called := Unit{value.first, value.rest[:len(value.rest) - 1]}
@@ -2006,7 +2006,7 @@ check_block :: proc(
                     CheckValueArgs{body, generic_args, nil},
                 )
                 if value_being_called.v.value == nil {
-                    return nil, false
+                    return nil, utils.to_debug_value(false)
                 }
                 call, call_ok := check_function_call(
                     s,
@@ -2018,7 +2018,7 @@ check_block :: proc(
                     generic_args,
                 ).(CheckedFuncCall)
                 if !call_ok {
-                    return nil, false
+                    return nil, utils.to_debug_value(false)
                 }
                 if len(call.return_types) != 0 {
                     utils.diagnostic(
@@ -2028,12 +2028,12 @@ check_block :: proc(
                         0,
                         len(call.return_types),
                     )
-                    return nil, false
+                    return nil, utils.to_debug_value(false)
                 }
                 utils.debug_dynamic_array_append(body, call.value)
             } else {
                 utils.diagnostic(s.r, get_range(value), "Cannot use this unit as a statement")
-                return nil, false
+                return nil, utils.to_debug_value(false)
             }
 
         case ConditionControlledLoop:
@@ -2066,8 +2066,8 @@ check_block :: proc(
                 &loop_body_array,
                 generic_args,
             )
-            if !runtime_value_ok(s, get_range(value.condition), condition) || !loop_body_ok {
-                return nil, false
+            if !runtime_value_ok(s, get_range(value.condition), condition) || !loop_body_ok.v {
+                return nil, utils.to_debug_value(false)
             }
 
             if value.type == .DoWhileLoop {
@@ -2093,7 +2093,7 @@ check_block :: proc(
                         "The label `%s` is already defined",
                         value.label.text,
                     )
-                    return nil, false
+                    return nil, utils.to_debug_value(false)
                 }
                 s.labels_map[value.label.text] = LabelRef{len(s.scopes) - 1, loop_index}
             }
@@ -2104,7 +2104,7 @@ check_block :: proc(
             case Unit:
                 v := check_value(s, iter, CheckValueArgs{body, generic_args, nil}).v
                 if !runtime_value_ok(s, get_range(iter), v.value) {
-                    return nil, false
+                    return nil, utils.to_debug_value(false)
                 }
                 #partial switch t in simplify_type(s, v.type).key {
                 case ArrayType:
@@ -2115,7 +2115,7 @@ check_block :: proc(
                             get_range(value.variables[2]),
                             "You can only capture at most 2 variables from iterating over an array",
                         )
-                        return nil, false
+                        return nil, utils.to_debug_value(false)
                     }
                     elem_ref, elem_ok := add_variable(
                         s,
@@ -2128,7 +2128,7 @@ check_block :: proc(
                         IdentAndPos{value.variables[1].text, false, value.variables[1].pos},
                     )
                     if !elem_ok || !index_ok {
-                        return nil, false
+                        return nil, utils.to_debug_value(false)
                     }
                     loop_variables, loop_body_ok := check_block(
                         s,
@@ -2136,8 +2136,8 @@ check_block :: proc(
                         &loop_body_array,
                         generic_args,
                     )
-                    if !loop_body_ok {
-                        return nil, false
+                    if !loop_body_ok.v {
+                        return nil, utils.to_debug_value(false)
                     }
                     utils.debug_dynamic_array_append(
                         body,
@@ -2169,7 +2169,7 @@ check_block :: proc(
                         IdentAndPos{value.variables[2].text, false, value.variables[2].pos},
                     )
                     if !key_ok || !value_var_ok || !index_ok {
-                        return nil, false
+                        return nil, utils.to_debug_value(false)
                     }
                     loop_variables, loop_body_ok := check_block(
                         s,
@@ -2177,8 +2177,8 @@ check_block :: proc(
                         &loop_body_array,
                         generic_args,
                     )
-                    if !loop_body_ok {
-                        return nil, false
+                    if !loop_body_ok.v {
+                        return nil, utils.to_debug_value(false)
                     }
                     utils.debug_dynamic_array_append(
                         body,
@@ -2208,7 +2208,7 @@ check_block :: proc(
                         get_range(value.variables[1]),
                         "You can only capture at most one variable in a numeric iterator",
                     )
-                    return nil, false
+                    return nil, utils.to_debug_value(false)
                 }
                 assert(value.variables[2].text == "")
                 index_variable, var_ok := add_variable(
@@ -2242,14 +2242,14 @@ check_block :: proc(
                         expected_type,
                     )
                     if !runtime_value_ok(s, get_range(iter.step^), step) {
-                        return nil, false
+                        return nil, utils.to_debug_value(false)
                     }
                 }
                 if !var_ok ||
                    !runtime_value_ok(s, get_range(iter.start), start) ||
                    !runtime_value_ok(s, get_range(iter.end), end) ||
                    step == nil {
-                    return nil, false
+                    return nil, utils.to_debug_value(false)
                 }
                 loop_variables, loop_body_ok := check_block(
                     s,
@@ -2257,8 +2257,8 @@ check_block :: proc(
                     &loop_body_array,
                     generic_args,
                 )
-                if !loop_body_ok {
-                    return nil, false
+                if !loop_body_ok.v {
+                    return nil, utils.to_debug_value(false)
                 }
                 utils.debug_dynamic_array_append(
                     body,
@@ -2307,9 +2307,9 @@ check_block :: proc(
             pop_scope(s)
 
             if !runtime_value_ok(s, get_range(value.condition), condition) ||
-               !if_block_ok ||
-               !else_block_ok {
-                return nil, false
+               !if_block_ok.v ||
+               !else_block_ok.v {
+                return nil, utils.to_debug_value(false)
             }
             utils.debug_dynamic_array_append(body, CheckedIf{condition, if_block, else_block})
 
@@ -2320,7 +2320,7 @@ check_block :: proc(
                     value.range,
                     "Loop control flow statement must be last statement in block",
                 )
-                return nil, false
+                return nil, utils.to_debug_value(false)
             }
             if s.parent_loop_index == max(uint) {
                 utils.diagnostic(
@@ -2328,7 +2328,7 @@ check_block :: proc(
                     value.range,
                     "Loop control flow statement must go inside a loop",
                 )
-                return nil, false
+                return nil, utils.to_debug_value(false)
             }
             if value.label.text == "" {
                 utils.debug_dynamic_array_append(
@@ -2344,7 +2344,7 @@ check_block :: proc(
                         "There is no parent loop labelled with `%s`",
                         value.label.text,
                     )
-                    return nil, false
+                    return nil, utils.to_debug_value(false)
                 }
                 utils.debug_dynamic_array_append(
                     body,
@@ -2359,7 +2359,7 @@ check_block :: proc(
                     value.range,
                     "Unreachable statement must be last statement in block",
                 )
-                return nil, false
+                return nil, utils.to_debug_value(false)
             }
             utils.debug_dynamic_array_append(body, UnreachableStatement{})
 
@@ -2370,7 +2370,7 @@ check_block :: proc(
                     value.range,
                     "Return statement must be last statement in block",
                 )
-                return nil, false
+                return nil, utils.to_debug_value(false)
             }
             if len(value.args) != len(s.return_types) {
                 utils.diagnostic(
@@ -2380,7 +2380,7 @@ check_block :: proc(
                     len(s.return_types),
                     len(value.args),
                 )
-                return nil, false
+                return nil, utils.to_debug_value(false)
             }
             switch len(value.args) {
             case 0:
@@ -2393,7 +2393,7 @@ check_block :: proc(
                     s.return_types[0],
                 )
                 if !runtime_value_ok(s, get_range(value.args[0]), checked) {
-                    return nil, false
+                    return nil, utils.to_debug_value(false)
                 }
                 utils.debug_dynamic_array_append(body, CheckedReturn{checked})
             case:
@@ -2402,22 +2402,22 @@ check_block :: proc(
                     value.range,
                     "Can only have <=1 value in return statement (TODO: add support for returning >1 values)",
                 )
-                return nil, false
+                return nil, utils.to_debug_value(false)
             }
 
         case YieldStatement:
             utils.diagnostic(s.r, value.range, "TODO: Handle yield statement")
-            return nil, false
+            return nil, utils.to_debug_value(false)
 
         case MatchStatement:
             res := check_value(s, value.value, CheckValueArgs{body, generic_args, nil}).v
             if !runtime_value_ok(s, get_range(value.value), res.value) {
-                return nil, false
+                return nil, utils.to_debug_value(false)
             }
 
             val_sum_type, _, val_sum_type_ok := get_sum_type(s, get_range(value.value), res.type)
             if !val_sum_type_ok {
-                return nil, false
+                return nil, utils.to_debug_value(false)
             }
 
             variable_ref := add_unnamed_variable(s, res.type, false)
@@ -2430,7 +2430,7 @@ check_block :: proc(
 
                 tag, tag_ok := get_tag(s.r, branch.label).(GetTagResult)
                 if !tag_ok {
-                    return nil, false
+                    return nil, utils.to_debug_value(false)
                 }
 
                 variant := utils.lookup(
@@ -2446,7 +2446,7 @@ check_block :: proc(
                         type_to_string(s, res.type),
                         tag.tag_name.text,
                     )
-                    return nil, false
+                    return nil, utils.to_debug_value(false)
                 }
 
                 if variant.index in branches {
@@ -2457,7 +2457,7 @@ check_block :: proc(
                         tag.tag_name.text,
                         branches[variant.index].label_range,
                     )
-                    return nil, false
+                    return nil, utils.to_debug_value(false)
                 }
 
                 var: Maybe(VariableRef) = nil
@@ -2469,11 +2469,11 @@ check_block :: proc(
                             get_range(payload),
                             "Cannot have variable for sum type variant with no payload",
                         )
-                        return nil, false
+                        return nil, utils.to_debug_value(false)
                     }
                     var_name, var_ok := get_text_and_pos_from_unit(s.r, payload).(TextAndPos)
                     if !var_ok {
-                        return nil, false
+                        return nil, utils.to_debug_value(false)
                     }
                     var, var_ok = add_variable(
                         s,
@@ -2481,14 +2481,14 @@ check_block :: proc(
                         IdentAndPos{var_name.text, false, var_name.pos},
                     )
                     if !var_ok {
-                        return nil, false
+                        return nil, utils.to_debug_value(false)
                     }
                 }
 
                 body := utils.to_debug_value([dynamic]CheckedStatement{})
                 variables, block_ok := check_block(s, branch.body, &body, generic_args)
-                if !block_ok {
-                    return nil, false
+                if !block_ok.v {
+                    return nil, utils.to_debug_value(false)
                 }
 
                 branches[variant.index] = CheckedMatchBranch {
@@ -2500,7 +2500,7 @@ check_block :: proc(
 
             if len(branches) < len(val_sum_type.payloads) {
                 for tag_variant_index in val_sum_type.payloads {
-                    if tag_variant_index not_in val_sum_type.payloads {
+                    if tag_variant_index not_in branches {
                         utils.diagnostic(
                             s.r,
                             get_range(value.value),
@@ -2509,7 +2509,7 @@ check_block :: proc(
                         )
                     }
                 }
-                return nil, false
+                return nil, utils.to_debug_value(false)
             }
             utils.debug_dynamic_array_append(body, CheckedMatch{variable_ref, branches})
 
@@ -2518,7 +2518,7 @@ check_block :: proc(
         utils.debug("length of body is %d", len(body.v))
     }
     variables := s.scopes[len(s.scopes) - 1].variables
-    return variables.type[:len(variables)], true
+    return variables.type[:len(variables)], utils.to_debug_value(true)
 }
 
 value_err1 :: "Compiler cannot generate a `.` function without knowing the return type of the function"
@@ -4751,8 +4751,10 @@ check_anonymous_func_body :: proc(s: ^CheckerState, ref: CheckedFuncRef) -> bool
     // TODO: Check that the function always returns if it has a return type
     body := utils.to_debug_value([dynamic]CheckedStatement{})
     variables, block_ok := check_block(s, func.body, &body, generic_args)
-    if !block_ok {
-        assert(s.r.has_errors(s.r.data))
+    if !block_ok.v {
+        if !s.r.has_errors(s.r.data) {
+            utils.panicf("Failed to check block but no errors reported\nblock_ok: %v", block_ok)
+        }
         return false
     }
     s.checked_functions[ref.index].variables = variables

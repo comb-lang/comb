@@ -16,7 +16,7 @@ websocket_handler = |msg: WebSocketMessage| -> WebSocketMessage {
             return :None
         }
         Text: text {
-            return Text: ("Echo: " & text)
+            return Text: "Echo: " & text
         }
         :Binary {
             return :None

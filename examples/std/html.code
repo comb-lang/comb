@@ -49,8 +49,12 @@ Site = {
     pages: OrderedHashMap[String, () -> UI], // TODO: Be able to use a unordered hash map
 }
 
-reactive_page = |c: Compiler, ui: () -> UI| -> String {
-    glue = #load "./html.js"
+reactive_page = |c: Compiler, ui: () -> UI, kind: \:Dev, :Prod\| -> String {
+    re glue$ = #load "./html.js"
+    match kind {
+        :Dev {glue$ = glue$ & "\n" & #load "./reload.js"}
+        :Prod {}
+    }
     // TODO: Be able to define the map something like `{"ui": ui()}`
     map = OrderedHashMap("ui" = ui())
     // TODO: Add minification:
@@ -60,7 +64,7 @@ reactive_page = |c: Compiler, ui: () -> UI| -> String {
     //   the type of emit_js_code is
     //   `(OrderedHashMap[String, Any], String, minify = true)`, and then you
     //   call it like `emit_js_code(map, glue, minify = true)`
-    js = c.emit_js_code(map, glue)
+    js = c.emit_js_code(map, glue$)
     // The close tags are split up so that the browser interprets them as JS strings rather than HTML close tags
 	// TODO: JS should be tree-shaked so the `reactive_page` function shouldn't even be included in the emitted JS code
     return
@@ -79,7 +83,7 @@ build_reactive_site = |c: Compiler, s: Site, path: String| {
     for rel_page_path, ui in s.pages {
         page_path = path & "/" & p.normalize_path(rel_page_path) & ".html"
         make_dir_all(p.dir(page_path))
-        write_file(page_path, reactive_page(c, ui))
+        write_file(page_path, reactive_page(c, ui, :Prod))
     }
 }
 
@@ -89,10 +93,11 @@ serve_reactive_site = |c: Compiler, server: HttpServer, s: Site| {
     server.set_handler(|req: HttpRequest| -> HttpResponse {
         // TODO: Add path normalisation
         if req.url in s.pages {
-            return Html: (reactive_page(c, s.pages[req.url]))
+            return Html: reactive_page(c, s.pages[req.url], :Dev)
         }
-        return Html: ("The page " & h.escape_for_html(req.url) & " is not defined")
+        return Html: "The page " & h.escape_for_html(req.url) & " is not defined"
     })
+    server.send_to_websockets(Text: "reload") // Tell clients to reload
     server.listen_and_serve()
 }
 

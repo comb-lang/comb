@@ -4553,7 +4553,7 @@ check_value :: proc(
                     case:
                         utils.diagnostic(
                             s.r,
-                            segment.range,
+                            get_range(contents.elements[0]),
                             "The key of an `OrderedHashMap` must be either `String`, `Int`, `UInt`, `Float` or `Any`\nGot the key `%s`\nTODO: Support more `OrderedHashMap` keys",
                             type_to_string(s, checked_args[0]),
                         )

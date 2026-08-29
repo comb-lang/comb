@@ -277,7 +277,8 @@ interp_execute_function :: proc(s: InterpState, c: compiler.CheckedFunctionCall)
             data := buf[:n]
 
             if webserver.is_websocket_upgrade_request(data) {
-                panic("TODO: Add support for websockets")
+                handle_websocket_upgrade(s, client, data)
+                continue
             } else {
                 request, ok := webserver.parse_http_request(data)
                 if !ok {
@@ -319,6 +320,83 @@ interp_execute_function :: proc(s: InterpState, c: compiler.CheckedFunctionCall)
         return nil
     case:
         panic("Unreachable")
+    }
+}
+
+// Handles a websocket connection until it is closed or the program exits
+// early when using the `-watch` flag. Does not close `client`, the caller is
+// responsible for that.
+handle_websocket_upgrade :: proc(s: InterpState, client: net.TCP_Socket, upgrade_data: []byte) {
+    key, key_ok := webserver.get_websocket_key(upgrade_data)
+    if !key_ok {
+        err := webserver.send_error(client, 400, "Bad Request")
+        if err != nil {
+            // TODO: Better error handling
+            panic("Failed to send error")
+        }
+        return
+    }
+
+    accept_key, accept_ok := webserver.compute_accept_key(key)
+    if !accept_ok {
+        // TODO: Better error handling
+        panic("Failed to compute the `Sec-WebSocket-Accept` value")
+    }
+    defer delete(accept_key)
+
+    webserver.send_websocket_upgrade_response(client, accept_key)
+
+    err := net.set_blocking(client, false)
+    if err != nil {
+        utils.panicf("Failed to disable blocking: %v", err)
+    }
+
+    frame_buf: [65536]byte
+    read_buffer: [65536]byte
+    read_offset := 0
+
+    for {
+        frame, parse_ok := webserver.parse_ws_frame(frame_buf[:], read_buffer[:read_offset])
+        if !parse_ok {
+            return
+        }
+
+        if frame == nil {
+            n, recv_err := net.recv_tcp(client, read_buffer[read_offset:])
+            if recv_err == .Would_Block {
+                if compiler.should_exit_early(s.exit_early) {
+                    return
+                }
+                time.sleep(utils.wait_time)
+                continue
+            }
+            if recv_err != nil || n == 0 {
+                return
+            }
+            read_offset += n
+            continue
+        }
+
+        read_offset = 0
+
+        switch frame.opcode {
+        case .Text:
+            webserver.send_ws_frame(client, .Text, frame.payload)
+        case .Binary:
+            webserver.send_ws_frame(client, .Binary, frame.payload)
+        case .Ping:
+            webserver.send_ws_frame(client, .Pong, frame.payload)
+        case .Pong, .Continuation:
+        case .Close:
+            webserver.send_ws_frame(client, .Close, nil)
+            return
+        }
+
+        // `parse_ws_frame` allocates the payload when the frame is masked,
+        // otherwise the payload points into `read_buffer`
+        if frame.mask {
+            delete(frame.payload)
+        }
     }
 }
 

@@ -4,8 +4,17 @@ The second programming language that I've developed, after [common assembly](htt
 
 # Compiling from source
 
+## Locally
+
 ```sh
 odin build .
+```
+
+## Using docker
+
+```sh
+./docker-build.sh
+cp ./gitignore_docker_build/amd64-linux-comb ./comb
 ```
 
 # Executing the fizzbuzz example

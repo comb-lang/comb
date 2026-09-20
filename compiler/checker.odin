@@ -3593,11 +3593,13 @@ check_ordered_hashmap_initialisation :: proc(
     if len(runtime_items) == 0 {
         return utils.to_debug_value(
             CheckValueResult {
-                CompileTimeOrderedHashMapInitialisation {
-                    out_type.type,
-                    compile_time_items,
-                    order[:],
-                },
+                CompileTimeValue(
+                    CompileTimeOrderedHashMapInitialisation {
+                        out_type.type,
+                        compile_time_items,
+                        order[:],
+                    },
+                ),
                 out_type.type,
             },
         )
@@ -4709,7 +4711,7 @@ check_anonymous_func_head :: proc(
             inline_func_fields,
         },
     )
-    return Func{checked_ref, lambda_args}, type
+    return CompileTimeValue(Func{checked_ref, lambda_args}), type
 }
 
 // Returns `false` on failure

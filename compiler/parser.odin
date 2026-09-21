@@ -82,7 +82,8 @@ ParserState :: struct {
     parsed_files:                   utils.Multi(map[string]ParsedGlobal),
     global_values_without_generics: [dynamic]GlobalValueWithoutGeneric,
     global_values_with_generics:    [dynamic]GlobalValueWithGeneric,
-    function_defs:                  [dynamic]FunctionDefinition,
+    function_defs:                  []FunctionDefinition,
+    func_ranges:                    utils.Multi(utils.Range),
 }
 
 /*
@@ -663,12 +664,22 @@ parse_unit_segment_contents :: proc(
         return UnitSegmentContents(Char(token))
 
     case BarToken:
+        start := s.last_token_pos.index
         func, ok := parse_function_def(s)
         if !ok {
             return nil
         }
         out := FuncDefinitionRef{uint(len(s.function_defs))}
-        append_elem(&s.function_defs, func)
+        utils.append_multi_dynamic(
+            &s.func_ranges,
+            len(s.function_defs),
+            utils.Range {
+                start,
+                utils.to_debug_value(s.tokenizer_state.index - start),
+                s.last_token_pos.file,
+            },
+        )
+        utils.append_dynamic(&s.function_defs, func)
         return out
 
     }
@@ -1779,6 +1790,7 @@ ParserOutput :: struct {
     global_values_without_generic: []GlobalValueWithoutGeneric,
     global_values_with_generics:   []GlobalValueWithGeneric,
     function_defs:                 []FunctionDefinition,
+    function_ranges:               utils.Multi(utils.Range),
 }
 
 parse_project :: proc(
@@ -1800,11 +1812,20 @@ parse_project :: proc(
                 0,
                 resizable = true,
             ),
+            function_defs  = utils.arena_make(a, []FunctionDefinition, 0, resizable = true),
+            func_ranges    = utils.arena_make_multi(
+                a,
+                utils.Multi(utils.Range),
+                0,
+                resizable = true,
+            ),
             a              = a,
         }
     defer {
         utils.fix_resizable_multi(state.parsed_files)
         utils.fix_resizable_dynamic(state.parser_context)
+        utils.fix_resizable_dynamic(state.function_defs)
+        utils.fix_resizable_multi(state.func_ranges)
     }
 
     state.last_token_pos.file = &state.files_cache.files[0]
@@ -1855,5 +1876,6 @@ parse_project :: proc(
         state.global_values_without_generics[:],
         state.global_values_with_generics[:],
         state.function_defs[:],
+        state.func_ranges,
     }
 }

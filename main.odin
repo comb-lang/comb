@@ -178,8 +178,8 @@ compile :: proc(
     )
 
     function_type := compiler.Type.Unknown
-    if checker_output.func_ref.index < len(checker_output.checked_funcs) {
-        function_type = checker_output.checked_funcs[checker_output.func_ref.index].type
+    if checker_output.func_ref.index.v < len(checker_output.checked_funcs) {
+        function_type = checker_output.checked_funcs[checker_output.func_ref.index.v].type
         if function_type != .Unknown {
             // TODO: Include index in error message position
             switch c in command {
@@ -302,6 +302,7 @@ compile :: proc(
         globals_with_generic    = checker_output.globals_with_generic,
         globals_without_generic = checker_output.globals_without_generic,
         checked_funcs           = checker_output.checked_funcs,
+        func_ranges             = checker_output.func_ranges,
         builtin_handler         = BuiltinHandler {
             &DefaultBuiltinHandlerData{absolute_file_dir, run.program_io, run.stdin},
             default_builtin_handler_procedure,

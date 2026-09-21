@@ -71,7 +71,7 @@ CheckedFuncRef :: struct {
     // An index into:
     // - `Checked.checked_funcs`
     // - `CheckerState.checked_functions`
-    index: uint,
+    index: utils.DebugValue(uint),
 }
 
 // - A unit is a value or a type

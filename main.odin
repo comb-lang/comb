@@ -483,7 +483,7 @@ run_metaprogram :: proc(
 }
 */
 
-default_file_name :: "./main.code" // TODO: Choose proper file extension
+default_file_name :: "./main.comb"
 default_func_name :: "main"
 
 print_help :: proc(exit_code: int) -> ! {

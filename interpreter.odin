@@ -734,35 +734,23 @@ interp_derive_value :: proc(
     }
 
     switch elem in subset_elems[0] {
-    case compiler.ArrayElementAccess:
-        index := expect_int(interp_eval_value(s, elem.index).(f64))
-        old := v.(compiler.Array(compiler.ExactValue))
-        new_elems := make([]compiler.ExactValue, len(old.elements))
-        for old_elem, i in old.elements {
-            new_elems[i] = old_elem
+    case compiler.DerivationSubsetElementWithCheckedValue:
+        HandlerData :: struct {
+            s: InterpState,
+            e: []compiler.DerivationSubsetElement,
+            a: compiler.DerivationAlteration,
         }
-        new_elems[index] = interp_derive_value(
-            s,
-            old.elements[index],
-            subset_elems[1:],
-            alteration,
+        handler :: proc(data: HandlerData, value: compiler.ExactValue) -> compiler.ExactValue {
+            return interp_derive_value(data.s, value, data.e, data.a)
+        }
+        return compiler.derive_subset_element_with_exact_value(
+            v,
+            elem.kind,
+            interp_eval_value(s, elem.checked_value),
+            HandlerData{s, subset_elems[1:], alteration},
+            handler,
         )
-        return compiler.Array(compiler.ExactValue){old.type, new_elems}
-    case compiler.StringOrderedHashMapAccess:
-        key := to_hashmap_key(interp_eval_value(s, elem.key))
-        old := v.(compiler.ExactOrderedHashMap)
-        new_hashmap := make(map[compiler.HashMapKey]compiler.ExactValue)
-        new_order := old.order
-        if key not_in old.value {
-            dyn := slice.clone_to_dynamic(old.order)
-            append_elem(&dyn, key)
-            new_order = dyn[:]
-        }
-        for k, old_elem in old.value {
-            new_hashmap[k] = old_elem
-        }
-        new_hashmap[key] = interp_derive_value(s, old.value[key], subset_elems[1:], alteration)
-        return compiler.ExactOrderedHashMap{old.type, new_hashmap, new_order}
+
     case compiler.FieldAccess:
         old := v.(compiler.StructInitialisation(compiler.ExactValue))
         new_fields := make([]compiler.ExactValue, len(old.fields))
@@ -776,22 +764,6 @@ interp_derive_value :: proc(
             alteration,
         )
         return compiler.StructInitialisation(compiler.ExactValue){old.struct_type, new_fields}
-    case:
-        panic("Unreachable")
-    }
-}
-
-expect_int :: proc(f: f64) -> int {
-    assert(math.floor(f) == f)
-    return int(f)
-}
-
-to_hashmap_key :: proc(value: compiler.ExactValue) -> compiler.HashMapKey {
-    #partial switch v in value {
-    case compiler.StringValue:
-        return string(v)
-    case f64:
-        return v
     case:
         panic("Unreachable")
     }

@@ -769,21 +769,22 @@ CheckedBlock :: struct {
     body:      []CheckedStatement,
 }
 
-ArrayElementAccess :: struct {
-    index: CheckedValue,
-}
-
-StringOrderedHashMapAccess :: struct {
-    key: CheckedValue,
-}
-
 FieldAccess :: struct {
     field_index: u32,
 }
 
-DerivationSubsetElement :: union #no_nil {
-    StringOrderedHashMapAccess,
+DerivationSubsetElementWithCheckedValueKind :: enum {
     ArrayElementAccess,
+    StringOrderedHashMapAccess,
+}
+
+DerivationSubsetElementWithCheckedValue :: struct {
+    kind:          DerivationSubsetElementWithCheckedValueKind,
+    checked_value: CheckedValue,
+}
+
+DerivationSubsetElement :: union #no_nil {
+    DerivationSubsetElementWithCheckedValue,
     FieldAccess,
 }
 
@@ -1855,14 +1856,7 @@ check_mutation :: proc(
 
         utils.debug_dynamic_array_append(
             body,
-            CheckedAssignment {
-                var_ref,
-                CheckedDerivation {
-                    new_clone(CheckedValue(var_ref)),
-                    DerivationSubset{},
-                    alteration,
-                },
-            },
+            CheckedAssignment{var_ref, create_derivation(var_ref, DerivationSubset{}, alteration)},
         )
         return true
     }
@@ -4337,11 +4331,7 @@ check_value :: proc(
         }
         return utils.to_debug_value(
             CheckValueResult {
-                CheckedDerivation {
-                    new_clone(res.value),
-                    DerivationSubset{derivation_subset[:]},
-                    alteration,
-                },
+                create_derivation(res.value, DerivationSubset{derivation_subset[:]}, alteration),
                 res.type,
             },
         )

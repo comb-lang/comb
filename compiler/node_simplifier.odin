@@ -1,6 +1,8 @@
 package compiler
 
 import "../utils"
+import "core:math"
+import "core:slice"
 
 // This file may become an implementation of the node simplifier in a sea of nodes style optimizer
 // See https://github.com/seaofnodes/simple
@@ -286,4 +288,82 @@ iterate_ordered_hash_map :: proc(
         keys,
         ArrayType{nil, .String},
     )
+}
+
+expect_int :: proc(f: f64) -> int {
+    assert(math.floor(f) == f)
+    return int(f)
+}
+
+to_hashmap_key :: proc(value: ExactValue) -> HashMapKey {
+    #partial switch v in value {
+    case StringValue:
+        return string(v)
+    case f64:
+        return v
+    case:
+        panic("Unreachable")
+    }
+}
+
+derive_subset_element_with_exact_value :: proc(
+    base: ExactValue,
+    kind: DerivationSubsetElementWithCheckedValueKind,
+    value: ExactValue,
+    handler_data: $T,
+    handler: proc(_: T, _: ExactValue) -> ExactValue,
+) -> ExactValue {
+    switch kind {
+    case .ArrayElementAccess:
+        index := expect_int(value.(f64))
+        old := base.(Array(ExactValue))
+        new_elems := make([]ExactValue, len(old.elements))
+        for old_elem, i in old.elements {
+            new_elems[i] = old_elem
+        }
+        new_elems[index] = handler(handler_data, new_elems[index])
+        return Array(ExactValue){old.type, new_elems}
+    case .StringOrderedHashMapAccess:
+        key := to_hashmap_key(value)
+        old := base.(ExactOrderedHashMap)
+        new_hashmap := make(map[HashMapKey]ExactValue)
+        new_order := old.order
+        if key not_in old.value {
+            dyn := slice.clone_to_dynamic(old.order)
+            append_elem(&dyn, key)
+            new_order = dyn[:]
+        }
+        for k, old_elem in old.value {
+            new_hashmap[k] = old_elem
+        }
+        new_hashmap[key] = handler(handler_data, new_hashmap[key])
+        return ExactOrderedHashMap{old.type, new_hashmap, new_order}
+    case:
+        panic("Unreachable")
+    }
+}
+
+create_derivation :: proc(
+    base: CheckedValue,
+    subset: DerivationSubset,
+    alteration: DerivationAlteration,
+) -> CheckedValue {
+    return CheckedDerivation{new_clone(base), subset, alteration}
+    /*
+    base_comptime, base_is_comptime := base.(CompileTimeValue)
+    alteration_comptime, alteration_is_comptime := alteration.arg.(CompileTimeValue)
+    if !base_is_comptime || !alteration_is_comptime || alteration.kind != .Replace {
+        return CheckedDerivation{new_clone(base), subset, alteration}
+    }
+
+    switch elem in subset.elements[0] {
+    case StringOrderedHashMapAccess:
+        if key_comptime, key_is_comptime := elem.key.(CompileTimeValue); key_is_comptime {
+            _ = base_comptime.(CompileTimeOrderedHashMapInitialisation)
+
+        }
+    case ArrayElementAccess:
+    case FieldAccess:
+    }
+    */
 }

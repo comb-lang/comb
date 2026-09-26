@@ -713,42 +713,35 @@ interp_eval_comptime_value :: proc(
     }
 }
 
-interp_derive_value :: proc(
-    s: InterpState,
-    v: compiler.ExactValue,
+DeriveValueData :: struct {
+    s:            InterpState,
     subset_elems: []compiler.DerivationSubsetElement,
-    alteration: compiler.DerivationAlteration,
-) -> compiler.ExactValue {
-    if len(subset_elems) == 0 {
-        arg := interp_eval_value(s, alteration.arg^)
-        switch alteration.kind {
+    alteration:   compiler.DerivationAlteration,
+}
+
+interp_derive_value :: proc(data: DeriveValueData, v: compiler.ExactValue) -> compiler.ExactValue {
+    if len(data.subset_elems) == 0 {
+        arg := interp_eval_value(data.s, data.alteration.arg^)
+        switch data.alteration.kind {
         case .Replace:
             return arg
         case .PipeThroughFunction:
             args := make([]compiler.ExactValue, 1)
             args[0] = v
-            return interp_execute_function2(s, arg.(compiler.RuntimeFunc), args)
+            return interp_execute_function2(data.s, arg.(compiler.RuntimeFunc), args)
         case:
             panic("Unreachable")
         }
     }
 
-    switch elem in subset_elems[0] {
+    switch elem in data.subset_elems[0] {
     case compiler.DerivationSubsetElementWithCheckedValue:
-        HandlerData :: struct {
-            s: InterpState,
-            e: []compiler.DerivationSubsetElement,
-            a: compiler.DerivationAlteration,
-        }
-        handler :: proc(data: HandlerData, value: compiler.ExactValue) -> compiler.ExactValue {
-            return interp_derive_value(data.s, value, data.e, data.a)
-        }
         return compiler.derive_subset_element_with_exact_value(
             v,
             elem.kind,
-            interp_eval_value(s, elem.checked_value),
-            HandlerData{s, subset_elems[1:], alteration},
-            handler,
+            interp_eval_value(data.s, elem.checked_value),
+            DeriveValueData{data.s, data.subset_elems[1:], data.alteration},
+            interp_derive_value,
         )
 
     case compiler.FieldAccess:
@@ -758,10 +751,8 @@ interp_derive_value :: proc(
             new_fields[i] = old_field
         }
         new_fields[elem.field_index] = interp_derive_value(
-            s,
+            DeriveValueData{data.s, data.subset_elems[1:], data.alteration},
             old.fields[elem.field_index],
-            subset_elems[1:],
-            alteration,
         )
         return compiler.StructInitialisation(compiler.ExactValue){old.struct_type, new_fields}
     case:
@@ -828,7 +819,10 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
         return compiler.Array(compiler.ExactValue){value.type, elems[:]}
     case compiler.CheckedDerivation:
         base_value := interp_eval_value(s, value.base^)
-        return interp_derive_value(s, base_value, value.subset.elements, value.alteration)
+        return interp_derive_value(
+            DeriveValueData{s, value.subset.elements, value.alteration},
+            base_value,
+        )
     case compiler.CheckedOrderedHashMapAccess:
         hash_map := interp_eval_value(s, value.hash_map^).(compiler.ExactOrderedHashMap)
         key := interp_eval_value(s, value.key^)

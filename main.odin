@@ -331,7 +331,7 @@ compile :: proc(
     }
     result := interp_execute_function2(
         InterpState{&state, run.long_lived_interp_state},
-        compiler.RuntimeFunc{checker_output.func_ref, nil},
+        compiler.RuntimeFunc{checker_output.func_ref, utils.Multi(compiler.ExactValue){nil}},
         args,
     )
     if compiler.should_exit_early(exit_early) {

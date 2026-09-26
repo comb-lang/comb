@@ -79,7 +79,7 @@ emit_js_exact_value :: proc(s: ^GeneralEmitterState, v: compiler.ExactValue) {
         if lambda_args_len > 0 {
             strings.write_byte(&s.b, '(')
             for i in 0 ..< lambda_args_len {
-                emit_js_exact_value(s, comptime.lambda_args[i])
+                emit_js_exact_value(s, comptime.lambda_args.d[i])
                 strings.write_byte(&s.b, ',')
             }
             strings.write_byte(&s.b, ')')

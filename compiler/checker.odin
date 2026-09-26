@@ -303,7 +303,7 @@ get_exact_value_type :: proc(checked_funcs: []CheckedFunction, value: ExactValue
 
 RuntimeFunc :: struct {
     ref:         CheckedFuncRef,
-    lambda_args: []ExactValue,
+    lambda_args: utils.Multi(ExactValue),
 }
 
 SetHttpServerHandler :: struct {
@@ -4764,7 +4764,7 @@ check_anonymous_func_head :: proc(
     )
     if len(inline_func_fields.scope0.variables) == 0 {
         assert(lambda_args.d == nil)
-        return ExactValue(RuntimeFunc{checked_ref, nil}), type
+        return ExactValue(RuntimeFunc{checked_ref, utils.Multi(ExactValue){nil}}), type
     }
     return Func{checked_ref, lambda_args}, type
 }

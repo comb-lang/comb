@@ -51,6 +51,7 @@ LongLivedInterpState :: struct {
 
 // Interpreter state that is reset when the program is restarted by the `-watch` flag
 ShortLivedInterpState :: struct {
+    a:                       utils.Arena, // TODO: Cleanup this arena when the interpreter finishes
     types:                   compiler.Types,
     globals_without_generic: []compiler.GlobalValueWithoutGeneric,
     globals_with_generic:    []compiler.GlobalValueWithGeneric,
@@ -234,7 +235,10 @@ interp_execute_function2 :: proc(
         func   = func.ref,
         scopes = make([dynamic][]compiler.ExactValue),
     }
-    append_elem(&frame.scopes, func.lambda_args)
+    append_elem(
+        &frame.scopes,
+        utils.multi_to_array(func.lambda_args, len(checked_func.inline_stuff.scope0.variables)),
+    )
     append_elem(&frame.scopes, args)
     append_elem(&frame.scopes, make([]compiler.ExactValue, len(checked_func.variables)))
     // for var_type, i in checked_func.variables {
@@ -687,12 +691,10 @@ interp_eval_comptime_value :: proc(
         }
         return compiler.StructInitialisation(compiler.ExactValue){comptime.struct_type, out_fields}
     case compiler.RuntimeFunc:
-        lambda_args := make(
-            []compiler.ExactValue,
-            len(s.checked_funcs[comptime.ref.index.v].inline_stuff.scope0.variables),
-        )
-        for _, i in lambda_args {
-            lambda_args[i] = interp_eval_comptime_value(s, comptime.lambda_args[i])
+        length := len(s.checked_funcs[comptime.ref.index.v].inline_stuff.scope0.variables)
+        lambda_args := utils.arena_make_multi(&s.s.a, utils.Multi(compiler.ExactValue), length)
+        for i in 0 ..< length {
+            lambda_args.d[i] = interp_eval_comptime_value(s, comptime.lambda_args.d[i])
         }
         return compiler.RuntimeFunc{comptime.ref, lambda_args}
     case compiler.StringValue:
@@ -798,13 +800,11 @@ to_hashmap_key :: proc(value: compiler.ExactValue) -> compiler.HashMapKey {
 interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.ExactValue {
     switch value in v {
     case compiler.Func:
-        lambda_args := make(
-            []compiler.ExactValue,
-            len(s.checked_funcs[value.ref.index.v].inline_stuff.scope0.variables),
-        )
-        for _, i in lambda_args {
+        length := len(s.checked_funcs[value.ref.index.v].inline_stuff.scope0.variables)
+        lambda_args := utils.arena_make_multi(&s.a, utils.Multi(compiler.ExactValue), length)
+        for i in 0 ..< length {
             var_ref := value.lambda_args.d[i]
-            lambda_args[i] =
+            lambda_args.d[i] =
                 s.frames[len(s.frames) - 1].scopes[var_ref.nesting_level][var_ref.index]
         }
         return compiler.RuntimeFunc{value.ref, lambda_args}
@@ -1189,7 +1189,7 @@ default_builtin_handler_procedure :: proc(
                         socket,
                         compiler.RuntimeFunc {
                             compiler.CheckedFuncRef{utils.to_debug_value(max(uint))},
-                            nil,
+                            utils.Multi(compiler.ExactValue){nil},
                         },
                     },
                 )

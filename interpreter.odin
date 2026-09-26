@@ -832,7 +832,7 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
     case compiler.CheckedOrderedHashMapAccess:
         hash_map := interp_eval_value(s, value.hash_map^).(compiler.ExactOrderedHashMap)
         key := interp_eval_value(s, value.key^)
-        return hash_map.value[to_hashmap_key(key)]
+        return hash_map.value[compiler.to_hashmap_key(key)]
     case compiler.KeysOfOrderedHashMap:
         keys := interp_eval_value(s, value.hash_map^).(compiler.ExactOrderedHashMap).order
         out := make([]compiler.ExactValue, len(keys))
@@ -900,7 +900,7 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
 
         case .In:
             hashmap := interp_eval_value(s, value.val1^).(compiler.ExactOrderedHashMap)
-            return compiler.BoolValue(to_hashmap_key(lhs) in hashmap.value)
+            return compiler.BoolValue(compiler.to_hashmap_key(lhs) in hashmap.value)
 
         case .Addition:
             return lhs.(f64) + interp_eval_value(s, value.val1^).(f64)
@@ -976,12 +976,12 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
 
     case compiler.CheckedIndexedAccess:
         base := interp_eval_value(s, value.base^)
-        start_index := expect_int(interp_eval_value(s, value.i.start_index^).(f64))
+        start_index := compiler.expect_int(interp_eval_value(s, value.i.start_index^).(f64))
         switch value.base_type {
         case .Array:
             arr := base.(compiler.Array(compiler.ExactValue))
             if value.i.end_index != nil {
-                end_index := expect_int(interp_eval_value(s, value.i.end_index^).(f64))
+                end_index := compiler.expect_int(interp_eval_value(s, value.i.end_index^).(f64))
                 // TODO: Using `arr.type` means that the result has the incorrect type if `arr` is fixed-size
                 return compiler.Array(compiler.ExactValue) {
                     arr.type,
@@ -992,7 +992,7 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
         case .String:
             str := base.(compiler.StringValue)
             if value.i.end_index != nil {
-                end_index := expect_int(interp_eval_value(s, value.i.end_index^).(f64))
+                end_index := compiler.expect_int(interp_eval_value(s, value.i.end_index^).(f64))
                 return compiler.StringValue(str[start_index:end_index])
             }
             return f64(str[start_index])
@@ -1111,7 +1111,7 @@ default_builtin_handler_procedure :: proc(
         panic("TODO")
     case .exit:
         assert(len(args) == 1)
-        os.exit(expect_int(args[0].(f64)))
+        os.exit(compiler.expect_int(args[0].(f64)))
     case .get_os_args:
         panic("TODO")
     case .emit_js_code:
@@ -1177,7 +1177,10 @@ default_builtin_handler_procedure :: proc(
     case .string_repeat:
         assert(len(args) == 2)
         return compiler.StringValue(
-            strings.repeat(string(args[0].(compiler.StringValue)), expect_int(args[1].(f64))),
+            strings.repeat(
+                string(args[0].(compiler.StringValue)),
+                compiler.expect_int(args[1].(f64)),
+            ),
         )
     case .save_cursor_pos:
         io.write_string(data.pipe.stdout, "\033[s")

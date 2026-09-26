@@ -783,7 +783,7 @@ DerivationSubsetElementWithCheckedValue :: struct {
     checked_value: CheckedValue,
 }
 
-DerivationSubsetElement :: union #no_nil {
+DerivationSubsetElement :: union {
     DerivationSubsetElementWithCheckedValue,
     FieldAccess,
 }
@@ -3983,14 +3983,14 @@ check_initial_value :: proc(
     }
 }
 
-// Returns `ArrayElementAccess{}` on failure
+// Returns `nil` on failure
 check_array_index_derivation_subset :: proc(
     s: ^CheckerState,
     args: []Unit,
     args_range: utils.Range,
     body: ^utils.DebugValue([dynamic]CheckedStatement),
     generic_args: map[string]Type,
-) -> ArrayElementAccess {
+) -> DerivationSubsetElement {
     if len(args) != 1 {
         utils.diagnostic(
             s.r,
@@ -3998,11 +3998,11 @@ check_array_index_derivation_subset :: proc(
             "Expected 1 value in square brackets\nGot %d values",
             len(args),
         )
-        return ArrayElementAccess{}
+        return nil
     }
     index := check_value_of_type(s, args[0], CheckValueArgs{body, generic_args, nil}, index_type)
     utils.diagnostic(s.r, args_range, bounds_checks_warning, type = .Warning)
-    return ArrayElementAccess{index}
+    return DerivationSubsetElementWithCheckedValue{.ArrayElementAccess, index}
 }
 
 // Returns `nil, .Invalid` on failure
@@ -4071,7 +4071,7 @@ check_derivation_subset :: proc(
             body,
             generic_args,
         )
-        if subset_elem.index == nil {
+        if subset_elem == nil {
             return .Invalid
         }
         append(elements, subset_elem)
@@ -4115,7 +4115,7 @@ check_derivation_subset :: proc(
         if key == nil {
             return .Invalid
         }
-        append(elements, StringOrderedHashMapAccess{key})
+        append(elements, DerivationSubsetElementWithCheckedValue{.StringOrderedHashMapAccess, key})
         if len(unit.rest) == 0 {
             return t.value_type
         }

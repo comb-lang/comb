@@ -337,7 +337,7 @@ compile :: proc(
     if compiler.should_exit_early(exit_early) {
         return 1
     } else {
-        return expect_int(result.(f64))
+        return compiler.expect_int(result.(f64))
     }
 }
 

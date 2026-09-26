@@ -171,24 +171,20 @@ emit_js_derivation :: proc(
     }
 
     switch elem in subset_elems[0] {
-    case compiler.ArrayElementAccess:
-        strings.write_string(&s.b, "with_update(")
+    case compiler.DerivationSubsetElementWithCheckedValue:
+        switch elem.kind {
+        case .ArrayElementAccess:
+            strings.write_string(&s.b, "with_update(")
+        case .StringOrderedHashMapAccess:
+            strings.write_string(&s.b, "map_update(")
+        }
         if v == nil {
             strings.write_string(&s.b, "old")
         } else {
             emit_js_value(s, v)
         }
         strings.write_byte(&s.b, ',')
-        emit_js_value(s, elem.index)
-    case compiler.StringOrderedHashMapAccess:
-        strings.write_string(&s.b, "map_update(")
-        if v == nil {
-            strings.write_string(&s.b, "old")
-        } else {
-            emit_js_value(s, v)
-        }
-        strings.write_byte(&s.b, ',')
-        emit_js_value(s, elem.key)
+        emit_js_value(s, elem.checked_value)
     case compiler.FieldAccess:
         strings.write_string(&s.b, "object_update(")
         if v == nil {

@@ -1856,7 +1856,7 @@ check_mutation :: proc(
 
         utils.debug_dynamic_array_append(
             body,
-            CheckedAssignment{var_ref, create_derivation(var_ref, DerivationSubset{}, alteration)},
+            CheckedAssignment{var_ref, create_derivation(var_ref, nil, alteration)},
         )
         return true
     }
@@ -4331,7 +4331,7 @@ check_value :: proc(
         }
         return utils.to_debug_value(
             CheckValueResult {
-                create_derivation(res.value, DerivationSubset{derivation_subset[:]}, alteration),
+                create_derivation(res.value, derivation_subset[:], alteration),
                 res.type,
             },
         )

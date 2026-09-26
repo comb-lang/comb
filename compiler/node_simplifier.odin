@@ -343,27 +343,60 @@ derive_subset_element_with_exact_value :: proc(
     }
 }
 
+@(private = "file")
+DerivationLoopData :: struct {
+    subset:    []DerivationSubsetElement,
+    new_value: ExactValue,
+}
+
+@(private = "file")
+create_derivation_loop :: proc(data: DerivationLoopData, base: ExactValue) -> ExactValue {
+    if len(data.subset) == 0 {
+        return data.new_value
+    }
+    switch elem in data.subset[0] {
+    case DerivationSubsetElementWithCheckedValue:
+        return derive_subset_element_with_exact_value(
+            base,
+            elem.kind,
+            elem.checked_value.(ExactValue),
+            DerivationLoopData{data.subset[1:], data.new_value},
+            create_derivation_loop,
+        )
+    case FieldAccess:
+        old := base.(StructInitialisation(ExactValue))
+        new_fields := make([]ExactValue, len(old.fields))
+        for old_field, i in old.fields {
+            new_fields[i] = old_field
+        }
+        new_fields[elem.field_index] = create_derivation_loop(
+            DerivationLoopData{data.subset[1:], data.new_value},
+            old.fields[elem.field_index],
+        )
+        return StructInitialisation(ExactValue){old.struct_type, new_fields}
+    case:
+        panic("Unreachable")
+    }
+}
+
 create_derivation :: proc(
     base: CheckedValue,
-    subset: DerivationSubset,
+    subset: []DerivationSubsetElement,
     alteration: DerivationAlteration,
 ) -> CheckedValue {
-    return CheckedDerivation{new_clone(base), subset, alteration}
-    /*
-    base_comptime, base_is_comptime := base.(CompileTimeValue)
-    alteration_comptime, alteration_is_comptime := alteration.arg.(CompileTimeValue)
-    if !base_is_comptime || !alteration_is_comptime || alteration.kind != .Replace {
-        return CheckedDerivation{new_clone(base), subset, alteration}
+    base_exact, base_is_exact := base.(ExactValue)
+    alteration_exact, alteration_is_exact := alteration.arg.(ExactValue)
+    if !base_is_exact || !alteration_is_exact || alteration.kind != .Replace {
+        return CheckedDerivation{new_clone(base), DerivationSubset{subset}, alteration}
     }
-
-    switch elem in subset.elements[0] {
-    case StringOrderedHashMapAccess:
-        if key_comptime, key_is_comptime := elem.key.(CompileTimeValue); key_is_comptime {
-            _ = base_comptime.(CompileTimeOrderedHashMapInitialisation)
-
+    for elem in subset {
+        elem_with_checked_value, is_elem_with_checked_value := elem.(DerivationSubsetElementWithCheckedValue)
+        if is_elem_with_checked_value {
+            _, is_exact := elem_with_checked_value.checked_value.(ExactValue)
+            if !is_exact {
+                return CheckedDerivation{new_clone(base), DerivationSubset{subset}, alteration}
+            }
         }
-    case ArrayElementAccess:
-    case FieldAccess:
     }
-    */
+    return create_derivation_loop(DerivationLoopData{subset, alteration_exact}, base_exact)
 }

@@ -713,6 +713,7 @@ interp_eval_comptime_value :: proc(
     }
 }
 
+@(private = "file")
 DeriveValueData :: struct {
     s:            InterpState,
     subset_elems: []compiler.DerivationSubsetElement,

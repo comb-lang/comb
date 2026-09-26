@@ -10,15 +10,15 @@ import "../utils"
 // (Runtime + Constant) + Constant -> Runtime + (Constant + Constant)
 
 create_not :: proc(value: CheckedValue) -> CheckedValue {
-    comptime_value, is_comptime := value.(CompileTimeValue)
+    comptime_value, is_comptime := value.(ExactValue)
     if is_comptime {
-        return CompileTimeValue(BoolValue(!comptime_value.(BoolValue)))
+        return ExactValue(BoolValue(!comptime_value.(BoolValue)))
     }
     return BooleanNotValue(new_clone(value))
 }
 
 create_negation :: proc(value: CheckedValue) -> CheckedValue {
-    return create_joined_values(.Subtraction, CompileTimeValue(utils.number_zero), value)
+    return create_joined_values(.Subtraction, ExactValue(f64(0)), value)
 }
 
 create_joined_values :: proc(
@@ -35,13 +35,13 @@ create_joined_values :: proc(
     case .Assign, .Tilde, .PipeEquals, .Colon, .Append, .Concat, .Arrow, .Dot:
         panic("Unreachable")
     case .BooleanAnd, .BooleanOr:
-        comptime0, val0_is_comptime := val0.(CompileTimeValue)
-        comptime1, val1_is_comptime := val1.(CompileTimeValue)
+        comptime0, val0_is_comptime := val0.(ExactValue)
+        comptime1, val1_is_comptime := val1.(ExactValue)
         if val0_is_comptime && val1_is_comptime {
             if method == .BooleanAnd {
-                return CompileTimeValue(BoolValue(comptime0.(BoolValue) && comptime1.(BoolValue)))
+                return ExactValue(BoolValue(comptime0.(BoolValue) && comptime1.(BoolValue)))
             }
-            return CompileTimeValue(BoolValue(comptime0.(BoolValue) || comptime1.(BoolValue)))
+            return ExactValue(BoolValue(comptime0.(BoolValue) || comptime1.(BoolValue)))
         }
         flip_values = val0_is_comptime
     case .IsEqual,
@@ -54,16 +54,29 @@ create_joined_values :: proc(
          .StringConcat,
          .In: // TODO
     case .Multiplication, .Division, .Addition, .Subtraction:
-        comptime0, val0_is_comptime := val0.(CompileTimeValue)
-        comptime1, val1_is_comptime := val1.(CompileTimeValue)
+        comptime0, val0_is_comptime := val0.(ExactValue)
+        comptime1, val1_is_comptime := val1.(ExactValue)
         if val0_is_comptime && val1_is_comptime {
-            num0 := comptime0.(utils.NumberValue)
-            num1 := comptime1.(utils.NumberValue)
+            num0 := comptime0.(f64)
+            num1 := comptime1.(f64)
+            #partial switch method {
+            case .Multiplication:
+                return ExactValue(num0 * num1)
+            case .Division:
+                return ExactValue(num0 / num1)
+            case .Addition:
+                return ExactValue(num0 + num1)
+            case .Subtraction:
+                return ExactValue(num0 - num1)
+            case:
+                panic("Unreachable")
+            }
+            /*
             if num0.fraction_part == "" && num1.fraction_part == "" {
                 n0 := utils.BigInt{num0.is_negated, num0.whole_part}
                 n1 := utils.BigInt{num1.is_negated, num1.whole_part}
                 ok :: proc(b: utils.BigInt) -> CheckedValue {
-                    return CompileTimeValue(utils.NumberValue{b.is_negated, b.absolute_value, ""})
+                    return ExactValue(utils.NumberValue{b.is_negated, b.absolute_value, ""})
                 }
                 #partial switch method {
                 case .Multiplication:
@@ -79,6 +92,7 @@ create_joined_values :: proc(
             } else {
                 // TODO
             }
+            */
         }
         // TODO: Be able to move the constant right for non-commutative operations
         flip_values = val0_is_comptime && (method == .Multiplication || method == .Addition)
@@ -91,9 +105,9 @@ create_joined_values :: proc(
 
 create_field_access :: proc(value: CheckedValue, field_index: u32) -> CheckedValue {
     #partial switch v in value {
-    case CompileTimeValue:
-        return v.(CompileTimeStructInitialisation).fields[field_index]
-    case StructInitialisation:
+    case ExactValue:
+        return v.(StructInitialisation(ExactValue)).fields[field_index]
+    case StructInitialisation(CheckedValue):
     // Cannot simplify something like `{a: 5, b: do_stuff()}.a` to `5` because the `do_stuff` call may cause side effects
     // TODO: Be able to make simplifications like this and preserve side effects
     }
@@ -101,26 +115,26 @@ create_field_access :: proc(value: CheckedValue, field_index: u32) -> CheckedVal
 }
 
 create_struct :: proc(struct_type: Type, fields: []CheckedValue) -> CheckedValue {
-    comptime_args := make([]CompileTimeValue, len(fields))
+    comptime_args := make([]ExactValue, len(fields))
     for field, i in fields {
-        comptime, is_comptime := field.(CompileTimeValue)
+        comptime, is_comptime := field.(ExactValue)
         if is_comptime == false {
-            return StructInitialisation{struct_type, fields}
+            return StructInitialisation(CheckedValue){struct_type, fields}
         }
         comptime_args[i] = comptime
     }
-    return CompileTimeValue(CompileTimeStructInitialisation{struct_type, comptime_args})
+    return ExactValue(StructInitialisation(ExactValue){struct_type, comptime_args})
 }
 
 /*
 to_checked_value :: proc(func: union {
         CheckedFunctionCall,
-        CompileTimeValue,
+        ExactValue,
     }) -> CheckedValue {
     switch f in func {
     case CheckedFunctionCall:
         return f
-    case CompileTimeValue:
+    case ExactValue:
         return f
     case nil:
         return nil
@@ -132,19 +146,19 @@ to_checked_value :: proc(func: union {
 // OLD(INITIALISING STRUCTS LIKE `StructType(fields...)`)
 create_checked_func_call :: proc(func: CheckedValue, args: []CheckedValue) -> union {
         CheckedFunctionCall,
-        CompileTimeValue,
+        ExactValue,
     } {
     #partial outer: switch func_value in func {
     case StructTypeInitFunc:
-        comptime_args := make([]CompileTimeValue, len(args))
+        comptime_args := make([]ExactValue, len(args))
         for arg, i in args {
-            comptime, is_comptime := arg.(CompileTimeValue)
+            comptime, is_comptime := arg.(ExactValue)
             if is_comptime == false {
                 break outer
             }
             comptime_args[i] = comptime
         }
-        return CompileTimeValue(CompileTimeStructInitialisation{func_value, comptime_args})
+        return ExactValue(CompileTimeStructInitialisation{func_value, comptime_args})
     }
     return CheckedFunctionCall{new_clone(func), args}
 }
@@ -160,10 +174,7 @@ iterate_array :: proc(
     array_type: ArrayType,
 ) -> CheckedLoop {
     loop_enter := make([]CheckedStatement, 1)
-    loop_enter[0] = CheckedAssignment {
-        index_variable,
-        CompileTimeValue(utils.NumberValue{false, utils.uint_zero, ""}),
-    }
+    loop_enter[0] = CheckedAssignment{index_variable, ExactValue(0.0)}
 
     if_block := make([]CheckedStatement, 1)
     if_block[0] = CheckedLoopControlFlow{loop_index, .Break}
@@ -190,11 +201,7 @@ iterate_array :: proc(
     continue_code := make([]CheckedStatement, 1)
     continue_code[0] = CheckedAssignment {
         index_variable,
-        create_joined_values(
-            .Addition,
-            index_variable,
-            CompileTimeValue(utils.NumberValue{false, utils.big_uint_from_u64(1), ""}),
-        ),
+        create_joined_values(.Addition, index_variable, ExactValue(1.0)),
     }
     return CheckedLoop {
         loop_index,

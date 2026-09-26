@@ -309,27 +309,29 @@ compile :: proc(
         },
         exit_early              = exit_early,
     }
-    args: []RuntimeValue
+    args: []compiler.ExactValue
     if function_type == .CompilerToInt {
-        compiler_cache_struct_fields := make([]RuntimeValue, 3)
+        compiler_cache_struct_fields := make([]compiler.ExactValue, 3)
         compiler_cache_struct_fields[0] = compiler.BuiltinFunction.cache_contains
         compiler_cache_struct_fields[1] = compiler.BuiltinFunction.cache_set
         compiler_cache_struct_fields[2] = compiler.BuiltinFunction.cache_get
 
-        compiler_struct_fields := make([]RuntimeValue, 2)
+        compiler_struct_fields := make([]compiler.ExactValue, 2)
         compiler_struct_fields[0] = compiler.BuiltinFunction.emit_js_code
-        compiler_struct_fields[1] = RuntimeStruct {
-            true,
-            compiler_cache_struct_fields,
+        compiler_struct_fields[1] = compiler.StructInitialisation(compiler.ExactValue) {
             .CompilerCache,
+            compiler_cache_struct_fields,
         }
 
-        args = make([]RuntimeValue, 1)
-        args[0] = RuntimeStruct{true, compiler_struct_fields, .Compiler}
+        args = make([]compiler.ExactValue, 1)
+        args[0] = compiler.StructInitialisation(compiler.ExactValue) {
+            .Compiler,
+            compiler_struct_fields,
+        }
     }
     result := interp_execute_function2(
         InterpState{&state, run.long_lived_interp_state},
-        RuntimeFunc{checker_output.func_ref, nil},
+        compiler.RuntimeFunc{checker_output.func_ref, nil},
         args,
     )
     if compiler.should_exit_early(exit_early) {

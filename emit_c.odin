@@ -75,13 +75,17 @@ emit_c_func_call :: proc(s: ^CEmitterState, c: compiler.CheckedFunctionCall) {
     strings.write_byte(&s.b, ')')
 }
 
-emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.CompileTimeValue) {
+emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.ExactValue) {
     switch comptime in value {
-    case compiler.CompileTimeStructInitialisation:
+    case compiler.SumTypeInitialisation(^compiler.ExactValue):
         panic("TODO")
-    case compiler.CompileTimeArray:
+    case compiler.SetHttpServerHandler, compiler.HttpServerListenAndServe:
+        panic("Unreachable")
+    case compiler.StructInitialisation(compiler.ExactValue):
         panic("TODO")
-    case compiler.CompileTimeOrderedHashMapInitialisation:
+    case compiler.Array(compiler.ExactValue):
+        panic("TODO")
+    case compiler.ExactOrderedHashMap:
         panic("TODO")
     case compiler.CastFunction:
         panic("TODO")
@@ -103,10 +107,11 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.CompileTimeValu
         }
         strings.write_string(&s.b, ")")
         */
-    case compiler.Func:
+    case compiler.RuntimeFunc:
         // TODO: Handle comptime.lambda_args
         strings.write_string(&s.b, "func")
         strings.write_uint(&s.b, comptime.ref.index.v)
+    /*
     case utils.NumberValue:
         if comptime.is_negated {
             strings.write_byte(&s.b, '-')
@@ -116,7 +121,10 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.CompileTimeValu
             strings.write_byte(&s.b, '.')
             strings.write_string(&s.b, comptime.fraction_part)
         }
-    case compiler.StringLiteralValue:
+        */
+    case f64:
+        strings.write_f64(&s.b, comptime, 'f')
+    case compiler.StringValue:
         strings.write_byte(&s.b, '"')
         for char in comptime {
             switch char {
@@ -144,9 +152,13 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.CompileTimeValu
 
 emit_c_value :: proc(s: ^CEmitterState, v: compiler.CheckedValue) {
     switch value in v {
-    case compiler.StructInitialisation:
+    case compiler.StructInitialisation(compiler.CheckedValue):
         panic("TODO")
-    case compiler.SumTypeInitialisation:
+    case compiler.Func:
+        // TODO: Handle value.lambda_args
+        strings.write_string(&s.b, "func")
+        strings.write_uint(&s.b, value.ref.index.v)
+    case compiler.SumTypeInitialisation(^compiler.CheckedValue):
         strings.write_string(&s.b, "init_Type")
         strings.write_uint(&s.b, uint(value.sum_type))
         strings.write_string(&s.b, "Variant")
@@ -166,7 +178,7 @@ emit_c_value :: proc(s: ^CEmitterState, v: compiler.CheckedValue) {
         panic("TODO: Handle checked derivation in C emitter")
     case compiler.CheckedOrderedHashMapAccess, compiler.KeysOfOrderedHashMap:
         panic("TODO")
-    case compiler.CompileTimeValue:
+    case compiler.ExactValue:
         emit_c_comptime_value(s, value)
     case compiler.ToString:
         strings.write_string(&s.b, "asprintf_value(")

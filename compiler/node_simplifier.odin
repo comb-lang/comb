@@ -400,3 +400,19 @@ create_derivation :: proc(
     }
     return create_derivation_loop(DerivationLoopData{subset, alteration_exact}, base_exact)
 }
+
+create_sum_type_value :: proc(
+    sum_type: Type,
+    variant_index: u32,
+    payload: ^CheckedValue,
+) -> CheckedValue {
+    if payload == nil {
+        return ExactValue(SumTypeInitialisation(^ExactValue){sum_type, variant_index, nil})
+    }
+    if exact_payload, payload_is_exact := payload.(ExactValue); payload_is_exact {
+        return ExactValue(
+            SumTypeInitialisation(^ExactValue){sum_type, variant_index, new_clone(exact_payload)},
+        )
+    }
+    return SumTypeInitialisation(^CheckedValue){sum_type, variant_index, payload}
+}

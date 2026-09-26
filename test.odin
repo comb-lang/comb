@@ -8,7 +8,6 @@ package main
 import "compiler"
 import "core:encoding/json"
 import "core:fmt"
-import "core:io"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -1030,6 +1029,35 @@ example_14_ordered_hashmap_by_number :: proc(t: ^testing.T) {
         "Enter a number to perform a cache lookup or `exit` to exit: Failed to convert to float: Unexpected non-digit character ''\n",
     )
     utils.expect_string(&e, "Enter a number to perform a cache lookup or `exit` to exit: ")
+    utils.expect_finished(&e)
+}
+
+@(test)
+example_15_compile_time_derivations :: proc(t: ^testing.T) {
+    a: utils.Arena
+    defer utils.cleanup_arena(&a, expect_empty = false)
+    file :: #directory + "examples/15_compile_time_derivations.comb"
+    ran := interpret_example(t, &a, FunctionRef{file, "main"})
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.program.stderr == "")
+    testing.expect(t, ran.program.stdout == "")
+    testing.expect(t, ran.compiler.stderr == "")
+    e := utils.TestingTextExpecter{0, ran.compiler.stdout, t}
+    utils.expect_string(&e, "Reading `" + file + "`...\n")
+    utils.expect_string(&e, "Parsing `" + file + "`...\n")
+    utils.expect_string(&e, "Parsing `" + #directory + "examples/std/utils.code`...\n")
+    utils.expect_string(&e, "Checking...\n")
+    utils.expect_string(&e, "Successfully checked with 0 errors and 0 warnings in ")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, ".")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, " ms\n")
+    utils.expect_string(&e, "Interpreting `main`...\n")
+    utils.expect_string(&e, "Done in ")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, ".")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, " ms!\n")
     utils.expect_finished(&e)
 }
 

@@ -237,6 +237,7 @@ ExactValue :: union {
     CastFunction,
     StringValue,
     ExactOrderedHashMap,
+    SumTypeInitialisation(^ExactValue),
 
     // TODO: I feel weird about these variants being here because they can never
     // exist at runtime in the interpreter, even though they can exist as a
@@ -252,7 +253,6 @@ ExactValue :: union {
     SetHttpServerHandler,
     HttpServerListenAndServe,
     RuntimeFunc,
-    SumTypeInitialisation(^ExactValue), // TODO: This value should be able to exist at compile time
 }
 
 get_exact_value_type :: proc(checked_funcs: []CheckedFunction, value: ExactValue) -> Type {
@@ -3496,10 +3496,7 @@ check_tag_value :: proc(
     sum_type := create_type(&s.types, SumType{sum_type_payloads}).type
 
     return utils.to_debug_value(
-        CheckValueResult {
-            SumTypeInitialisation(^CheckedValue){sum_type, i.index, payload},
-            sum_type,
-        },
+        CheckValueResult{create_sum_type_value(sum_type, i.index, payload), sum_type},
     )
 }
 

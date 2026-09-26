@@ -664,10 +664,21 @@ interp_eval_comptime_value :: proc(
     value: compiler.ExactValue,
 ) -> compiler.ExactValue {
     switch comptime in value {
-    case compiler.SetHttpServerHandler,
-         compiler.HttpServerListenAndServe,
-         compiler.SumTypeInitialisation(^compiler.ExactValue):
+    case compiler.SetHttpServerHandler, compiler.HttpServerListenAndServe:
         panic("TODO")
+    case compiler.SumTypeInitialisation(^compiler.ExactValue):
+        if comptime.payload == nil {
+            return compiler.SumTypeInitialisation(^compiler.ExactValue) {
+                comptime.sum_type,
+                comptime.variant_index,
+                nil,
+            }
+        }
+        return compiler.SumTypeInitialisation(^compiler.ExactValue) {
+            comptime.sum_type,
+            comptime.variant_index,
+            new_clone(interp_eval_comptime_value(s, comptime.payload^)),
+        }
     case compiler.Array(compiler.ExactValue):
         elems := make([]compiler.ExactValue, len(comptime.elements))
         for elem, i in comptime.elements {

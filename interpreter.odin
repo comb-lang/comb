@@ -928,7 +928,7 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
 
         case .In:
             hashmap := interp_eval_value(s, value.val1^).(compiler.ExactOrderedHashMap)
-            return to_hashmap_key(lhs) in hashmap.value
+            return compiler.BoolValue(to_hashmap_key(lhs) in hashmap.value)
 
         case .Addition:
             return lhs.(f64) + interp_eval_value(s, value.val1^).(f64)
@@ -1159,7 +1159,7 @@ default_builtin_handler_procedure :: proc(
         return compiler.StringValue(strings.to_string(state.b))
     case .cache_contains:
         assert(len(args) == 1)
-        return string(args[0].(compiler.StringValue)) in state.l.cache
+        return compiler.BoolValue(string(args[0].(compiler.StringValue)) in state.l.cache)
     case .cache_set:
         assert(len(args) == 2)
         state.l.cache[string(args[0].(compiler.StringValue))] = args[1]

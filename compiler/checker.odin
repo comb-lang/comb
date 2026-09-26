@@ -1373,16 +1373,6 @@ expect_type_helper :: proc(
     }
 }
 
-guess_number_type :: proc(n: f64) -> Type {
-    if math.floor(n) != n {
-        return .Float
-    }
-    if n < 0.0 {
-        return .Int
-    }
-    return .UInt
-}
-
 /*
 finish_checking_value :: proc(
     s: ^CheckerState,
@@ -3561,15 +3551,16 @@ check_key_value_pair :: proc(
     }
     assert(len(key_body.v) == 0)
     key: HashMapKey = nil
-    key_type := HashMapKeyType.Unknown
-    #partial switch simplify_type(s, key_value.v.type).type {
+    key_type := simplify_type(s, key_value.v.type).type
+    hashmap_key_type := HashMapKeyType.Unknown
+    #partial switch key_type {
     case .Int, .UInt, .Float:
         number_value := key_comptime.(f64)
         key = number_value
-        key_type = HashMapKeyType(guess_number_type(number_value))
+        hashmap_key_type = HashMapKeyType(key_type)
     case .String:
         key = string(key_comptime.(StringValue))
-        key_type = .String
+        hashmap_key_type = .String
     case:
         utils.diagnostic(
             s.r,
@@ -3585,7 +3576,7 @@ check_key_value_pair :: proc(
     if !runtime_value_ok(s, get_range(split.after_split), value.v.value) {
         return nil
     }
-    return CheckedKeyValuePair{key, get_range(split.before_split), key_type, value.v}
+    return CheckedKeyValuePair{key, get_range(split.before_split), hashmap_key_type, value.v}
 }
 
 check_ordered_hashmap_initialisation :: proc(
@@ -3970,7 +3961,6 @@ check_initial_value :: proc(
         }
 
     case WholeNonNegativeNumber:
-        number := value.digits
         if is_segment(v, i^ + 2) {
             dot_segment := get_segment(v, i^ + 1)
             fraction_segment := get_segment(v, i^ + 2)
@@ -3978,12 +3968,16 @@ check_initial_value :: proc(
             fraction_value, fraction_value_ok := fraction_segment.contents.(WholeNonNegativeNumber)
             if dot_value_ok && fraction_value_ok && dot_value == .Dot {
                 i^ += 2
-                number = fmt.aprintf("%s.%s", number, fraction_value.digits)
+                n, ok := strconv.parse_f64(
+                    fmt.aprintf("%s.%s", value.digits, fraction_value.digits),
+                )
+                assert(ok)
+                return utils.to_debug_value(CheckValueResult{ExactValue(n), .Float})
             }
         }
-        n, ok := strconv.parse_f64(number)
+        n, ok := strconv.parse_f64(value.digits)
         assert(ok)
-        return utils.to_debug_value(CheckValueResult{ExactValue(n), guess_number_type(n)})
+        return utils.to_debug_value(CheckValueResult{ExactValue(n), n < 0 ? .Int : .UInt})
 
     case String:
         out := ExactValue(StringValue(value))
@@ -4768,6 +4762,10 @@ check_anonymous_func_head :: proc(
             inline_func_fields,
         },
     )
+    if len(inline_func_fields.scope0.variables) == 0 {
+        assert(lambda_args.d == nil)
+        return ExactValue(RuntimeFunc{checked_ref, nil}), type
+    }
     return Func{checked_ref, lambda_args}, type
 }
 

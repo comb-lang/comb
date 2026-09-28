@@ -1,4 +1,4 @@
-u = import "std/utils.code"
+u = import "std/utils.comb"
 
 // Curried concat function
 // TODO: Infer function return type

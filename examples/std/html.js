@@ -1,4 +1,4 @@
-// let ui = ...
+// let state = ...
 
 const svgNS = "http://www.w3.org/2000/svg"
 
@@ -24,7 +24,7 @@ function create_html_elem(elem) {
     case tag_indexes.Button: {
       const button = document.createElement("button")
       button.onclick = () => {
-        ui = elem.payload.field1()
+        state = elem.payload.field1
         render_ui()
       }
       for (const child of elem.payload.field0) {
@@ -43,6 +43,11 @@ function create_html_elem(elem) {
     case tag_indexes.Text: {
       return document.createTextNode(elem.payload)
     }
+    case tag_indexes.Span: {
+      const span = document.createElement("span")
+      span.appendChild(document.createTextNode(elem.payload))
+      return span
+    }
     case tag_indexes.Svg: {
       const svg = document.createElementNS(svgNS, "svg")
       svg.setAttribute("style", elem.payload.field0)
@@ -52,10 +57,38 @@ function create_html_elem(elem) {
       }
       return svg
     }
+    case tag_indexes.Br: {
+      return document.createElement("br")
+    }
+    case tag_indexes.Select: {
+      const select = document.createElement("select")
+      for (const [i, o] of elem.payload.field1.entries()) {
+        const option = document.createElement("option")
+        option.setAttribute("value", i)
+        option.appendChild(document.createTextNode(o.field0))
+        select.appendChild(option)
+      }
+      select.setAttribute("style", elem.payload.field0)
+      select.onchange = () => {
+        state = elem.payload.field1[select.value].field1
+        render_ui()
+      }
+      return select
+    }
   }
 }
 
+let global_state_string = localStorage.getItem("global-state")
+if (global_state_string != null) {
+  state.field0 = JSON.parse(global_state_string)
+}
+let ui = null
+
 function render_ui() {
+  const now = Date.now()
+  // TODO: Sync global state across multiple instances of the website
+  localStorage.setItem("global-state", JSON.stringify(state.field0))
+  ui = state.field1(state.field0, {field0: {field0: now}})
   document.body.innerHTML = ""
   document.title = ui.field0
   for (const elem of ui.field1) {
@@ -64,7 +97,7 @@ function render_ui() {
 }
 
 window.onkeydown = (e) => {
-  ui = ui.field2({field0: e.key})
+  state = ui.field2({field0: e.key})
   render_ui()
 }
 

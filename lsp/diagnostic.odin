@@ -40,7 +40,19 @@ diagnostic_header :: proc(
                 range = utils.ReadableRange{utils.ReadablePos{0, 0}, utils.ReadablePos{0, 0}}
                 file = pos
             case utils.Range:
-                range = utils.get_range(pos)
+                length := uint(len(pos.file.code))
+                // Prevents an out of range index error in the `utils.get_range` function
+                if pos.start < length {
+                    range = utils.get_range(pos)
+                } else {
+                    assert(pos.start == length && pos.length.v == 1)
+                    // TODO: Ideally the range would span 1 character, but I
+                    // don't think it's possible to have a diagnostic at the
+                    // very end of a file which has a length greater than 0 in
+                    // an LSP server
+                    pos := utils.get_pos(utils.Pos{length, pos.file})
+                    range = utils.ReadableRange{pos, pos}
+                }
                 file = pos.file
             case:
                 panic("Unreachable")

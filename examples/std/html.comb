@@ -8,8 +8,10 @@
 //                 |--|
 // Implemented in the programming language 
 
-h = import "http.code"
-p = import "path.code"
+t = import "time.comb"
+h = import "http.comb"
+p = import "path.comb"
+u = import "utils.comb"
 
 SvgElem = \
     Line: {
@@ -23,36 +25,60 @@ SvgElem = \
     },
 \
 
-HtmlElem = \
-    Button: {children: HtmlElem[], onclick: () -> UI},
-    Div: {style: String, children: HtmlElem[]},
+HtmlElem[GlobalState] = \
+    Button: {children: HtmlElem[GlobalState][], onclick: State[GlobalState]},
+    Div: {style: String, children: HtmlElem[GlobalState][]},
     Text: String,
+    Span: String,
     Svg: {style: String, width: UInt, height: UInt, contents: SvgElem[]},
+    :Br,
+    Select: {
+        style: String,
+        options: {
+            label: String,
+            on_select: State[GlobalState],
+        }[],
+    },
 \
 
 Key = {
     key: String,
 }
 
-UI = {
+UI[GlobalState] = {
     page_title: String,
-    ui_contents: HtmlElem[],
-    on_key_down: (Key) -> UI,
+    ui_contents: HtmlElem[GlobalState][],
+    on_key_down: (Key) -> State[GlobalState],
 }
 
-Site = {
-    // TODO: Use `UI` rather than `() -> UI`
+RenderInfo = {
+    date: t.Date,
+}
+
+Render[GlobalState] = (GlobalState, RenderInfo) -> UI[GlobalState]
+
+State[GlobalState] = {
+    global_state: GlobalState,
+    render: Render[GlobalState],
+}
+
+EmptyGlobalState = \:None\ // TODO: Be able to use `{:}`
+empty_global_state = :None // TODO: Be able to use `{=}`
+
+Site[GlobalState] = {
+    initial_global_state: GlobalState,
+    // TODO: Use `Render[GlobalState]` rather than `() -> Render[GlobalState]`
     // Currently this isn't useful because you can't interpret a call to a
-    // render function like `(State) -> UI` at compile time so using `UI` rather
-    // than `() -> UI` would make it impractical to construct a compile-time
-    // known `Site`
-    pages: OrderedHashMap[String, () -> UI], // TODO: Be able to use a unordered hash map
+    // render function like `(State) -> Render[GlobalState]` at compile time so
+    // using `Render[GlobalState]` rather than `() -> Render[GlobalState]` would
+    // make it impractical to construct a compile-time known `Site`
+    pages: OrderedHashMap[String, () -> Render[GlobalState]], // TODO: Be able to use a unordered hash map
 }
 
-reactive_page = |c: Compiler, ui: () -> UI| -> String {
+reactive_page[GlobalState] = |c: Compiler, state: State[GlobalState]| -> String {
     glue = #load "./html.js"
     // TODO: Be able to define the map something like `{"ui": ui()}`
-    map = OrderedHashMap("ui" = ui())
+    map = OrderedHashMap("state" = state)
     // TODO: Add minification:
     // - Maybe there could be an argument with the type
     //   `\:Minify, :LeaveNames\` in the future
@@ -75,21 +101,27 @@ reactive_page = |c: Compiler, ui: () -> UI| -> String {
         "</" & "html>"
 }
 
-build_reactive_site = |c: Compiler, s: Site, path: String| {
+build_reactive_site[GlobalState] = |c: Compiler, s: Site[GlobalState], path: String| {
     for rel_page_path, ui in s.pages {
         page_path = path & "/" & p.normalize_path(rel_page_path) & ".html"
         make_dir_all(p.dir(page_path))
-        write_file(page_path, reactive_page(c, ui))
+        write_file(page_path, reactive_page[GlobalState](c, {
+            global_state = s.initial_global_state,
+            render = ui(),
+        }))
     }
 }
 
 // TODO: Implement state-preserving hot-reload using the `-watch` flag and compiler cache and a websocket
-serve_reactive_site = |c: Compiler, server: HttpServer, s: Site| {
+serve_reactive_site[GlobalState] = |c: Compiler, server: HttpServer, s: Site[GlobalState]| {
     println("Serving reactive site on port " & server.port.to_str)
     server.set_handler(|req: HttpRequest| -> HttpResponse {
         // TODO: Add path normalisation
         if req.url in s.pages {
-            return Html: (reactive_page(c, s.pages[req.url]))
+            return Html: (reactive_page[GlobalState](c, {
+                global_state = s.initial_global_state,
+                render = s.pages[req.url](),
+            }))
         }
         return Html: ("The page " & h.escape_for_html(req.url) & " is not defined")
     })

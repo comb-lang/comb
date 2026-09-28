@@ -77,7 +77,7 @@ run_lsp :: proc(input_reader: io.Reader, output_writer: io.Writer) {
         loc: runtime.Source_Code_Location,
     ) -> ! {
         fmt.wprintfln(utils.debug_writer, "%v: %s: %s", loc, prefix, message)
-        os.exit(1)
+        runtime.trap()
     }
 
     fmt.wprintfln(utils.debug_writer, "Lsp started at %v", time.now())

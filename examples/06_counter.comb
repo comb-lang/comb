@@ -1,0 +1,55 @@
+h = import "std/html.comb"
+http = import "std/http.comb"
+
+CounterState = {
+    count: UInt,
+}
+
+counter_initial_state = {count = 1}
+
+increment_count = |s: CounterState| -> CounterState {
+	return {count = s.count + 1}
+}
+
+counter = |s: CounterState| -> h.Render[h.EmptyGlobalState] {
+    return |_state: h.EmptyGlobalState, _info: h.RenderInfo| -> h.UI[h.EmptyGlobalState] {
+        contents = [
+            Button: {
+                children = [Text: ("The count is " & s.count.to_str)],
+                onclick = {
+                    global_state = h.empty_global_state,
+                    render = counter(increment_count(s)), // TODO: Cleanup syntax
+                }
+            },
+        ]
+        return {
+            page_title = "Counter",
+            ui_contents = contents,
+            on_key_down = |_: h.Key| -> h.State[h.EmptyGlobalState] {
+                return {
+                    global_state = h.empty_global_state,
+                    render = counter(s)
+                }
+            },
+        }
+    }
+}
+
+site = {
+    initial_global_state = h.empty_global_state,
+    pages = OrderedHashMap(
+        "/" = || -> h.Render[h.EmptyGlobalState] {return counter(counter_initial_state)},
+    ),
+}
+
+build = |c: Compiler| -> Int {
+    h.build_reactive_site[h.EmptyGlobalState](c, site, "gitignore_counter")
+    return 0
+}
+
+// TODO: Add unit test for this
+serve = |c: Compiler| -> Int {
+    server = http.get_http_server(c.cache, "server")
+    h.serve_reactive_site[h.EmptyGlobalState](c, server, site)
+    return 0
+}

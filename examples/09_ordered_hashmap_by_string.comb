@@ -1,4 +1,4 @@
-u = import "std/utils.code"
+u = import "std/utils.comb"
 
 // TODO: Improve C emitter so that this also works when compiled via C
 

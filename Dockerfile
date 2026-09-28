@@ -11,6 +11,6 @@ RUN mkdir build
 RUN odin build comb $(cat AMD64_FLAGS) -out:build/amd64-linux-comb
 RUN odin build comb $(cat ARM64_FLAGS) -out:build/arm64-linux-comb
 RUN cp comb/license.md comb/examples/std
-RUN tar -cf - comb/examples/std | zstd -o stdlib.tar.zst
+RUN cd comb/examples; tar -cf - std | zstd -o /stdlib.tar.zst
 RUN sha256sum stdlib.tar.zst | head -c 64 > CHECKSUM
 RUN mv stdlib.tar.zst build/stdlib-$(cat CHECKSUM).tar.zst

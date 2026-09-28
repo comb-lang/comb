@@ -1,4 +1,4 @@
-u = import "std/utils.code"
+u = import "std/utils.comb"
 
 LinkedList[T] = \
     :Empty,

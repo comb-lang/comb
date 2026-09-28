@@ -1,6 +1,6 @@
-h = import "std/html.code"
-http = import "std/http.code"
-u = import "std/utils.code"
+h = import "std/html.comb"
+http = import "std/http.comb"
+u = import "std/utils.comb"
 
 game_width = 15
 game_height = 15
@@ -52,8 +52,14 @@ run_tick = |s: State| -> State {
     return new_state$
 }
 
-game_of_life = |s: State| -> h.UI {
-    re grid_pixels$ = u.empty_array[h.HtmlElem]()
+game_of_life2 = |s: State| -> h.Render[h.EmptyGlobalState] {
+	return |_s: h.EmptyGlobalState, _info: h.RenderInfo| -> h.UI[h.EmptyGlobalState] {
+		return game_of_life(s)
+	}
+}
+
+game_of_life = |s: State| -> h.UI[h.EmptyGlobalState] {
+    re grid_pixels$ = u.empty_array[h.HtmlElem[h.EmptyGlobalState]]()
     for row in s.rows {
 		for pixel in row.cells {
 	        if pixel {
@@ -70,14 +76,22 @@ game_of_life = |s: State| -> h.UI {
 	ui_contents = [
         Button: {
 			children = [Text: "Run tick"],
-			onclick = || -> h.UI { return game_of_life(run_tick(s)) },
+			onclick = {
+				global_state = h.empty_global_state,
+				render = game_of_life2(run_tick(s))
+			},
 		},
         Div: {style = grid_style, children = grid_pixels$},
     ]
 	return {
 		page_title = main_title,
 		ui_contents = ui_contents,
-		on_key_down = |_: h.Key| -> h.UI { return game_of_life(s) },
+		on_key_down = |_: h.Key| -> h.State[h.EmptyGlobalState] {
+			return {
+				global_state = h.empty_global_state,
+				render = game_of_life2(s)
+			}
+		},
 	}
 }
 
@@ -99,18 +113,21 @@ pulsar_initial_state = {rows = [
     {cells = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false]},
 ]}
 
-site = {pages = OrderedHashMap(
-	"/" = || -> h.UI { return game_of_life(pulsar_initial_state) },
-)}
+site = {
+	initial_global_state = h.empty_global_state,
+	pages = OrderedHashMap(
+		"/" = || -> h.Render[h.EmptyGlobalState] { return game_of_life2(pulsar_initial_state) },
+	)
+}
 
 build = |c: Compiler| -> Int {
-	h.build_reactive_site(c, site, "gitignore_conways_game_of_life")
+	h.build_reactive_site[h.EmptyGlobalState](c, site, "gitignore_conways_game_of_life")
     return 0
 }
 
 // TODO: Add unit test for this
 serve = |c: Compiler| -> Int {
 	server = http.get_http_server(c.cache, "server")
-    h.serve_reactive_site(c, server, site)
+    h.serve_reactive_site[h.EmptyGlobalState](c, server, site)
 	return 0
 }

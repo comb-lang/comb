@@ -1,0 +1,46 @@
+u = import "std/utils.comb"
+
+Color = {
+	red: Float,
+	green: Float,
+	blue: Float,
+	alpha: Float,
+}
+
+Style = {
+	border_color: Color,
+	background_color: Color,
+	text_color: Color,
+	font_weight: \:Light, :Normal, :Medium, :Bold\,
+	text_align: \:Left, :Middle, :Right\,
+}
+
+transparent = {red = 0.0, green = 0.0, blue = 0.0, alpha = 1.0}
+black = {red = 0.0, green = 0.0, blue = 0.0, alpha = 0.0}
+grey = {red = 0.1, green = 0.1, blue = 0.1, alpha = 0.0}
+red = {red = 1.0, green = 0.0, blue = 0.0, alpha = 0.0}
+
+base = {border_color = transparent, background_color = transparent, text_color = black, font_weight = :Normal, text_align = :Left}
+card = base ~ .background_color = grey
+// TODO: Be abe to change the font weight like `card ~ .font_weight = :Bold`
+button = card ~ .border_color = red
+
+color_is_equal = |a: Color, b: Color| -> Bool {
+	return a.red == b.red and a.green == b.green and a.blue == b.blue and a.alpha == b.alpha
+}
+
+main = || -> Int {
+	u.assert(color_is_equal(base.border_color, transparent))
+	u.assert(color_is_equal(base.background_color, transparent))
+	u.assert(color_is_equal(base.text_color, black))
+
+	u.assert(color_is_equal(card.border_color, transparent))
+	u.assert(color_is_equal(card.background_color, grey))
+	u.assert(color_is_equal(card.text_color, black))
+
+	u.assert(color_is_equal(button.border_color, red))
+	u.assert(color_is_equal(button.background_color, grey))
+	u.assert(color_is_equal(button.text_color, black))
+
+	return 0
+}

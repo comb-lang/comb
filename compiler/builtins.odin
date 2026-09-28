@@ -44,7 +44,7 @@ BuiltinFunction :: enum u8 {
 }
 
 GotBuiltin :: struct {
-    value: CompileTimeValue,
+    value: ExactValue,
     type:  Type,
 }
 

@@ -24,7 +24,7 @@ jobs:
         commit_message="$(echo "${{ github.event.head_commit.message }}" | head -1)"
         if [[ ${commit_message} =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
           echo "Publishing stable release because the latest commit message is ${commit_message}"
-          gh release create "${commit_message}" ./gitignore_docker_build/*
+          gh release create "${commit_message}" ./gitignore_docker_build/* --target main
         else
           echo "Not publishing stable release because the latest commit message is ${commit_message}"
         fi

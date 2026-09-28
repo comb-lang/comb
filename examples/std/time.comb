@@ -1,0 +1,53 @@
+u = import "utils.comb"
+
+Date = {
+	elapsed_ms: UInt, // The number of milliseconds since january 1, 1970 00:00:00 UTC
+}
+
+milliseconds_per_second = 1000
+seconds_per_minute = 60
+minutes_per_hour = 60
+hours_per_day = 24
+
+get_date_info = |d: Date| -> DateInfo {
+	total_seconds = u.uint_div(d.elapsed_ms, milliseconds_per_second)
+	total_minutes = u.uint_div(total_seconds, seconds_per_minute)
+	total_hours = u.uint_div(total_minutes, minutes_per_hour)
+
+	return {
+		milliseconds = d.elapsed_ms % milliseconds_per_second,
+		seconds = total_seconds % seconds_per_minute,
+		minutes = total_minutes % minutes_per_hour,
+		hours = total_hours % hours_per_day,
+	}
+}
+
+DateInfo = {
+	milliseconds: UInt,
+	seconds: UInt,
+	minutes: UInt,
+	hours: UInt,
+
+	// TODO: Add commented out fields
+	// day_of_week: \:Monday, :Tuesday, :Wednesday, :Thursday, :Friday, :Saturday, :Sunday\,
+	// day_of_month: UInt,
+	// month: UInt,
+	// full_year: UInt,
+}
+
+// format_day = |d: DateInfo| -> String {
+// 	return d.full_year.to_str & "/" & d.month.to_str & "/" & d.day_of_month.to_str
+// }
+
+format_time = |d: DateInfo| -> String {
+	return d.hours.to_str & ":" & d.minutes.to_str
+}
+
+format_exact_time = |d: DateInfo| -> String {
+	return format_time(d) & ":" & d.seconds.to_str & " " & d.milliseconds.to_str
+}
+
+format_date = |d: DateInfo| -> String {
+	// return format_day(d) & " " & format_exact_time(d)
+	return format_exact_time(d)
+}

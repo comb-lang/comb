@@ -1,4 +1,4 @@
-u = import "../std/utils.code"
+u = import "../std/utils.comb"
 
 byte = 8
 kilobyte = 1024 & byte // `&` should be `*`

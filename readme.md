@@ -62,6 +62,7 @@ A new language for the web, because it's time to stop working around javascript.
   - This enables the type system to represent a memoised component with something like:
     - `HtmlElem = <Div{contents: []HtmlElem}, Component{func: ($T) -> []HtmlElem, arg: $T}>`
     - This is possible because the type of `$T` can be different for every `HtmlElem.Component` in a tree of `HtmlElem`s
+- Figure out what to do with the unused big number implementation in `./utils/big_number.odin`
 - Return a `Result` type from builtin functions which may fail rather than `panic`king on the error path
   - Non-exhaustive list of builtins that should return a result rather than `panic`king:
     - `cast`

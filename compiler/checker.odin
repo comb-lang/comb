@@ -3,8 +3,10 @@ package compiler
 import "../utils"
 import "core:fmt"
 import "core:io"
+import "core:math"
 import "core:os"
 import "core:path/filepath"
+import "core:strconv"
 import "core:strings"
 
 return_type_count_mismatch :: "Expected %d return types, but the function returns %d return types"
@@ -65,7 +67,7 @@ GenericInitialisation :: struct {
 
 CheckedGlobalValue :: struct {
     type:  Type,
-    value: CompileTimeValue,
+    value: ExactValue,
 }
 
 GenericInitialisations :: struct {
@@ -119,7 +121,7 @@ CheckedFunction :: struct {
     inline_stuff: InlineFuncFields,
 }
 
-StringLiteralValue :: distinct string
+StringValue :: distinct string
 CharValue :: distinct u8
 IntValue :: distinct i64
 BooleanNotValue :: distinct ^CheckedValue
@@ -149,10 +151,10 @@ CheckedFunctionCall :: struct {
     function: ^CheckedValue,
     args:     []CheckedValue,
 }
-SumTypeInitialisation :: struct {
+SumTypeInitialisation :: struct(PayloadType: typeid) {
     sum_type:      Type,
     variant_index: u32,
-    payload:       ^CheckedValue, // May be `nil`
+    payload:       PayloadType, // May be `nil`
 }
 LengthOfString :: struct {
     str: ^CheckedValue,
@@ -200,62 +202,135 @@ ImportedFile :: struct {
 // generic_args: []Type,
 // }
 UninitialisedOrderedHashMapType :: struct {}
-CompileTimeStructInitialisation :: struct {
-    struct_type: Type,
-    fields:      []CompileTimeValue,
-}
-StructInitialisation :: struct {
-    struct_type: Type,
-    fields:      []CheckedValue,
-}
 CastFunction :: struct {
     type: Type,
 }
-CompileTimeOrderedHashMapInitialisation :: struct {
+ExactOrderedHashMap :: struct {
     type:  Type,
-    value: map[HashMapKey]CompileTimeValue,
+    value: map[HashMapKey]ExactValue,
     order: []HashMapKey,
 }
 OrderedHashMapInitialisation :: struct {
     type:                Type,
-    compile_time_values: map[HashMapKey]CompileTimeValue,
+    compile_time_values: map[HashMapKey]ExactValue,
     runtime_values:      map[HashMapKey]CheckedValue,
     order:               []HashMapKey,
 }
-CompileTimeArray :: struct {
+
+Array :: struct(ItemType: typeid) {
     type:     Type,
-    elements: []CompileTimeValue,
+    elements: []ItemType,
 }
-CompileTimeValue :: union {
-    CompileTimeArray,
-    StringLiteralValue,
-    utils.NumberValue,
+
+StructInitialisation :: struct(FieldType: typeid) {
+    struct_type: Type,
+    fields:      []FieldType,
+}
+
+// TODO for interpreter: Store the number of references and implement reference counting
+ExactValue :: union {
+    f64, // TODO: Support using i64 or u64 to increase accuracy
     BoolValue,
-    Type,
-    GlobalValueWithGenericRef, // For an uninitialised global value with generics
-    UninitialisedOrderedHashMapType,
-    Import,
-    Func,
-    CompileTimeStructInitialisation,
-    CompileTimeOrderedHashMapInitialisation,
+    StructInitialisation(ExactValue),
+    Array(ExactValue),
     BuiltinFunction,
     CastFunction,
+    StringValue,
+    ExactOrderedHashMap,
+    SumTypeInitialisation(^ExactValue),
+
+    // TODO: I feel weird about these variants being here because they can never
+    // exist at runtime in the interpreter, even though they can exist as a
+    // compile time value
+    Type,
+    Import,
+    GlobalValueWithGenericRef, // For an uninitialised global value with generics
+    UninitialisedOrderedHashMapType,
+
+    // TODO: I feel weird about these variants being here because they can never
+    // exist as a compile time value, even though they can exist at runtime in
+    // the interpreter
+    SetHttpServerHandler,
+    HttpServerListenAndServe,
+    RuntimeFunc,
 }
+
+get_exact_value_type :: proc(checked_funcs: []CheckedFunction, value: ExactValue) -> Type {
+    switch v in value {
+    case Type, Import, GlobalValueWithGenericRef, UninitialisedOrderedHashMapType:
+        panic("Unreachable")
+    case f64:
+        if math.floor(v) != v {
+            return .Float
+        } else if v < 0 {
+            return .Int
+        } else {
+            return .UInt
+        }
+    case BoolValue:
+        return .Bool
+    case StringValue:
+        return .String
+    case Array(ExactValue):
+        return v.type
+    case ExactOrderedHashMap:
+        return v.type
+    case StructInitialisation(ExactValue):
+        return v.struct_type
+    /*
+    // OLD(INITIALISING STRUCTS LIKE `StructType(fields...)`)
+    case compiler.StructTypeInitFunc:
+        return_types := make([]compiler.Type, 1)
+        return_types[0] = v.return_type
+        return compiler.create_type(&s.types, compiler.FuncType{nil, return_types}).type
+        */
+    case SumTypeInitialisation(^ExactValue):
+        return v.sum_type
+    case RuntimeFunc:
+        return checked_funcs[v.ref.index.v].type
+    case BuiltinFunction:
+        panic("TODO")
+    case CastFunction:
+        panic("TODO")
+    case SetHttpServerHandler:
+        panic("TODO")
+    case HttpServerListenAndServe:
+        panic("TODO")
+    case:
+        panic("Unreachable")
+    }
+}
+
+RuntimeFunc :: struct {
+    ref:         CheckedFuncRef,
+    lambda_args: utils.Multi(ExactValue),
+}
+
+SetHttpServerHandler :: struct {
+    server: uint,
+}
+
+HttpServerListenAndServe :: struct {
+    server: uint,
+}
+
 Func :: struct {
     ref:         CheckedFuncRef,
     // For when variables defined in one function are accessible from an inline
     // function
     lambda_args: utils.Multi(VariableRef),
 }
+
 CheckedValue :: union {
-    CompileTimeValue,
+    ExactValue,
+    Func,
     ToString,
     VariableRef,
     BooleanNotValue,
     CheckedJoinedValues,
     CheckedFunctionCall,
-    StructInitialisation,
-    SumTypeInitialisation,
+    StructInitialisation(CheckedValue),
+    SumTypeInitialisation(^CheckedValue),
     CheckedIndexedAccess,
     CheckedOrderedHashMapAccess,
     CheckedFieldAccess,
@@ -572,7 +647,7 @@ check_array_type :: proc(
         if !runtime_value_ok(s, get_range(square_bracket_args[0]), value) {
             return ArrayType{}, false
         }
-        compile_time_value, is_comptime := value.(CompileTimeValue)
+        compile_time_value, is_comptime := value.(ExactValue)
         if !is_comptime {
             utils.diagnostic(
                 s.r,
@@ -581,19 +656,17 @@ check_array_type :: proc(
             )
             return ArrayType{}, false
         }
-        number := compile_time_value.(utils.NumberValue)
         assert(len(body.v) == 0)
-        assert(number.fraction_part == "")
-        length, ok := utils.big_uint_to_u32(number.whole_part)
-        if number.is_negated || !ok || length == 0 {
-            utils.diagnostic(
-                s.r,
-                get_range(square_bracket_args[0]),
-                "Expected an integer, n, where 0 < n <= max(u32)",
-            )
-            return ArrayType{}, false
+        number := compile_time_value.(f64)
+        if 0 < number && number <= f64(max(u32)) {
+            return ArrayType{u32(number), item_type}, true
         }
-        return ArrayType{length, item_type}, true
+        utils.diagnostic(
+            s.r,
+            get_range(square_bracket_args[0]),
+            "Expected an integer, n, where 0 < n <= max(u32)",
+        )
+        return ArrayType{}, false
     } else {
         utils.diagnostic(
             s.r,
@@ -619,7 +692,7 @@ check_type :: proc(
         return .Invalid
     }
     assert(len(body.v) == 0)
-    return value.(CompileTimeValue).(Type)
+    return value.(ExactValue).(Type)
 }
 
 // TODO: It should not be possible to represent a value which cannot be used at runtime with `CheckedValue`, so this function should not be necersarry
@@ -633,7 +706,7 @@ runtime_value_ok :: proc(
 ) -> bool {
     utils.call(loc, "runtime_value_ok", "")
     #partial switch v in value {
-    case CompileTimeValue:
+    case ExactValue:
         #partial switch _ in v {
         case Type, GlobalValueWithGenericRef, UninitialisedOrderedHashMapType, Import:
             utils.diagnostic(s.r, range, "This value can only be used at compile time")
@@ -696,21 +769,22 @@ CheckedBlock :: struct {
     body:      []CheckedStatement,
 }
 
-ArrayElementAccess :: struct {
-    index: CheckedValue,
-}
-
-StringOrderedHashMapAccess :: struct {
-    key: CheckedValue,
-}
-
 FieldAccess :: struct {
     field_index: u32,
 }
 
-DerivationSubsetElement :: union #no_nil {
-    StringOrderedHashMapAccess,
+DerivationSubsetElementWithCheckedValueKind :: enum {
     ArrayElementAccess,
+    StringOrderedHashMapAccess,
+}
+
+DerivationSubsetElementWithCheckedValue :: struct {
+    kind:          DerivationSubsetElementWithCheckedValueKind,
+    checked_value: CheckedValue,
+}
+
+DerivationSubsetElement :: union {
+    DerivationSubsetElementWithCheckedValue,
     FieldAccess,
 }
 
@@ -816,7 +890,7 @@ check_comptime_func_call :: proc(
     generic_args: []Type,
     loc := #caller_location,
 ) -> CheckValueResult {
-    // return CompileTimeValue(UninitialisedGlobalWithGenerics{global,generic_args})
+    // return ExactValue(UninitialisedGlobalWithGenerics{global,generic_args})
     generic := &s.global_values_with_generics[global.index]
     if len(generic_args) != len(generic.generics) {
         argument_count_mismatch(s, function_range, len(generic_args), len(generic.generics))
@@ -862,7 +936,7 @@ check_comptime_func_call :: proc(
         )
         return CheckValueResult{nil, .Invalid}
     }
-    comptime_value, ok := checked_value.value.(CompileTimeValue)
+    comptime_value, ok := checked_value.value.(ExactValue)
     s.generic_initialisations.values.d[ref.index] = utils.to_debug_value(
         CheckedGlobalValue{checked_value.type, comptime_value},
     )
@@ -884,7 +958,7 @@ check_comptime_func_call :: proc(
             ),
         )
         s.types.values.d[type_value].type =
-            checked_value2.value == nil ? .Invalid : checked_value2.value.(CompileTimeValue).(Type)
+            checked_value2.value == nil ? .Invalid : checked_value2.value.(ExactValue).(Type)
     }
 
     return checked_value
@@ -972,7 +1046,7 @@ initialise_global_type_without_generic :: proc(
         utils.diagnostic(s, type.ast_node.unit.pos, "TODO: FIX") // TODO FIX
     }
     checked_type := check_type(s, type.ast_node.unit, no_generic_args)
-    s.global_values_without_generic[i].v.value = CompileTimeValue(checked_type)
+    s.global_values_without_generic[i].v.value = ExactValue(checked_type)
     return checked_type
 }
 */
@@ -1091,7 +1165,7 @@ get_func_type :: proc(
     simplified := simplify_type(s, type)
     /*
     if simplified == .Type && value != nil {
-        value_type_unsimplified := value.(CompileTimeValue).(Type)
+        value_type_unsimplified := value.(ExactValue).(Type)
         value_type := simplify_type(s, value_type_unsimplified)
         got := get_type(s.types, value_type)
         #partial switch type in got.key {
@@ -1115,7 +1189,7 @@ get_func_type :: proc(
         // - `get_struct_type`
         // - `get_sum_type`
         // - `expect_type`
-        global_value_with_generic_ref, ok := value.(CompileTimeValue).(GlobalValueWithGenericRef)
+        global_value_with_generic_ref, ok := value.(ExactValue).(GlobalValueWithGenericRef)
         if ok {
             global_value_with_generic :=
                 s.global_values_with_generics[global_value_with_generic_ref.index]
@@ -1300,17 +1374,6 @@ expect_type_helper :: proc(
     }
 }
 
-guess_number_type :: proc(n: utils.NumberValue) -> Type {
-    // TODO: Check that `n` is in range
-    if n.fraction_part != "" {
-        return .Float
-    }
-    if n.is_negated {
-        return .Int
-    }
-    return .UInt
-}
-
 /*
 finish_checking_value :: proc(
     s: ^CheckerState,
@@ -1335,7 +1398,7 @@ finish_checking_value :: proc(
         assert(global_value.type == Unknown)
         assert(global_value.value == nil)
         global_value^ = CheckedGlobalValue{got_type, nil}
-        comptime_value, ok := got_value.(CompileTimeValue)
+        comptime_value, ok := got_value.(ExactValue)
         if !ok {
             utils.diagnostic(s, pos, non_compiletime_global_err)
             return nil
@@ -1793,14 +1856,7 @@ check_mutation :: proc(
 
         utils.debug_dynamic_array_append(
             body,
-            CheckedAssignment {
-                var_ref,
-                CheckedDerivation {
-                    new_clone(CheckedValue(var_ref)),
-                    DerivationSubset{},
-                    alteration,
-                },
-            },
+            CheckedAssignment{var_ref, create_derivation(var_ref, nil, alteration)},
         )
         return true
     }
@@ -2232,9 +2288,7 @@ check_block :: proc(
                 )
                 step: CheckedValue = ---
                 if iter.step == nil {
-                    step = CompileTimeValue(
-                        utils.NumberValue{false, utils.big_uint_from_u64(1), ""},
-                    )
+                    step = ExactValue(1.0)
                 } else {
                     step = check_value_of_type(
                         s,
@@ -2544,7 +2598,7 @@ check_namespaced_var_ref :: proc(
     }
     if parsed_global.has_generics {
         return CheckValueResult {
-            CompileTimeValue(GlobalValueWithGenericRef{parsed_global.index}),
+            ExactValue(GlobalValueWithGenericRef{parsed_global.index}),
             .Unknown,
         }
     } else {
@@ -2583,7 +2637,7 @@ check_namespaced_var_ref :: proc(
         // if initialised == Invalid {
         //     return nil, Invalid, 0
         // }
-        // return CompileTimeValue(initialised), Type, index + 1
+        // return ExactValue(initialised), Type, index + 1
         /*
     switch global_value in global.value {
     case:
@@ -2611,13 +2665,13 @@ check_namespaced_var_ref :: proc(
             return check_namespaced_var_ref(s, value.file, ref, index + 1)
         }
     case GlobalTypeWithGenericRef:
-        return CompileTimeValue(global_value), Unknown, index + 1
+        return ExactValue(global_value), Unknown, index + 1
     case GlobalTypeWithoutGenericRef:
         initialised := initialise_global_type_without_generic(s, global_value.index)
         if initialised == Invalid {
             return nil, Invalid, 0
         }
-        return CompileTimeValue(initialised), Type, index + 1
+        return ExactValue(initialised), Type, index + 1
         */
     }
 }
@@ -2629,7 +2683,7 @@ check_var_ref_start :: proc(
     generic_args: map[string]Type,
 ) -> CheckValueResult {
     if ident.ident in generic_args {
-        return CheckValueResult{CompileTimeValue(generic_args[ident.ident]), .Type}
+        return CheckValueResult{ExactValue(generic_args[ident.ident]), .Type}
     }
     if builtin := get_builtin(ident.ident); builtin.value != nil {
         return CheckValueResult{builtin.value, builtin.type}
@@ -2784,11 +2838,7 @@ check_var_ref :: proc(
         }
         return CheckValueResult{converted, .String}
     } else if value.type == .ImportedFile {
-        return check_namespaced_var_ref(
-            s,
-            value.value.(CompileTimeValue).(Import).file,
-            extra_segment,
-        )
+        return check_namespaced_var_ref(s, value.value.(ExactValue).(Import).file, extra_segment)
     }
     struct_type, ok := get_struct_type(s, value.type)
     if ok {
@@ -2824,7 +2874,7 @@ check_array_initialisation :: proc(
         if checked.v.value == nil {
             ok = false
         }
-        _, is_comptime := checked.v.value.(CompileTimeValue)
+        _, is_comptime := checked.v.value.(ExactValue)
         if !is_comptime {
             has_non_compiletime_value = true
         }
@@ -2847,12 +2897,12 @@ check_array_initialisation :: proc(
         }
         return CheckValueResult{ArrayLiteral{array_type, segments}, array_type}
     } else {
-        comptime_elems := make([]CompileTimeValue, len(elements))
+        comptime_elems := make([]ExactValue, len(elements))
         for v, i in values {
-            comptime_elems[i] = v.(CompileTimeValue)
+            comptime_elems[i] = v.(ExactValue)
         }
         return CheckValueResult {
-            CompileTimeValue(CompileTimeArray{array_type, comptime_elems}),
+            ExactValue(Array(ExactValue){array_type, comptime_elems}),
             array_type,
         }
     }
@@ -2885,7 +2935,7 @@ check_array_initialisation :: proc(
         )
         return CheckValueResult{nil, .Invalid}
     }
-    compile_time_elems := make([dynamic]CompileTimeValue)
+    compile_time_elems := make([dynamic]ExactValue)
     for i := 0; i < len(args); i += 1 {
         value := check_value_of_type(
             s,
@@ -2896,7 +2946,7 @@ check_array_initialisation :: proc(
         if !runtime_value_ok(s, args[i].pos, value) {
             ok = false
             append_elem(&compile_time_elems, nil)
-        } else if comptime, is_comptime := value.(CompileTimeValue); is_comptime {
+        } else if comptime, is_comptime := value.(ExactValue); is_comptime {
             append_elem(&compile_time_elems, comptime)
         } else {
             array_segments := make([]ArraySegment, len(args))
@@ -2927,7 +2977,7 @@ check_array_initialisation :: proc(
         return CheckValueResult{nil, .Invalid}
     }
     return CheckValueResult {
-        CompileTimeValue(CompileTimeArray{array_type, compile_time_elems[:]}),
+        ExactValue(CompileTimeArray{array_type, compile_time_elems[:]}),
         array_type,
     }
 }
@@ -3021,14 +3071,14 @@ check_value_with_marker :: proc(
         if !expect_type(s, get_segment(v, i^).range, .String, value.type) {
             return CheckValueResult{nil, .Invalid}
         }
-        comptime_value, is_comptime := value.value.(CompileTimeValue)
+        comptime_value, is_comptime := value.value.(ExactValue)
         if !is_comptime {
             utils.diagnostic(s.r, get_segment(v, i^).range, "Expected a compile time known value")
             return CheckValueResult{nil, .Invalid}
         }
 
         joined, join_err := filepath.join(
-            []string{v.first.range.file.dir_path, string(comptime_value.(StringLiteralValue))},
+            []string{v.first.range.file.dir_path, string(comptime_value.(StringValue))},
             context.allocator,
         )
         if join_err != nil {
@@ -3046,7 +3096,7 @@ check_value_with_marker :: proc(
             )
             return CheckValueResult{nil, .Invalid}
         }
-        return CheckValueResult{CompileTimeValue(StringLiteralValue(data)), .String}
+        return CheckValueResult{ExactValue(StringValue(data)), .String}
     case "debug_ast":
         // debug_unit(nil, v)
         utils.debug("TODO: Handle debug_ast")
@@ -3126,13 +3176,13 @@ check_joined_unit_value :: proc(
                 get_range(after),
                 "While checking function type: The unit before the `->` should be a tuple (for example `(String, U64)`)",
             )
-            return CheckValueResult{CompileTimeValue(Type.Invalid), .Type}
+            return CheckValueResult{ExactValue(Type.Invalid), .Type}
         }
         t, ok := check_function_type(s, tuple.elements, after, a.generic_args)
         if !ok {
             return CheckValueResult{nil, .Type}
         }
-        out: CheckedValue = CompileTimeValue(create_type(&s.types, t).type)
+        out: CheckedValue = ExactValue(create_type(&s.types, t).type)
         return CheckValueResult{out, .Type}
 
     case .BooleanAnd, .BooleanOr:
@@ -3367,7 +3417,7 @@ finish_checking_early_return_type :: proc(
     s: ^CheckerState,
     a: CheckValueArgs,
 ) -> utils.DebugValue(CheckValueResult) {
-    out := CompileTimeValue(create_type(&s.types, a.early_exit_if_value_is_type).type)
+    out := ExactValue(create_type(&s.types, a.early_exit_if_value_is_type).type)
     return utils.to_debug_value(CheckValueResult{out, .Type})
 }
 
@@ -3446,7 +3496,7 @@ check_tag_value :: proc(
     sum_type := create_type(&s.types, SumType{sum_type_payloads}).type
 
     return utils.to_debug_value(
-        CheckValueResult{SumTypeInitialisation{sum_type, i.index, payload}, sum_type},
+        CheckValueResult{create_sum_type_value(sum_type, i.index, payload), sum_type},
     )
 }
 
@@ -3481,7 +3531,7 @@ check_key_value_pair :: proc(
     if key_value.v.value == nil {
         return nil
     }
-    key_comptime, is_comptime := key_value.v.value.(CompileTimeValue)
+    key_comptime, is_comptime := key_value.v.value.(ExactValue)
     if !is_comptime {
         utils.diagnostic(
             s.r,
@@ -3492,19 +3542,16 @@ check_key_value_pair :: proc(
     }
     assert(len(key_body.v) == 0)
     key: HashMapKey = nil
-    key_type := HashMapKeyType.Unknown
-    #partial switch simplify_type(s, key_value.v.type).type {
+    key_type := simplify_type(s, key_value.v.type).type
+    hashmap_key_type := HashMapKeyType.Unknown
+    #partial switch key_type {
     case .Int, .UInt, .Float:
-        number_value := key_comptime.(utils.NumberValue)
-        k, ok := utils.number_value_to_f64(number_value).(f64)
-        if !ok {
-            return nil
-        }
-        key = k
-        key_type = HashMapKeyType(guess_number_type(number_value))
+        number_value := key_comptime.(f64)
+        key = number_value
+        hashmap_key_type = HashMapKeyType(key_type)
     case .String:
-        key = string(key_comptime.(StringLiteralValue))
-        key_type = .String
+        key = string(key_comptime.(StringValue))
+        hashmap_key_type = .String
     case:
         utils.diagnostic(
             s.r,
@@ -3520,7 +3567,7 @@ check_key_value_pair :: proc(
     if !runtime_value_ok(s, get_range(split.after_split), value.v.value) {
         return nil
     }
-    return CheckedKeyValuePair{key, get_range(split.before_split), key_type, value.v}
+    return CheckedKeyValuePair{key, get_range(split.before_split), hashmap_key_type, value.v}
 }
 
 check_ordered_hashmap_initialisation :: proc(
@@ -3532,9 +3579,7 @@ check_ordered_hashmap_initialisation :: proc(
     if len(args) == 0 {
         return utils.to_debug_value(
             CheckValueResult {
-                CompileTimeValue(
-                    CompileTimeOrderedHashMapInitialisation{.EmptyOrderedHashMap, nil, nil},
-                ),
+                ExactValue(ExactOrderedHashMap{.EmptyOrderedHashMap, nil, nil}),
                 .EmptyOrderedHashMap,
             },
         )
@@ -3543,7 +3588,7 @@ check_ordered_hashmap_initialisation :: proc(
     // still be able to use the dervation syntax to create an ordered
     // hashmap value, so maybe all this code is unnecersarry
     /*
-    type := simplify_type(s, value_being_called.v.value.(CompileTimeValue).(Type))
+    type := simplify_type(s, value_being_called.v.value.(ExactValue).(Type))
     type_value, ok := type.key.(OrderedHashMapType)
     if !ok {
         utils.diagnostic(
@@ -3555,7 +3600,7 @@ check_ordered_hashmap_initialisation :: proc(
         return utils.to_debug_value(CheckValueResult{nil, .Invalid})
     }
     */
-    compile_time_items: map[HashMapKey]CompileTimeValue
+    compile_time_items: map[HashMapKey]ExactValue
     runtime_items: map[HashMapKey]CheckedValue
     order := make([dynamic]HashMapKey)
     value_types: map[Type]struct{} // map[Type]utils.Pos
@@ -3576,7 +3621,7 @@ check_ordered_hashmap_initialisation :: proc(
             )
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
-        if comptime, is_comptime := pair.value.value.(CompileTimeValue); is_comptime {
+        if comptime, is_comptime := pair.value.value.(ExactValue); is_comptime {
             compile_time_items[pair.key] = comptime
         } else {
             runtime_items[pair.key] = pair.value.value
@@ -3593,13 +3638,7 @@ check_ordered_hashmap_initialisation :: proc(
     if len(runtime_items) == 0 {
         return utils.to_debug_value(
             CheckValueResult {
-                CompileTimeValue(
-                    CompileTimeOrderedHashMapInitialisation {
-                        out_type.type,
-                        compile_time_items,
-                        order[:],
-                    },
-                ),
+                ExactValue(ExactOrderedHashMap{out_type.type, compile_time_items, order[:]}),
                 out_type.type,
             },
         )
@@ -3722,7 +3761,7 @@ check_initial_value :: proc(
             }
             return utils.to_debug_value(
                 CheckValueResult {
-                    CompileTimeValue(
+                    ExactValue(
                         check_struct_type(
                             s,
                             fields_map,
@@ -3774,7 +3813,7 @@ check_initial_value :: proc(
             return utils.to_debug_value(CheckValueResult{nil, .Type})
         }
         return utils.to_debug_value(
-            CheckValueResult{CompileTimeValue(create_type(&s.types, array).type), .Type},
+            CheckValueResult{ExactValue(create_type(&s.types, array).type), .Type},
         )
         */
 
@@ -3823,7 +3862,7 @@ check_initial_value :: proc(
             return utils.to_debug_value(CheckValueResult{nil, .Type})
         }
         return utils.to_debug_value(
-            CheckValueResult{CompileTimeValue(create_type(&s.types, sum_type).type), .Type},
+            CheckValueResult{ExactValue(create_type(&s.types, sum_type).type), .Type},
         )
 
     case Import:
@@ -3854,7 +3893,7 @@ check_initial_value :: proc(
         return check_value(s, value.elements[0], a)
 
     case Bool:
-        return utils.to_debug_value(CheckValueResult{CompileTimeValue(BoolValue(value)), .Bool})
+        return utils.to_debug_value(CheckValueResult{ExactValue(BoolValue(value)), .Bool})
     case FuncDefinitionRef:
         out_func, out_type := check_anonymous_func_head(s, value, a.generic_args)
         return utils.to_debug_value(CheckValueResult{out_func, out_type})
@@ -3913,8 +3952,6 @@ check_initial_value :: proc(
         }
 
     case WholeNonNegativeNumber:
-        whole_part := utils.big_uint_from_string(value.digits)
-        fraction_part := ""
         if is_segment(v, i^ + 2) {
             dot_segment := get_segment(v, i^ + 1)
             fraction_segment := get_segment(v, i^ + 2)
@@ -3922,30 +3959,35 @@ check_initial_value :: proc(
             fraction_value, fraction_value_ok := fraction_segment.contents.(WholeNonNegativeNumber)
             if dot_value_ok && fraction_value_ok && dot_value == .Dot {
                 i^ += 2
-                fraction_part = fraction_value.digits
+                n, ok := strconv.parse_f64(
+                    fmt.aprintf("%s.%s", value.digits, fraction_value.digits),
+                )
+                assert(ok)
+                return utils.to_debug_value(CheckValueResult{ExactValue(n), .Float})
             }
         }
-        n := utils.NumberValue{false, whole_part, fraction_part}
-        return utils.to_debug_value(CheckValueResult{CompileTimeValue(n), guess_number_type(n)})
+        n, ok := strconv.parse_f64(value.digits)
+        assert(ok)
+        return utils.to_debug_value(CheckValueResult{ExactValue(n), n < 0 ? .Int : .UInt})
 
     case String:
-        out := CompileTimeValue(StringLiteralValue(value))
+        out := ExactValue(StringValue(value))
         return utils.to_debug_value(CheckValueResult{out, .String})
 
     case Char:
-        out := CompileTimeValue(utils.NumberValue{false, utils.big_uint_from_u64(u64(value)), ""})
+        out := ExactValue(f64(value))
         return utils.to_debug_value(CheckValueResult{out, .Char})
     }
 }
 
-// Returns `ArrayElementAccess{}` on failure
+// Returns `nil` on failure
 check_array_index_derivation_subset :: proc(
     s: ^CheckerState,
     args: []Unit,
     args_range: utils.Range,
     body: ^utils.DebugValue([dynamic]CheckedStatement),
     generic_args: map[string]Type,
-) -> ArrayElementAccess {
+) -> DerivationSubsetElement {
     if len(args) != 1 {
         utils.diagnostic(
             s.r,
@@ -3953,11 +3995,11 @@ check_array_index_derivation_subset :: proc(
             "Expected 1 value in square brackets\nGot %d values",
             len(args),
         )
-        return ArrayElementAccess{}
+        return nil
     }
     index := check_value_of_type(s, args[0], CheckValueArgs{body, generic_args, nil}, index_type)
     utils.diagnostic(s.r, args_range, bounds_checks_warning, type = .Warning)
-    return ArrayElementAccess{index}
+    return DerivationSubsetElementWithCheckedValue{.ArrayElementAccess, index}
 }
 
 // Returns `nil, .Invalid` on failure
@@ -4026,7 +4068,7 @@ check_derivation_subset :: proc(
             body,
             generic_args,
         )
-        if subset_elem.index == nil {
+        if subset_elem == nil {
             return .Invalid
         }
         append(elements, subset_elem)
@@ -4070,7 +4112,7 @@ check_derivation_subset :: proc(
         if key == nil {
             return .Invalid
         }
-        append(elements, StringOrderedHashMapAccess{key})
+        append(elements, DerivationSubsetElementWithCheckedValue{.StringOrderedHashMapAccess, key})
         if len(unit.rest) == 0 {
             return t.value_type
         }
@@ -4286,11 +4328,7 @@ check_value :: proc(
         }
         return utils.to_debug_value(
             CheckValueResult {
-                CheckedDerivation {
-                    new_clone(res.value),
-                    DerivationSubset{derivation_subset[:]},
-                    alteration,
-                },
+                create_derivation(res.value, derivation_subset[:], alteration),
                 res.type,
             },
         )
@@ -4469,7 +4507,7 @@ check_value :: proc(
             )
         }
         */
-            if comptime, is_comptime := res.value.(CompileTimeValue); is_comptime {
+            if comptime, is_comptime := res.value.(ExactValue); is_comptime {
                 _, is_ordered_hash_map := comptime.(UninitialisedOrderedHashMapType)
                 if is_ordered_hash_map {
                     assert(res.type == .Unknown)
@@ -4520,7 +4558,7 @@ check_value :: proc(
                 if !ok {
                     return utils.to_debug_value(CheckValueResult{nil, .Invalid})
                 }
-                #partial switch comptime_value in res.value.(CompileTimeValue) {
+                #partial switch comptime_value in res.value.(ExactValue) {
                 case GlobalValueWithGenericRef:
                     res = check_comptime_func_call(s, res_range, comptime_value, checked_args)
                     continue
@@ -4547,7 +4585,7 @@ check_value :: proc(
                         )
                         return utils.to_debug_value(CheckValueResult{nil, .Type})
                     }
-                    res.value = CompileTimeValue(create_type(&s.types, type_key).type)
+                    res.value = ExactValue(create_type(&s.types, type_key).type)
                     res.type = .Type
                     continue
                 case BuiltinFunction:
@@ -4561,7 +4599,7 @@ check_value :: proc(
                     return_types := make([]Type, 1)
                     return_types[0] = checked_args[0]
                     res = CheckValueResult {
-                        CompileTimeValue(CastFunction{checked_args[0]}),
+                        ExactValue(CastFunction{checked_args[0]}),
                         create_type(&s.types, FuncType{args, return_types}).type,
                     }
                     continue
@@ -4573,7 +4611,7 @@ check_value :: proc(
                 }
                 array, ok := check_array_type(
                     s,
-                    res.value.(CompileTimeValue).(Type),
+                    res.value.(ExactValue).(Type),
                     contents.elements,
                     segment.range,
                     a.generic_args,
@@ -4581,7 +4619,7 @@ check_value :: proc(
                 if !ok {
                     return utils.to_debug_value(CheckValueResult{nil, .Type})
                 }
-                res = CheckValueResult{CompileTimeValue(create_type(&s.types, array).type), .Type}
+                res = CheckValueResult{ExactValue(create_type(&s.types, array).type), .Type}
                 continue
             }
             if len(contents.elements) != 1 {
@@ -4711,7 +4749,11 @@ check_anonymous_func_head :: proc(
             inline_func_fields,
         },
     )
-    return CompileTimeValue(Func{checked_ref, lambda_args}), type
+    if len(inline_func_fields.scope0.variables) == 0 {
+        assert(lambda_args.d == nil)
+        return ExactValue(RuntimeFunc{checked_ref, utils.Multi(ExactValue){nil}}), type
+    }
+    return Func{checked_ref, lambda_args}, type
 }
 
 // Returns `false` on failure
@@ -4816,7 +4858,7 @@ check_global_value_without_generic :: proc(
         global.v = CheckedGlobalValue{.Invalid, nil}
         return global.v
     }
-    comptime_value, ok := checked_value.v.value.(CompileTimeValue)
+    comptime_value, ok := checked_value.v.value.(ExactValue)
     if !ok {
         utils.diagnostic(s.r, get_range(value.unit), non_compiletime_global_err)
         global.v = CheckedGlobalValue{.Invalid, nil}
@@ -4835,7 +4877,7 @@ check_global_value_without_generic :: proc(
         if checked_value.v.value == nil {
             s.types.values.d[type_value].type = .Invalid
         } else {
-            s.types.values.d[type_value].type = checked_value.v.value.(CompileTimeValue).(Type)
+            s.types.values.d[type_value].type = checked_value.v.value.(ExactValue).(Type)
         }
     }
     return global.v
@@ -4843,7 +4885,7 @@ check_global_value_without_generic :: proc(
 
 length_of_array :: proc(type: ArrayType, value: CheckedValue) -> CheckedValue {
     if length, has_length := type.length.(u32); has_length {
-        return CompileTimeValue(utils.NumberValue{false, utils.big_uint_from_u64(u64(length)), ""})
+        return ExactValue(f64(length))
     }
     return LengthOfArray{new_clone(value)}
 }
@@ -4905,7 +4947,7 @@ get_global_function :: proc(
         return CheckedFuncRef{utils.to_debug_value(max(uint))}
     }
     global := s.global_values_without_generic[parsed_global.index]
-    func_ref, is_func := global.v.value.(Func)
+    func_ref, is_func := global.v.value.(RuntimeFunc)
     if !is_func {
         utils.diagnostic(
             s.r,

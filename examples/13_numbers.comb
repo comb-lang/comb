@@ -5,7 +5,7 @@
 // - UInt
 // - Float
 
-u = import "std/utils.code"
+u = import "std/utils.comb"
 
 // The return type of a numeric calculation is the most general type
 

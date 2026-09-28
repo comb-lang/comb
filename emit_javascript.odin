@@ -17,20 +17,32 @@ emit_js_func_call :: proc(s: ^GeneralEmitterState, c: compiler.CheckedFunctionCa
     strings.write_byte(&s.b, ')')
 }
 
-emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: compiler.CompileTimeValue) {
+emit_js_exact_value :: proc(s: ^GeneralEmitterState, v: compiler.ExactValue) {
     switch comptime in v {
-    case compiler.CompileTimeArray:
+    case:
+        panic("Unreachable")
+    case compiler.SumTypeInitialisation(^compiler.ExactValue):
+        strings.write_string(&s.b, "{variant:")
+        strings.write_uint(&s.b, uint(comptime.variant_index))
+        if comptime.payload != nil {
+            strings.write_string(&s.b, ",payload:")
+            emit_js_exact_value(s, comptime.payload^)
+        }
+        strings.write_byte(&s.b, '}')
+    case compiler.SetHttpServerHandler, compiler.HttpServerListenAndServe:
+        panic("TODO")
+    case compiler.Array(compiler.ExactValue):
         strings.write_byte(&s.b, '[')
         for elem in comptime.elements {
-            emit_js_comptime_value(s, elem)
+            emit_js_exact_value(s, elem)
             strings.write_byte(&s.b, ',')
         }
         strings.write_byte(&s.b, ']')
-    case compiler.CompileTimeOrderedHashMapInitialisation:
+    case compiler.ExactOrderedHashMap:
         strings.write_string(&s.b, "new Map()")
         for key in comptime.order {
             emit_hashmap_key(&s.b, key)
-            emit_js_comptime_value(s, comptime.value[key])
+            emit_js_exact_value(s, comptime.value[key])
             strings.write_byte(&s.b, ')')
         }
     case compiler.CastFunction:
@@ -45,7 +57,7 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: compiler.CompileTimeV
             strings.write_string(&s.b, "builtin")
             strings.write_uint(&s.b, uint(comptime))
         }
-    case compiler.CompileTimeStructInitialisation:
+    case compiler.StructInitialisation(compiler.ExactValue):
         strings.write_byte(&s.b, '{')
         first_field := true
         for field, i in comptime.fields {
@@ -55,19 +67,19 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: compiler.CompileTimeV
             strings.write_string(&s.b, "field")
             strings.write_int(&s.b, i)
             strings.write_byte(&s.b, ':')
-            emit_js_comptime_value(s, field)
+            emit_js_exact_value(s, field)
             first_field = false
         }
         strings.write_byte(&s.b, '}')
 
-    case compiler.Func:
+    case compiler.RuntimeFunc:
         strings.write_string(&s.b, "func")
         strings.write_uint(&s.b, comptime.ref.index.v)
         lambda_args_len := len(s.checked_funcs[comptime.ref.index.v].inline_stuff.scope0.variables)
         if lambda_args_len > 0 {
             strings.write_byte(&s.b, '(')
             for i in 0 ..< lambda_args_len {
-                emit_variable(&s.b, comptime.lambda_args.d[i])
+                emit_js_exact_value(s, comptime.lambda_args.d[i])
                 strings.write_byte(&s.b, ',')
             }
             strings.write_byte(&s.b, ')')
@@ -76,7 +88,7 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: compiler.CompileTimeV
         panic("Unreachable")
     case compiler.GlobalValueWithGenericRef, compiler.Import:
         panic("Unreachable")
-    case compiler.StringLiteralValue:
+    case compiler.StringValue:
         strings.write_byte(&s.b, '"')
         for char in comptime {
             switch char {
@@ -93,6 +105,7 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: compiler.CompileTimeV
         strings.write_byte(&s.b, '"')
     case compiler.BoolValue:
         strings.write_string(&s.b, comptime ? "true" : "false")
+    /*
     case utils.NumberValue:
         if comptime.is_negated {
             strings.write_byte(&s.b, '-')
@@ -102,6 +115,9 @@ emit_js_comptime_value :: proc(s: ^GeneralEmitterState, v: compiler.CompileTimeV
             strings.write_byte(&s.b, '.')
             strings.write_string(&s.b, comptime.fraction_part)
         }
+    */
+    case f64:
+        strings.write_f64(&s.b, comptime, 'f')
     }
 
 }
@@ -119,71 +135,6 @@ emit_hashmap_key :: proc(b: ^strings.Builder, key: compiler.HashMapKey) {
         panic("Unreachable")
     }
     strings.write_string(b, ", ")
-}
-
-// TODO: Deduplicate code between `emit_js_runtime_value` and `emit_js_value` / `emit_js_comptime_value`
-
-emit_js_runtime_value :: proc(b: ^strings.Builder, value: RuntimeValue) {
-    switch v in value {
-    case RuntimeFunc:
-        strings.write_string(b, "func")
-        strings.write_uint(b, v.ref.index.v)
-        if len(v.lambda_args) != 0 {
-            strings.write_byte(b, '(')
-            for arg in v.lambda_args {
-                emit_js_runtime_value(b, arg)
-                strings.write_byte(b, ',')
-            }
-            strings.write_byte(b, ')')
-        }
-    case RuntimeStruct:
-        strings.write_byte(b, '{')
-        for field, i in v.field_values {
-            strings.write_string(b, "field")
-            strings.write_int(b, i)
-            strings.write_byte(b, ':')
-            emit_js_runtime_value(b, field)
-            strings.write_byte(b, ',')
-        }
-        strings.write_byte(b, '}')
-    case RuntimeArray:
-        strings.write_byte(b, '[')
-        for elem in v.elems {
-            emit_js_runtime_value(b, elem)
-            strings.write_byte(b, ',')
-        }
-        strings.write_byte(b, ']')
-    case f64:
-        strings.write_f64(b, v, 'f')
-    case bool:
-        strings.write_string(b, v ? "true" : "false")
-    case compiler.CastFunction,
-         compiler.BuiltinFunction,
-         SetHttpServerHandler,
-         HttpServerListenAndServe:
-        panic("TODO")
-    case RuntimeSumType:
-        strings.write_string(b, "{variant:")
-        strings.write_uint(b, uint(v.variant_index))
-        if v.payload != nil {
-            strings.write_string(b, ",payload:")
-            emit_js_runtime_value(b, v.payload^)
-        }
-        strings.write_byte(b, '}')
-    case RuntimeOrderedHashMap:
-        strings.write_string(b, "new Map()")
-        for key in v.order {
-            emit_hashmap_key(b, key)
-            emit_js_runtime_value(b, v.hashmap[key])
-            strings.write_byte(b, ')')
-        }
-    case RuntimeString:
-        strings.write_byte(b, '"')
-        strings.write_string(b, v.value)
-        strings.write_byte(b, '"')
-    case:
-        panic("Unreachable")
-    }
 }
 
 emit_js_map_keys_func :: proc(s: ^GeneralEmitterState, hash_map: compiler.CheckedValue) {
@@ -220,24 +171,20 @@ emit_js_derivation :: proc(
     }
 
     switch elem in subset_elems[0] {
-    case compiler.ArrayElementAccess:
-        strings.write_string(&s.b, "with_update(")
+    case compiler.DerivationSubsetElementWithCheckedValue:
+        switch elem.kind {
+        case .ArrayElementAccess:
+            strings.write_string(&s.b, "with_update(")
+        case .StringOrderedHashMapAccess:
+            strings.write_string(&s.b, "map_update(")
+        }
         if v == nil {
             strings.write_string(&s.b, "old")
         } else {
             emit_js_value(s, v)
         }
         strings.write_byte(&s.b, ',')
-        emit_js_value(s, elem.index)
-    case compiler.StringOrderedHashMapAccess:
-        strings.write_string(&s.b, "map_update(")
-        if v == nil {
-            strings.write_string(&s.b, "old")
-        } else {
-            emit_js_value(s, v)
-        }
-        strings.write_byte(&s.b, ',')
-        emit_js_value(s, elem.key)
+        emit_js_value(s, elem.checked_value)
     case compiler.FieldAccess:
         strings.write_string(&s.b, "object_update(")
         if v == nil {
@@ -262,7 +209,7 @@ emit_js_derivation :: proc(
 
 emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
     switch v in value {
-    case compiler.StructInitialisation:
+    case compiler.StructInitialisation(compiler.CheckedValue):
         strings.write_byte(&s.b, '{')
         first_field := true
         for field, i in v.fields {
@@ -277,7 +224,7 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
         }
         strings.write_byte(&s.b, '}')
 
-    case compiler.SumTypeInitialisation:
+    case compiler.SumTypeInitialisation(^compiler.CheckedValue):
         strings.write_string(&s.b, "{variant:")
         strings.write_uint(&s.b, uint(v.variant_index))
         if v.payload != nil {
@@ -293,7 +240,7 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
         for key in v.order {
             emit_hashmap_key(&s.b, key)
             if key in v.compile_time_values {
-                emit_js_comptime_value(s, v.compile_time_values[key])
+                emit_js_exact_value(s, v.compile_time_values[key])
             } else {
                 emit_js_value(s, v.runtime_values[key])
             }
@@ -324,8 +271,8 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
         strings.write_byte(&s.b, ',')
         emit_js_value(s, v.key^)
         strings.write_byte(&s.b, ')')
-    case compiler.CompileTimeValue:
-        emit_js_comptime_value(s, v)
+    case compiler.ExactValue:
+        emit_js_exact_value(s, v)
     case compiler.ToString:
         strings.write_string(&s.b, "String(")
         emit_js_value(s, v.value^)
@@ -416,6 +363,18 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
         strings.write_byte(&s.b, ')')
     case compiler.VariableRef:
         emit_variable(&s.b, v)
+    case compiler.Func:
+        strings.write_string(&s.b, "func")
+        strings.write_uint(&s.b, v.ref.index.v)
+        lambda_args_len := len(s.checked_funcs[v.ref.index.v].inline_stuff.scope0.variables)
+        if lambda_args_len > 0 {
+            strings.write_byte(&s.b, '(')
+            for i in 0 ..< lambda_args_len {
+                emit_variable(&s.b, v.lambda_args.d[i])
+                strings.write_byte(&s.b, ',')
+            }
+            strings.write_byte(&s.b, ')')
+        }
     }
 }
 
@@ -583,7 +542,7 @@ emit_javascript :: proc(
     types: compiler.Types,
     checked_functions: []compiler.CheckedFunction,
     loc := #caller_location,
-) -> strings.Builder {
+) -> GeneralEmitterState {
     utils.call(loc, "emit_javascript", "", enable_debug = utils.debug_emitter)
     s := GeneralEmitterState{strings.builder_make(), types, checked_functions}
     strings.write_string(
@@ -670,5 +629,5 @@ emit_javascript :: proc(
         strings.write_string(&s.b, "};")
     }
 
-    return s.b
+    return s
 }

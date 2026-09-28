@@ -11,7 +11,6 @@
 t = import "time.comb"
 h = import "http.comb"
 p = import "path.comb"
-u = import "utils.comb"
 
 SvgElem = \
     Line: {

@@ -1,5 +1,8 @@
 # The comb standard library
 
+TODO: Add better documentation
+
+<!--
 ## Usage
 
 To add the standard library to a project as a submodule, run:
@@ -20,3 +23,4 @@ If you cloned a project which uses submodules, but forgot the `--recurse-submodu
 git submodule init
 git submoudle update
 ```
+-->

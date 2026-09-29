@@ -1,4 +1,4 @@
-comb
+src.bin
 examples/**/*.c
 examples/**/*.bin
 gitignore*

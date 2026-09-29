@@ -7,7 +7,7 @@ The second programming language that I've developed, after [common assembly](htt
 ## Locally
 
 ```sh
-odin build .
+odin build src
 ```
 
 ## Using docker
@@ -26,7 +26,7 @@ cp ./gitignore_docker_build/amd64-linux-comb ./comb
 # Running tests
 
 ```sh
-odin test .
+odin test examples
 ```
 
 # Future slogan

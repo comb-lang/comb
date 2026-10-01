@@ -3,6 +3,7 @@ package main
 // This file is mostly AI generated
 // TODO: Proper memory management (garbage collector?)
 
+import "base:runtime"
 import "compiler"
 import "core:fmt"
 import "core:io"
@@ -986,6 +987,11 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
         switch value.base_type {
         case .Array:
             arr := base.(compiler.Array(compiler.ExactValue))
+            if start_index < 0 || start_index >= len(arr.elements) {
+                fmt.printfln("Array index %d out of range 0..<%d", start_index, len(arr.elements))
+                dump_call_stack(s.s^)
+                runtime.trap()
+            }
             if value.i.end_index != nil {
                 end_index := compiler.expect_int(interp_eval_value(s, value.i.end_index^).(f64))
                 // TODO: Using `arr.type` means that the result has the incorrect type if `arr` is fixed-size
@@ -994,7 +1000,7 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
                     arr.elements[start_index:end_index],
                 }
             }
-            return base.(compiler.Array(compiler.ExactValue)).elements[start_index]
+            return arr.elements[start_index]
         case .String:
             str := base.(compiler.StringValue)
             if value.i.end_index != nil {

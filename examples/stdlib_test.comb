@@ -1,0 +1,35 @@
+u = import "std/utils.comb"
+
+// TODO: Improve the experience of testing your code:
+// - Be able to see which assertion failed to cause a test to fail
+
+TestResult = \:Passed, :Failed\
+test_result_to_str = |r: TestResult| -> String {
+	match r {
+		:Passed { return "passed" }
+		:Failed { return "failed" }
+	}
+}
+
+test_quick_sort = || -> TestResult {
+	unsorted = [71, 8, 2, 70, 5, 10, 3, 67]
+	sorted = u.quick_sort[UInt](unsorted)
+	//println("Result:")
+	//for sorted_elem in sorted {
+	//	println(sorted_elem.to_str)
+	//}
+	if sorted[0] != 2 { return :Failed }
+	if sorted[1] != 3 { return :Failed }
+	if sorted[2] != 5 { return :Failed }
+	if sorted[3] != 8 { return :Failed }
+	if sorted[4] != 10 { return :Failed }
+	if sorted[5] != 67 { return :Failed }
+	if sorted[6] != 70 { return :Failed }
+	if sorted[7] != 71 { return :Failed }
+	return :Passed
+}
+
+test_all = || -> Int {
+	println("quick_sort: " & test_result_to_str(test_quick_sort()))
+	return 0
+}

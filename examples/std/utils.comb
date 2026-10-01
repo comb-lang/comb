@@ -2,6 +2,39 @@
 // TODO: Be able to iterate over the characters in a string like `for c in string { ... }`
 // You should not have to define these functions in every program you write that uses them
 
+swap[T] = |l: T[], a: Int, b: Int| -> T[] {
+	return l
+		~ [a] = l[b]
+		~ [b] = l[a]
+}
+
+quick_sort[T] = |l$: T[]| -> T[] {
+	// TODO: Implement linear types or something so that the quick sort implementation is actually reasonably fast
+	if l$.len <= 1 {
+		return l$
+	}
+	pivot = l$[0]
+	re start$ = 1
+	re end$ = l$.len - 1
+	while start$ < end$ {
+		if l$[start$] <= pivot {
+			start$ = start$ + 1
+		} else {
+			l$ = swap[T](l$, start$, end$)
+			end$ = end$ - 1
+		}
+	}
+	if l$[start$] <= pivot {
+		start$ = start$ + 1
+	}
+	out = quick_sort[T](l$[1:start$]) :: pivot
+	if start$ < l$.len {
+		return out ++ quick_sort[T](l$[start$:l$.len])
+	}
+	return out
+
+}
+
 uint_div = |a: UInt, b: UInt| -> UInt {
 	println(a.to_str & b.to_str)
 	subtract = a % b

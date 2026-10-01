@@ -1068,6 +1068,19 @@ example_15_compile_time_derivations :: proc(t: ^testing.T) {
     utils.expect_finished(&e)
 }
 
+@(test)
+stdlib_test :: proc(t: ^testing.T) {
+    a: utils.Arena
+    defer utils.cleanup_arena(&a, expect_empty = false)
+    file :: #directory + "stdlib_test.comb"
+    ran := interpret_example(t, &a, src.FunctionRef{file, "test_all"})
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.program.stderr == "")
+    testing.expect(t, ran.compiler.stderr == "")
+    e := utils.TestingTextExpecter{0, ran.program.stdout, t}
+    utils.expect_string(&e, "quick_sort: passed\n")
+}
+
 // TODO: Add a fuzz test where the code that gets compiled never has any syntax errors
 
 // TODO: Add a fuzz test where the code that gets compiled has no invalid utf8 runes

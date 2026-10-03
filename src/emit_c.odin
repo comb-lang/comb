@@ -79,7 +79,10 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.ExactValue) {
     switch comptime in value {
     case compiler.SumTypeInitialisation(^compiler.ExactValue):
         panic("TODO")
-    case compiler.SetHttpServerHandler, compiler.HttpServerListenAndServe:
+    case compiler.SetHttpServerHandler,
+         compiler.HttpServerListenAndServe,
+         compiler.SetWebSocketHandler,
+         compiler.SendToWebSockets:
         panic("Unreachable")
     case compiler.StructInitialisation(compiler.ExactValue):
         panic("TODO")

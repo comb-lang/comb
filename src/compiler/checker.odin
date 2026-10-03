@@ -253,6 +253,8 @@ ExactValue :: union {
     SetHttpServerHandler,
     HttpServerListenAndServe,
     RuntimeFunc,
+    SetWebSocketHandler,
+    SendToWebSockets,
 }
 
 get_exact_value_type :: proc(checked_funcs: []CheckedFunction, value: ExactValue) -> Type {
@@ -296,6 +298,10 @@ get_exact_value_type :: proc(checked_funcs: []CheckedFunction, value: ExactValue
         panic("TODO")
     case HttpServerListenAndServe:
         panic("TODO")
+    case SetWebSocketHandler:
+        panic("TODO")
+    case SendToWebSockets:
+        panic("TODO")
     case:
         panic("Unreachable")
     }
@@ -311,6 +317,14 @@ SetHttpServerHandler :: struct {
 }
 
 HttpServerListenAndServe :: struct {
+    server: uint,
+}
+
+SetWebSocketHandler :: struct {
+    server: uint,
+}
+
+SendToWebSockets :: struct {
     server: uint,
 }
 

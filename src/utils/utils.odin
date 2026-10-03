@@ -7,6 +7,9 @@ import "core:io"
 import "core:math/rand"
 import "core:strings"
 import "core:testing"
+import "core:time"
+
+wait_time: time.Duration : 10 * time.Millisecond
 
 pop_map :: proc(m: ^map[$K]$V) -> (K, V) {
     for key, val in m {

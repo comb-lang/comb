@@ -29,7 +29,10 @@ emit_js_exact_value :: proc(s: ^GeneralEmitterState, v: compiler.ExactValue) {
             emit_js_exact_value(s, comptime.payload^)
         }
         strings.write_byte(&s.b, '}')
-    case compiler.SetHttpServerHandler, compiler.HttpServerListenAndServe:
+    case compiler.SetHttpServerHandler,
+         compiler.HttpServerListenAndServe,
+         compiler.SetWebSocketHandler,
+         compiler.SendToWebSockets:
         panic("TODO")
     case compiler.Array(compiler.ExactValue):
         strings.write_byte(&s.b, '[')

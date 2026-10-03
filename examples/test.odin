@@ -1081,6 +1081,24 @@ stdlib_test :: proc(t: ^testing.T) {
     utils.expect_string(&e, "quick_sort: passed\n")
 }
 
+@(test)
+example_11_http_server :: proc(t: ^testing.T) {
+    // TODO: Add a test that enters `serve` as the command and checks that the
+    // server responds to an HTTP request
+    a: utils.Arena
+    defer utils.cleanup_arena(&a, expect_empty = false)
+    ran := interpret_example(
+        t,
+        &a,
+        src.FunctionRef{#directory + "11_http_server.comb", "main"},
+        "quit\n",
+    )
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.compiler.stderr == "")
+    testing.expect(t, ran.program.stdout == "Enter `serve` or `quit`: ")
+    testing.expect(t, ran.program.stderr == "")
+}
+
 // TODO: Add a fuzz test where the code that gets compiled never has any syntax errors
 
 // TODO: Add a fuzz test where the code that gets compiled has no invalid utf8 runes

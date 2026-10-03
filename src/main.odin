@@ -329,6 +329,7 @@ compile :: proc(
             compiler_struct_fields,
         }
     }
+    reset_persisted_handlers(run.long_lived_interp_state)
     result := interp_execute_function2(
         InterpState{&state, run.long_lived_interp_state},
         compiler.RuntimeFunc{checker_output.func_ref, utils.Multi(compiler.ExactValue){nil}},
@@ -643,7 +644,7 @@ main :: proc() {
                 }
                 fmt.println("Awaiting source code change...")
                 for !compiler.source_code_changed(&exit_early_value) {
-                    time.sleep(10 * time.Millisecond)
+                    time.sleep(utils.wait_time)
                 }
             case compiler.ExitEarlyAfterSourceCodeChanged:
             }

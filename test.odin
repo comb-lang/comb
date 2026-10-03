@@ -539,6 +539,24 @@ example_10_geometry :: proc(t: ^testing.T) {
 }
 
 @(test)
+example_11_http_server :: proc(t: ^testing.T) {
+    // TODO: Add a test that enters `serve` as the command and checks that the
+    // server responds to an HTTP request
+    a: utils.Arena
+    defer utils.cleanup_arena(&a, expect_empty = false)
+    ran := interpret_example(
+        t,
+        &a,
+        FunctionRef{#directory + "examples/11_http_server.code", "main"},
+        "quit\n",
+    )
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.compiler.stderr == "")
+    testing.expect(t, ran.program.stdout == "Enter `serve` or `quit`: ")
+    testing.expect(t, ran.program.stderr == "")
+}
+
+@(test)
 invalid_example_00_uninitialised_global_value_with_generics :: proc(t: ^testing.T) {
     a: utils.Arena
     defer utils.cleanup_arena(&a, expect_empty = false)

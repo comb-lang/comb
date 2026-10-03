@@ -12,6 +12,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
+import "core:time"
 import "utils"
 import "webserver"
 
@@ -28,6 +29,8 @@ RuntimeValue :: union {
     compiler.CastFunction,
     SetHttpServerHandler,
     HttpServerListenAndServe,
+    SetWebsocketHandler,
+    SendToWebsockets,
 }
 
 get_value_type :: proc(s: InterpState, value: RuntimeValue) -> compiler.Type {
@@ -69,6 +72,10 @@ get_value_type :: proc(s: InterpState, value: RuntimeValue) -> compiler.Type {
         panic("TODO")
     case HttpServerListenAndServe:
         panic("TODO")
+    case SetWebsocketHandler:
+        panic("TODO")
+    case SendToWebsockets:
+        panic("TODO")
     case:
         panic("Unreachable")
     }
@@ -84,6 +91,14 @@ SetHttpServerHandler :: struct {
 }
 
 HttpServerListenAndServe :: struct {
+    server: uint,
+}
+
+SetWebsocketHandler :: struct {
+    server: uint,
+}
+
+SendToWebsockets :: struct {
     server: uint,
 }
 
@@ -140,14 +155,23 @@ ControlFlowOperation :: union {
 }
 
 HttpServer :: struct {
-    socket:  net.TCP_Socket,
-    handler: RuntimeFunc,
+    socket:            net.TCP_Socket,
+    handler:           RuntimeFunc,
+    websocket_handler: RuntimeFunc,
+}
+
+WebsocketConnection :: struct {
+    client:      net.TCP_Socket,
+    server:      uint,
+    open:        bool,
+    read_buffer: [dynamic]byte,
 }
 
 // Interpreter state that lasts when the program is restarted by the `-watch` flag
 LongLivedInterpState :: struct {
     cache:        map[string]RuntimeValue,
     http_servers: [dynamic]HttpServer,
+    websockets:   [dynamic]WebsocketConnection,
 }
 
 // Interpreter state that is reset when the program is restarted by the `-watch` flag
@@ -243,6 +267,32 @@ interp_execute_function :: proc(s: InterpState, c: compiler.CheckedFunctionCall)
         assert(len(args) == 1)
         s.l.http_servers[val.server].handler = args[0].(RuntimeFunc)
         return nil
+    case SetWebsocketHandler:
+        assert(len(args) == 1)
+        s.l.http_servers[val.server].websocket_handler = args[0].(RuntimeFunc)
+        return nil
+    case SendToWebsockets:
+        assert(len(args) == 1)
+        message := args[0].(RuntimeSumType)
+        none_tag := websocket_message_variant_index(s, "None")
+        text_tag := websocket_message_variant_index(s, "Text")
+        binary_tag := websocket_message_variant_index(s, "Binary")
+        if message.variant_index != none_tag {
+            opcode := webserver.WebSocket_Opcode.Text
+            if message.variant_index == binary_tag {
+                opcode = .Binary
+            } else if message.variant_index != text_tag {
+                panic("Expected the websocket message to be a `WebSocketMessage`")
+            }
+            payload := transmute([]byte)message.payload.(RuntimeString).value
+            for i in 0 ..< len(s.l.websockets) {
+                conn := &s.l.websockets[i]
+                if conn.open && conn.server == val.server {
+                    webserver.send_ws_frame(conn.client, opcode, payload)
+                }
+            }
+        }
+        return nil
     case HttpServerListenAndServe:
         assert(len(args) == 0)
         server := s.l.http_servers[val.server]
@@ -251,14 +301,21 @@ interp_execute_function :: proc(s: InterpState, c: compiler.CheckedFunctionCall)
         }
         buf: [65536]byte
         for {
+            pump_websockets(s)
             // TODO: Set timeout on accept_tcp so it does not block the
             // automatic recompilation of the `-watch` flag
             client, _, accept_err := net.accept_tcp(server.socket)
+            if accept_err == .Would_Block {
+                if compiler.should_exit_early(s.exit_early) {
+                    return nil
+                }
+                time.sleep(utils.wait_time)
+                continue
+            }
             if accept_err != nil {
                 // TODO: Better error handling
                 panic(fmt.aprintf("Accept error: %v", accept_err))
             }
-            defer net.close(client)
 
             n, receive_err := net.recv_tcp(client, buf[:])
             if receive_err != nil {
@@ -269,48 +326,293 @@ interp_execute_function :: proc(s: InterpState, c: compiler.CheckedFunctionCall)
             data := buf[:n]
 
             if webserver.is_websocket_upgrade_request(data) {
-                panic("TODO: Add support for websockets")
-            } else {
-                request, ok := webserver.parse_http_request(data)
-                if !ok {
-                    err := webserver.send_error(client, 400, "Bad Request")
-                    if err != nil {
-                        // TODO: Better error handling
-                        panic("Failed to send error")
-                    }
-                    continue
-                }
-                defer delete(request.headers)
+                // Successfully upgraded connections are kept open and are
+                // handled by `pump_websockets`, `accept_websocket` closes the
+                // client itself when the handshake fails
+                accept_websocket(s, val.server, client, data)
+                continue
+            }
 
-                req_fields := make([]RuntimeValue, 2)
-                req_fields[0] = RuntimeString{false, request.path}
-                req_fields[1] = RuntimeString{false, request.method}
+            defer net.close(client)
 
-                handler_args := make([]RuntimeValue, 1)
-                handler_args[0] = RuntimeStruct{true, req_fields, .HttpRequest}
-
-                response_raw := interp_execute_function2(s, server.handler, handler_args)
-                if compiler.should_exit_early(s.exit_early) {
-                    return nil
-                }
-                response := response_raw.(RuntimeSumType)
-
-                err := webserver.send_response(
-                    client,
-                    200,
-                    "OK",
-                    compiler.response_type_variant_index_to_content_type(response.variant_index),
-                    transmute([]byte)(response.payload.(RuntimeString).value),
-                )
+            request, ok := webserver.parse_http_request(data)
+            if !ok {
+                err := webserver.send_error(client, 400, "Bad Request")
                 if err != nil {
                     // TODO: Better error handling
-                    panic("Failed to send response")
+                    panic("Failed to send error")
                 }
+                continue
+            }
+            defer delete(request.headers)
+
+            req_fields := make([]RuntimeValue, 2)
+            req_fields[0] = RuntimeString{false, request.path}
+            req_fields[1] = RuntimeString{false, request.method}
+
+            handler_args := make([]RuntimeValue, 1)
+            handler_args[0] = RuntimeStruct{true, req_fields, .HttpRequest}
+
+            response_raw := interp_execute_function2(s, server.handler, handler_args)
+            if compiler.should_exit_early(s.exit_early) {
+                return nil
+            }
+            response := response_raw.(RuntimeSumType)
+
+            err := webserver.send_response(
+                client,
+                200,
+                "OK",
+                compiler.response_type_variant_index_to_content_type(response.variant_index),
+                transmute([]byte)(response.payload.(RuntimeString).value),
+            )
+            if err != nil {
+                // TODO: Better error handling
+                panic("Failed to send response")
             }
         }
         return nil
     case:
         panic("Unreachable")
+    }
+}
+
+// Performs the websocket handshake and stores the connection so that
+// `pump_websockets` can dispatch its messages to the server's websocket
+// handler. Does not close `client` on success, the caller is responsible for
+// that. Closes `client` itself when the handshake fails.
+accept_websocket :: proc(
+    s: InterpState,
+    server_index: uint,
+    client: net.TCP_Socket,
+    upgrade_data: []byte,
+) {
+    key, key_ok := webserver.get_websocket_key(upgrade_data)
+    if !key_ok {
+        err := webserver.send_error(client, 400, "Bad Request")
+        if err != nil {
+            // TODO: Better error handling
+            panic("Failed to send error")
+        }
+        net.close(client)
+        return
+    }
+
+    accept_key, accept_ok := webserver.compute_accept_key(key)
+    if !accept_ok {
+        // TODO: Better error handling
+        panic("Failed to compute the `Sec-WebSocket-Accept` value")
+    }
+    defer delete(accept_key)
+
+    webserver.send_websocket_upgrade_response(client, accept_key)
+
+    err := net.set_blocking(client, false)
+    if err != nil {
+        utils.panicf("Failed to disable blocking: %v", err)
+    }
+
+    append(&s.l.websockets, WebsocketConnection{client, server_index, true, make([dynamic]byte)})
+}
+
+// Dispatches the messages which have been received on open websocket
+// connections to the websocket handlers and closes connections which the
+// clients have closed. Messages which arrive while the program is being
+// recompiled by the `-watch` flag stay in the connection's read buffer and
+// are dispatched on the next run.
+pump_websockets :: proc(s: InterpState) {
+    none_tag := websocket_message_variant_index(s, "None")
+    text_tag := websocket_message_variant_index(s, "Text")
+    binary_tag := websocket_message_variant_index(s, "Binary")
+
+    recv_buf: [65536]byte
+    frame_buf: [65536]byte
+
+    for conn_index in 0 ..< len(s.l.websockets) {
+        conn := &s.l.websockets[conn_index]
+        if !conn.open do continue
+
+        for conn.open {
+            if compiler.should_exit_early(s.exit_early) {
+                break
+            }
+
+            frame, parse_ok := webserver.parse_ws_frame(frame_buf[:], conn.read_buffer[:])
+            if !parse_ok {
+                close_websocket_connection(conn)
+                break
+            }
+
+            if frame == nil {
+                n, recv_err := net.recv_tcp(conn.client, recv_buf[:])
+                if recv_err == .Would_Block {
+                    break
+                }
+                if recv_err != nil || n == 0 {
+                    close_websocket_connection(conn)
+                    break
+                }
+                append_elems(&conn.read_buffer, ..recv_buf[:n])
+                continue
+            }
+
+            frame_len := ws_frame_len(conn.read_buffer[:])
+
+            switch frame.opcode {
+            case .Text:
+                dispatch_websocket_message(
+                    s,
+                    conn,
+                    text_tag,
+                    frame.payload,
+                    none_tag,
+                    text_tag,
+                    binary_tag,
+                )
+            case .Binary:
+                dispatch_websocket_message(
+                    s,
+                    conn,
+                    binary_tag,
+                    frame.payload,
+                    none_tag,
+                    text_tag,
+                    binary_tag,
+                )
+            case .Ping:
+                webserver.send_ws_frame(conn.client, .Pong, frame.payload)
+            case .Pong, .Continuation:
+            case .Close:
+                webserver.send_ws_frame(conn.client, .Close, nil)
+            }
+
+            // `parse_ws_frame` allocates the payload when the frame is
+            // masked, otherwise the payload points into the read buffer
+            if frame.mask {
+                delete(frame.payload)
+            }
+
+            consume_ws_frame(&conn.read_buffer, frame_len)
+
+            if frame.opcode == .Close {
+                close_websocket_connection(conn)
+            }
+        }
+    }
+
+    i := 0
+    for i < len(s.l.websockets) {
+        if s.l.websockets[i].open {
+            i += 1
+        } else {
+            last := pop(&s.l.websockets)
+            if i < len(s.l.websockets) {
+                s.l.websockets[i] = last
+            }
+        }
+    }
+}
+
+// Calls the server's websocket handler with the message and sends the
+// returned `WebSocketMessage` back over the connection
+dispatch_websocket_message :: proc(
+    s: InterpState,
+    conn: ^WebsocketConnection,
+    variant_index: u32,
+    payload: []byte,
+    none_tag: u32,
+    text_tag: u32,
+    binary_tag: u32,
+) {
+    server := s.l.http_servers[conn.server]
+    if server.websocket_handler.ref.index == max(uint) {
+        return
+    }
+
+    payload_value := new(RuntimeValue)
+    payload_value^ = RuntimeString{true, strings.clone(string(payload))}
+
+    args := make([]RuntimeValue, 1)
+    args[0] = RuntimeSumType{.WebSocketMessage, true, variant_index, payload_value}
+
+    response := interp_execute_function2(s, server.websocket_handler, args)
+    if compiler.should_exit_early(s.exit_early) {
+        return
+    }
+
+    response_sum, ok := response.(RuntimeSumType)
+    if !ok {
+        panic("Expected the websocket handler to return a `WebSocketMessage`")
+    }
+    if !conn.open {
+        return
+    }
+
+    switch response_sum.variant_index {
+    case none_tag:
+    case text_tag:
+        webserver.send_ws_frame(
+            conn.client,
+            .Text,
+            transmute([]byte)response_sum.payload.(RuntimeString).value,
+        )
+    case binary_tag:
+        webserver.send_ws_frame(
+            conn.client,
+            .Binary,
+            transmute([]byte)response_sum.payload.(RuntimeString).value,
+        )
+    case:
+        panic("Unreachable")
+    }
+}
+
+close_websocket_connection :: proc(conn: ^WebsocketConnection) {
+    if !conn.open do return
+    conn.open = false
+    net.close(conn.client)
+    delete(conn.read_buffer)
+}
+
+// The number of bytes that the frame at the start of `data` takes up. `data`
+// must contain a full frame.
+ws_frame_len :: proc(data: []byte) -> int {
+    payload_len := int(data[1] & 0x7F)
+    offset := 2
+    if payload_len == 126 {
+        payload_len = int(data[2]) << 8 | int(data[3])
+        offset += 2
+    } else if payload_len == 127 {
+        payload_len = 0
+        for i in 0 ..< 8 {
+            payload_len = payload_len << 8 | int(data[2 + i])
+        }
+        offset += 8
+    }
+    if data[1] & 0x80 != 0 {
+        offset += 4
+    }
+    return offset + payload_len
+}
+
+consume_ws_frame :: proc(buffer: ^[dynamic]byte, frame_len: int) {
+    remaining := len(buffer^) - frame_len
+    copy((buffer^)[:remaining], (buffer^)[frame_len:])
+    resize(buffer, remaining)
+}
+
+websocket_message_variant_index :: proc(s: InterpState, tag_name: string) -> u32 {
+    index := utils.lookup(s.types.sum_type_tags, tag_name, utils.string_to_index_procs)
+    assert(index != utils.does_not_exist)
+    return index.index
+}
+
+// Called at the start of every program run because the handlers which are
+// stored in the long lived state point into the previous run's functions
+reset_persisted_handlers :: proc(l: ^LongLivedInterpState) {
+    for &server in l.http_servers {
+        server.handler = RuntimeFunc{compiler.CheckedFuncRef{max(uint)}, nil}
+        server.websocket_handler = RuntimeFunc{compiler.CheckedFuncRef{max(uint)}, nil}
     }
 }
 
@@ -542,6 +844,8 @@ interp_clone_value :: proc(val: RuntimeValue, loc := #caller_location) -> Runtim
          compiler.BuiltinFunction,
          HttpServerListenAndServe,
          SetHttpServerHandler,
+         SetWebsocketHandler,
+         SendToWebsockets,
          compiler.CastFunction:
         return val
     }
@@ -939,6 +1243,8 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> RuntimeVa
              RuntimeOrderedHashMap,
              HttpServerListenAndServe,
              SetHttpServerHandler,
+             SetWebsocketHandler,
+             SendToWebsockets,
              compiler.CastFunction:
             panic("Unreachable")
         }
@@ -1199,9 +1505,11 @@ default_builtin_handler_procedure :: proc(
 
         server_index: uint = len(state.l.http_servers)
 
-        fields := make([]RuntimeValue, 3)
+        fields := make([]RuntimeValue, 5)
         fields[0] = SetHttpServerHandler{server_index}
         fields[1] = HttpServerListenAndServe{server_index}
+        fields[3] = SetWebsocketHandler{server_index}
+        fields[4] = SendToWebsockets{server_index}
 
         endpoint := net.Endpoint{net.IP4_Address{0, 0, 0, 0}, 8080}
         // TODO: Implement upper limit on number of ports to try
@@ -1209,10 +1517,18 @@ default_builtin_handler_procedure :: proc(
             // TODO: Log that the port is being tried
             socket, err := net.listen_tcp(endpoint)
             if err == nil {
+                err2 := net.set_blocking(socket, false)
+                if err2 != nil {
+                    utils.panicf("Failed to disable blocking: %v", err2)
+                }
                 fields[2] = f64(endpoint.port)
                 append(
                     &state.l.http_servers,
-                    HttpServer{socket, RuntimeFunc{compiler.CheckedFuncRef{max(uint)}, nil}},
+                    HttpServer {
+                        socket,
+                        RuntimeFunc{compiler.CheckedFuncRef{max(uint)}, nil},
+                        RuntimeFunc{compiler.CheckedFuncRef{max(uint)}, nil},
+                    },
                 )
                 return RuntimeStruct{true, fields, .HttpServer}
             }

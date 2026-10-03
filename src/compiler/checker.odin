@@ -205,6 +205,12 @@ UninitialisedOrderedHashMapType :: struct {}
 CastFunction :: struct {
     type: Type,
 }
+SerialiseToJsonFunc :: struct {
+    type: Type,
+}
+DeserialiseFromJsonFunc :: struct {
+    type: Type,
+}
 ExactOrderedHashMap :: struct {
     type:  Type,
     value: map[HashMapKey]ExactValue,
@@ -235,6 +241,8 @@ ExactValue :: union {
     Array(ExactValue),
     BuiltinFunction,
     CastFunction,
+    DeserialiseFromJsonFunc,
+    SerialiseToJsonFunc,
     StringValue,
     ExactOrderedHashMap,
     SumTypeInitialisation(^ExactValue),
@@ -293,6 +301,10 @@ get_exact_value_type :: proc(checked_funcs: []CheckedFunction, value: ExactValue
     case BuiltinFunction:
         panic("TODO")
     case CastFunction:
+        panic("TODO")
+    case SerialiseToJsonFunc:
+        panic("TODO")
+    case DeserialiseFromJsonFunc:
         panic("TODO")
     case SetHttpServerHandler:
         panic("TODO")
@@ -4603,20 +4615,53 @@ check_value :: proc(
                     res.type = .Type
                     continue
                 case BuiltinFunction:
-                    assert(comptime_value == .cast_func)
-                    if len(checked_args) != 1 {
-                        argument_count_mismatch(s, res_range, len(checked_args), 1)
-                        return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                    #partial switch comptime_value {
+                    case .deserialize_from_json:
+                        if len(checked_args) != 1 {
+                            argument_count_mismatch(s, res_range, len(checked_args), 1)
+                            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                        }
+                        args := make([]Type, 2)
+                        args[0] = .String
+                        args[1] = checked_args[0]
+                        return_types := make([]Type, 1)
+                        return_types[0] = checked_args[0]
+                        res = CheckValueResult {
+                            ExactValue(DeserialiseFromJsonFunc{checked_args[0]}),
+                            create_type(&s.types, FuncType{args, return_types}).type,
+                        }
+                        continue
+                    case .serialize_to_json:
+                        if len(checked_args) != 1 {
+                            argument_count_mismatch(s, res_range, len(checked_args), 1)
+                            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                        }
+                        args := make([]Type, 1)
+                        args[0] = checked_args[0]
+                        return_types := make([]Type, 1)
+                        return_types[0] = .String
+                        res = CheckValueResult {
+                            ExactValue(SerialiseToJsonFunc{checked_args[0]}),
+                            create_type(&s.types, FuncType{args, return_types}).type,
+                        }
+                        continue
+                    case .cast_func:
+                        if len(checked_args) != 1 {
+                            argument_count_mismatch(s, res_range, len(checked_args), 1)
+                            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                        }
+                        args := make([]Type, 1)
+                        args[0] = .Any
+                        return_types := make([]Type, 1)
+                        return_types[0] = checked_args[0]
+                        res = CheckValueResult {
+                            ExactValue(CastFunction{checked_args[0]}),
+                            create_type(&s.types, FuncType{args, return_types}).type,
+                        }
+                        continue
+                    case:
+                        panic("Unreachable")
                     }
-                    args := make([]Type, 1)
-                    args[0] = .Any
-                    return_types := make([]Type, 1)
-                    return_types[0] = checked_args[0]
-                    res = CheckValueResult {
-                        ExactValue(CastFunction{checked_args[0]}),
-                        create_type(&s.types, FuncType{args, return_types}).type,
-                    }
-                    continue
                 }
                 panic("Unreachable")
             } else if res.type == .Type {

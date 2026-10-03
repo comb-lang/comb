@@ -90,7 +90,7 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.ExactValue) {
         panic("TODO")
     case compiler.ExactOrderedHashMap:
         panic("TODO")
-    case compiler.CastFunction:
+    case compiler.CastFunction, compiler.DeserialiseFromJsonFunc, compiler.SerialiseToJsonFunc:
         panic("TODO")
     case compiler.BuiltinFunction:
         strings.write_string(&s.b, "builtin")

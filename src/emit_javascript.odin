@@ -50,6 +50,17 @@ emit_js_exact_value :: proc(s: ^GeneralEmitterState, v: compiler.ExactValue) {
         }
     case compiler.CastFunction:
         strings.write_string(&s.b, "/* TODO: Implement cast in JS emitter */ undefined")
+    case compiler.DeserialiseFromJsonFunc:
+        strings.write_string(&s.b, "deserialize_from_json(")
+        if comptime.type > compiler.Type.MaxIndex {
+            strings.write_uint(&s.b, uint(comptime.type))
+        } else {
+            strings.write_uint(&s.b, uint(s.types.m.keys[comptime.type].key_hash))
+        }
+        strings.write_byte(&s.b, ')')
+    case compiler.SerialiseToJsonFunc:
+        // BEFORE MERGE TODO: Include the hash of the type of the value being serialized in the serialized string
+        strings.write_string(&s.b, "JSON.stringify")
     case compiler.BuiltinFunction:
         #partial switch comptime {
         case .print, .println:

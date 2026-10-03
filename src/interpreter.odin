@@ -150,6 +150,11 @@ interp_execute_function :: proc(
     }
 
     #partial switch val in fn_val {
+    case compiler.SerialiseToJsonFunc:
+        panic("TODO")
+    case compiler.DeserialiseFromJsonFunc:
+        // BEFORE MERGE TODO: Actually deserialize rather than resorting to the fallback
+        return args[1]
     case compiler.BuiltinFunction:
         return s.builtin_handler.procedure(s, val, args)
     case compiler.RuntimeFunc:
@@ -774,6 +779,8 @@ interp_clone_value :: proc(
          compiler.HttpServerListenAndServe,
          compiler.SetHttpServerHandler,
          compiler.CastFunction,
+         compiler.DeserialiseFromJsonFunc,
+         compiler.SerialiseToJsonFunc,
          compiler.SetWebSocketHandler,
          compiler.SendToWebSockets:
         return val
@@ -994,6 +1001,10 @@ interp_eval_comptime_value :: proc(
         return compiler.ExactOrderedHashMap{comptime.type, out_map, comptime.order}
     case compiler.CastFunction:
         return comptime
+    case compiler.SerialiseToJsonFunc:
+        return comptime
+    case compiler.DeserialiseFromJsonFunc:
+        return comptime
     case compiler.BuiltinFunction:
         return comptime
     case compiler.StructInitialisation(compiler.ExactValue):
@@ -1191,7 +1202,9 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
              compiler.SetHttpServerHandler,
              compiler.SetWebSocketHandler,
              compiler.SendToWebSockets,
-             compiler.CastFunction:
+             compiler.CastFunction,
+             compiler.DeserialiseFromJsonFunc,
+             compiler.SerialiseToJsonFunc:
             panic("Unreachable")
         }
 
@@ -1510,6 +1523,10 @@ default_builtin_handler_procedure :: proc(
         io.write_string(data.pipe.stdout, "\033[0J")
         io.flush(data.pipe.stdout)
         return nil
+    case .serialize_to_json:
+        panic("TODO")
+    case .deserialize_from_json:
+        panic("Unreachable")
     case .cast_func:
         panic("Unreachable")
     case .expect_uint:

@@ -7,6 +7,7 @@
 //                 |  |    Implemented in JS
 //                 |--|
 // Implemented in the programming language 
+// State serialisation and deserialisation is only used for preserving state on hot reload
 
 t = import "time.comb"
 h = import "http.comb"
@@ -54,11 +55,14 @@ RenderInfo = {
     date: t.Date,
 }
 
-Render[GlobalState] = (GlobalState, RenderInfo) -> UI[GlobalState]
+StateWithoutGlobalState[GlobalState] = {
+    render: (GlobalState, RenderInfo) -> UI[GlobalState],
+    serialize: () -> String,
+}
 
 State[GlobalState] = {
     global_state: GlobalState,
-    render: Render[GlobalState],
+    other_state: StateWithoutGlobalState[GlobalState]
 }
 
 EmptyGlobalState = \:None\ // TODO: Be able to use `{:}`
@@ -66,12 +70,8 @@ empty_global_state = :None // TODO: Be able to use `{=}`
 
 Site[GlobalState] = {
     initial_global_state: GlobalState,
-    // TODO: Use `Render[GlobalState]` rather than `() -> Render[GlobalState]`
-    // Currently this isn't useful because you can't interpret a call to a
-    // render function like `(State) -> Render[GlobalState]` at compile time so
-    // using `Render[GlobalState]` rather than `() -> Render[GlobalState]` would
-    // make it impractical to construct a compile-time known `Site`
-    pages: OrderedHashMap[String, () -> Render[GlobalState]], // TODO: Be able to use a unordered hash map
+    // The string passed in is the serialized state
+    pages: OrderedHashMap[String, (String) -> StateWithoutGlobalState[GlobalState]], // TODO: Be able to use an unordered hash map
 }
 
 reactive_page[GlobalState] = |c: Compiler, state: State[GlobalState]| -> String {
@@ -106,7 +106,7 @@ build_reactive_site[GlobalState] = |c: Compiler, s: Site[GlobalState], path: Str
         make_dir_all(p.dir(page_path))
         write_file(page_path, reactive_page[GlobalState](c, {
             global_state = s.initial_global_state,
-            render = ui(),
+            other_state = ui(""),
         }))
     }
 }
@@ -119,7 +119,7 @@ serve_reactive_site[GlobalState] = |c: Compiler, server: HttpServer, s: Site[Glo
         if req.url in s.pages {
             return Html: (reactive_page[GlobalState](c, {
                 global_state = s.initial_global_state,
-                render = s.pages[req.url](),
+                other_state = s.pages[req.url](""), // BEFORE MERGE TODO: Actually pass in the old serialised state for hot reload
             }))
         }
         return Html: ("The page " & h.escape_for_html(req.url) & " is not defined")

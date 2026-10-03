@@ -88,7 +88,7 @@ function render_ui() {
   const now = Date.now()
   // TODO: Sync global state across multiple instances of the website
   localStorage.setItem("global-state", JSON.stringify(state.field0))
-  ui = state.field1(state.field0, {field0: {field0: now}})
+  ui = state.field1.field0(state.field0, {field0: {field0: now}})
   document.body.innerHTML = ""
   document.title = ui.field0
   for (const elem of ui.field1) {

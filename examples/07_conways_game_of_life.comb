@@ -52,10 +52,15 @@ run_tick = |s: State| -> State {
     return new_state$
 }
 
-game_of_life2 = |s: State| -> h.Render[h.EmptyGlobalState] {
-	return |_s: h.EmptyGlobalState, _info: h.RenderInfo| -> h.UI[h.EmptyGlobalState] {
-		return game_of_life(s)
-	}
+game_of_life2 = |s: State| -> h.StateWithoutGlobalState[h.EmptyGlobalState] {
+    return {
+        render = |_state: h.EmptyGlobalState, _info: h.RenderInfo| -> h.UI[h.EmptyGlobalState] {
+            return game_of_life(s)
+        },
+        serialize = || -> String {
+            return ""
+        },
+    }
 }
 
 game_of_life = |s: State| -> h.UI[h.EmptyGlobalState] {
@@ -78,7 +83,7 @@ game_of_life = |s: State| -> h.UI[h.EmptyGlobalState] {
 			children = [Text: "Run tick"],
 			onclick = {
 				global_state = h.empty_global_state,
-				render = game_of_life2(run_tick(s))
+				other_state = game_of_life2(run_tick(s))
 			},
 		},
         Div: {style = grid_style, children = grid_pixels$},
@@ -89,7 +94,7 @@ game_of_life = |s: State| -> h.UI[h.EmptyGlobalState] {
 		on_key_down = |_: h.Key| -> h.State[h.EmptyGlobalState] {
 			return {
 				global_state = h.empty_global_state,
-				render = game_of_life2(s)
+				other_state = game_of_life2(s)
 			}
 		},
 	}
@@ -116,7 +121,7 @@ pulsar_initial_state = {rows = [
 site = {
 	initial_global_state = h.empty_global_state,
 	pages = OrderedHashMap(
-		"/" = || -> h.Render[h.EmptyGlobalState] { return game_of_life2(pulsar_initial_state) },
+		"/" = |old_state: String| -> h.StateWithoutGlobalState[h.EmptyGlobalState] { return game_of_life2(pulsar_initial_state) },
 	)
 }
 

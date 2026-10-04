@@ -13,6 +13,7 @@ import "core:time"
 import "lsp"
 import "utils"
 
+version :: string(#load("version"))
 c_warning :: "WARNING: The C emitter is basically unmaintained at this point, and there are many things which it does not implement\n"
 
 range_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
@@ -501,6 +502,7 @@ print_help :: proc(exit_code: int) -> ! {
         "- `lsp` start the LSP server, using stdin and stdout for communication with the client",
     )
     fmt.println("- `help` show this help message")
+    fmt.println("- `version` print the version")
     fmt.println("- For commands that take the arguments `" + args + "`:")
     fmt.println(
         "  - If the last argument specified is `-watch`, then the compiler will automatically restart the compilation when the source code changes",
@@ -605,6 +607,10 @@ main :: proc() {
         command = BuildC{}
     case "run":
         command = Run{std_pipe, io.Reader(os.to_stream(os.stdin)), new(LongLivedInterpState)}
+    case "version":
+        expect_args_finished("version")
+        fmt.println("Comb " + version)
+        return
     case "help":
         expect_args_finished("help")
         print_help(0)

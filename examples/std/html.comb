@@ -12,6 +12,7 @@
 t = import "time.comb"
 h = import "http.comb"
 p = import "path.comb"
+u = import "utils.comb"
 
 SvgElem = \
     Line: {
@@ -74,20 +75,9 @@ Site[GlobalState] = {
     pages: OrderedHashMap[String, (String) -> StateWithoutGlobalState[GlobalState]], // TODO: Be able to use an unordered hash map
 }
 
-reactive_page[GlobalState] = |c: Compiler, state: State[GlobalState]| -> String {
-    glue = #load "./html.js"
-    // TODO: Be able to define the map something like `{"ui": ui()}`
-    map = OrderedHashMap("state" = state)
-    // TODO: Add minification:
-    // - Maybe there could be an argument with the type
-    //   `\:Minify, :LeaveNames\` in the future
-    // - Alternatively, named arguments and default arguments could be added so
-    //   the type of emit_js_code is
-    //   `(OrderedHashMap[String, Any], String, minify = true)`, and then you
-    //   call it like `emit_js_code(map, glue, minify = true)`
-    js = c.emit_js_code(map, glue)
+html_page = |js: String| -> String {
     // The close tags are split up so that the browser interprets them as JS strings rather than HTML close tags
-	// TODO: JS should be tree-shaked so the `reactive_page` function shouldn't even be included in the emitted JS code
+	// TODO: JS should be tree-shaked so the `html_page` function shouldn't even be included in the emitted JS code
     return
         "<!DOCTYPE html>" &
         "<html lang=\"en\">" &
@@ -97,33 +87,63 @@ reactive_page[GlobalState] = |c: Compiler, state: State[GlobalState]| -> String 
                 "<script>" & js & "</" & "script>" &
             "</" & "head>" &
             "<body></" & "body>" &
-        "</" & "html>"
+        "</" & "html>"   
 }
+
+base_js = #load "./js/base.js"
+
+// Expects a `state` global of type `State[GlobalState]`
+prod_js = base_js & #load "./js/static.js"
+
+// Expects a `code.js` file
+reload_js = #load "./js/reload.js"
 
 build_reactive_site[GlobalState] = |c: Compiler, s: Site[GlobalState], path: String| {
     for rel_page_path, ui in s.pages {
         page_path = path & "/" & p.normalize_path(rel_page_path) & ".html"
         make_dir_all(p.dir(page_path))
-        write_file(page_path, reactive_page[GlobalState](c, {
+        // TODO: Be able to define the map something like `{"ui": ui()}`
+        map = OrderedHashMap("state" = {
             global_state = s.initial_global_state,
             other_state = ui(""),
-        }))
+        })
+        // TODO: Add minification:
+        // - Maybe there could be an argument with the type
+        //   `\:Minify, :LeaveNames\` in the future
+        // - Alternatively, named arguments and default arguments could be added so
+        //   the type of emit_js_code is
+        //   `(OrderedHashMap[String, Any], String, minify = true)`, and then you
+        //   call it like `emit_js_code(map, glue, minify = true)`
+        js = c.emit_js_code(map, prod_js)
+        write_file(page_path, html_page(js))
     }
 }
 
 // TODO: Implement state-preserving hot-reload using the `-watch` flag and compiler cache and a websocket
 serve_reactive_site[GlobalState] = |c: Compiler, server: HttpServer, s: Site[GlobalState]| {
     println("Serving reactive site on port " & server.port.to_str)
+    html = html_page(reload_js)
     server.set_handler(|req: HttpRequest| -> HttpResponse {
+        println("Handling request for " & req.url)
         // TODO: Add path normalisation
         if req.url in s.pages {
-            return Html: (reactive_page[GlobalState](c, {
-                global_state = s.initial_global_state,
-                other_state = s.pages[req.url](""), // BEFORE MERGE TODO: Actually pass in the old serialised state for hot reload
-            }))
+            return Html: html
         }
-        return Html: ("The page " & h.escape_for_html(req.url) & " is not defined")
+        match u.try_remove_end(req.url, "code.js") {
+            Some: page_path {
+                if page_path in s.pages {
+                    map = OrderedHashMap(
+                        "state_from_serialized" = s.pages[page_path],
+                        "initial_global_state" = s.initial_global_state,
+                    )
+                    return Js: c.emit_js_code(map, base_js)
+                }
+            }
+            :None {}
+        }
+        return Html: "The page " & h.escape_for_html(req.url) & " is not defined"
     })
+    server.send_to_websockets(Text: "reload") // Tell clients to reload
     server.listen_and_serve()
 }
 

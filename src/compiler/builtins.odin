@@ -91,9 +91,9 @@ get_builtin :: proc(name: string) -> GotBuiltin {
         return GotBuiltin{BuiltinFunction.make_dir_all, .StringToNil}
     case "expect_uint":
         return GotBuiltin{BuiltinFunction.expect_uint, .FloatToUInt}
-    case "serialize_json":
-        return GotBuiltin{BuiltinFunction.serialize_to_json, .AnyToString}
-    case "deserialize_json":
+    case "serialize_to_json":
+        return GotBuiltin{BuiltinFunction.serialize_to_json, .Unknown}
+    case "deserialize_from_json":
         return GotBuiltin{BuiltinFunction.deserialize_from_json, .Unknown}
     case "Int":
         return GotBuiltin{Type.Int, .Type}

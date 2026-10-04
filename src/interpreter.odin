@@ -170,14 +170,11 @@ interp_execute_function :: proc(
     case compiler.SendToWebSockets:
         assert(len(args) == 1)
         message := args[0].(compiler.SumTypeInitialisation(^compiler.ExactValue))
-        none_tag := websocket_message_variant_index(s, "None")
-        text_tag := websocket_message_variant_index(s, "Text")
-        binary_tag := websocket_message_variant_index(s, "Binary")
-        if message.variant_index != none_tag {
+        if message.variant_index != .None {
             opcode := webserver.WebSocket_Opcode.Text
-            if message.variant_index == binary_tag {
+            if message.variant_index == .Binary {
                 opcode = .Binary
-            } else if message.variant_index != text_tag {
+            } else if message.variant_index != .Text {
                 panic("Expected the websocket message to be a `WebSocketMessage`")
             }
             payload := transmute([]byte)message.payload.(compiler.StringValue)
@@ -364,10 +361,6 @@ accept_websocket :: proc(
 // recompiled by the `-watch` flag stay in the connection's read buffer and
 // are dispatched on the next run.
 pump_websockets :: proc(s: InterpState) {
-    none_tag := websocket_message_variant_index(s, "None")
-    text_tag := websocket_message_variant_index(s, "Text")
-    binary_tag := websocket_message_variant_index(s, "Binary")
-
     recv_buf: [65536]byte
     frame_buf: [65536]byte
 
@@ -403,25 +396,9 @@ pump_websockets :: proc(s: InterpState) {
 
             switch frame.opcode {
             case .Text:
-                dispatch_websocket_message(
-                    s,
-                    conn,
-                    text_tag,
-                    frame.payload,
-                    none_tag,
-                    text_tag,
-                    binary_tag,
-                )
+                dispatch_websocket_message(s, conn, .Text, frame.payload)
             case .Binary:
-                dispatch_websocket_message(
-                    s,
-                    conn,
-                    binary_tag,
-                    frame.payload,
-                    none_tag,
-                    text_tag,
-                    binary_tag,
-                )
+                dispatch_websocket_message(s, conn, .Binary, frame.payload)
             case .Ping:
                 webserver.send_ws_frame(conn.client, .Pong, frame.payload)
             case .Pong, .Continuation:
@@ -461,11 +438,8 @@ pump_websockets :: proc(s: InterpState) {
 dispatch_websocket_message :: proc(
     s: InterpState,
     conn: ^WebsocketConnection,
-    variant_index: u32,
+    variant_index: compiler.SumTag,
     payload: []byte,
-    none_tag: u32,
-    text_tag: u32,
-    binary_tag: u32,
 ) {
     server := s.l.http_servers[conn.server]
     if server.websocket_handler.ref.index.v == max(uint) {
@@ -495,15 +469,15 @@ dispatch_websocket_message :: proc(
         return
     }
 
-    switch response_sum.variant_index {
-    case none_tag:
-    case text_tag:
+    #partial switch response_sum.variant_index {
+    case .None:
+    case .Text:
         webserver.send_ws_frame(
             conn.client,
             .Text,
             transmute([]byte)response_sum.payload.(compiler.StringValue),
         )
-    case binary_tag:
+    case .Binary:
         webserver.send_ws_frame(
             conn.client,
             .Binary,
@@ -546,12 +520,6 @@ consume_ws_frame :: proc(buffer: ^[dynamic]byte, frame_len: int) {
     remaining := len(buffer^) - frame_len
     copy((buffer^)[:remaining], (buffer^)[frame_len:])
     resize(buffer, remaining)
-}
-
-websocket_message_variant_index :: proc(s: InterpState, tag_name: string) -> u32 {
-    index := utils.lookup(s.types.sum_type_tags, tag_name, utils.string_to_index_procs)
-    assert(index != utils.does_not_exist)
-    return index.index
 }
 
 // Called at the start of every program run because the handlers which are

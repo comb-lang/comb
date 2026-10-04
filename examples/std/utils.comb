@@ -121,6 +121,34 @@ map_ok[O, O2, E] = |r: Result[O, E], f: (O) -> O2| -> Result[O2, E] {
 	}
 }
 
+starts_with = |str: String, start: String| -> Bool {
+	if start.len > str.len {
+		return false
+	}
+	return str[0:start.len] == start
+}
+
+ends_with = |str: String, end: String| -> Bool {
+	if end.len > str.len {
+		return false
+	}
+	return str[str.len-end.len:str.len] == end
+}
+
+try_remove_start = |str: String, start: String| -> Maybe[String] {
+	if starts_with(str, start) {
+		return Some: str[start.len:str.len]
+	}
+	return :None
+}
+
+try_remove_end = |str: String, end: String| -> Maybe[String] {
+	if ends_with(str, end) {
+		return Some: str[0:str.len-end.len]
+	}
+	return :None
+}
+
 split_first = |str: String, by: Char| -> {before: String, after: String} {
 	for i in 0..<str.len {
 		if str[i] == by {

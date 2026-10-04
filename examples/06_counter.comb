@@ -39,7 +39,7 @@ counter2 = |s: CounterState| -> h.StateWithoutGlobalState[h.EmptyGlobalState] {
             return counter(s)
         },
         serialize = || -> String {
-            return serialize_json(s)
+            return serialize_to_json[CounterState](s)
         },
     }
 }
@@ -48,8 +48,8 @@ site = {
     initial_global_state = h.empty_global_state,
     pages = OrderedHashMap(
         "/" = |old_state: String| -> h.StateWithoutGlobalState[h.EmptyGlobalState] {
-			state = deserialize_json[CounterState](old_state, counter_initial_state)
-            return counter2(counter_initial_state)
+			state = deserialize_from_json[CounterState](old_state, counter_initial_state)
+            return counter2(state)
         },
     ),
 }

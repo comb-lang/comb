@@ -33,7 +33,7 @@ emit_js_exact_value :: proc(s: ^GeneralEmitterState, v: compiler.ExactValue) {
          compiler.HttpServerListenAndServe,
          compiler.SetWebSocketHandler,
          compiler.SendToWebSockets:
-        panic("TODO")
+        strings.write_string(&s.b, "/* TODO: Implement web server in JS emitter */ undefined")
     case compiler.Array(compiler.ExactValue):
         strings.write_byte(&s.b, '[')
         for elem in comptime.elements {
@@ -59,8 +59,13 @@ emit_js_exact_value :: proc(s: ^GeneralEmitterState, v: compiler.ExactValue) {
         }
         strings.write_byte(&s.b, ')')
     case compiler.SerialiseToJsonFunc:
-        // BEFORE MERGE TODO: Include the hash of the type of the value being serialized in the serialized string
-        strings.write_string(&s.b, "JSON.stringify")
+        strings.write_string(&s.b, "serialize_to_json(")
+        if comptime.type > compiler.Type.MaxIndex {
+            strings.write_uint(&s.b, uint(comptime.type))
+        } else {
+            strings.write_uint(&s.b, uint(s.types.m.keys[comptime.type].key_hash))
+        }
+        strings.write_byte(&s.b, ')')
     case compiler.BuiltinFunction:
         #partial switch comptime {
         case .print, .println:
@@ -570,13 +575,27 @@ emit_javascript :: proc(
         "  }" +
         "  return num" +
         "}" +
+        "const serialize_to_json = (type) => (value) => JSON.stringify({type, value});" +
+        "const deserialize_from_json = (type) => (json, fallback) => {" +
+        "  try {" +
+        "    const parsed = JSON.parse(json);" +
+        "    if (parsed.type != type) {" +
+        "      throw new Error(`Type mismatch: Expected ${type}, got ${parsed.type}`)" +
+        "    }" +
+        "    return parsed.value" +
+        "  } catch (e) {" +
+        "    console.error(\"Failed to deserialize from json\");" +
+        "    console.error(e);" +
+        "    return fallback" +
+        "  }" +
+        "};" +
         "function in_map(a, b) {return Map.prototype.has.call(b, a)}" +
         "function with_update(value, key, func) {return value.with(key, func(value[key]))}" +
         "function object_update(object, field, func) {" +
         "  const shallow_copy = {...object};" +
         "  shallow_copy[field] = func(shallow_copy[field]);" +
         "  return shallow_copy;" +
-        "}" +
+        "}" +// TODO: Be able to deserialize when there's a type mismatch
         "function map_update(map, key, func) {return new Map(map).set(key, func(map.get(key)))}",
     )
 

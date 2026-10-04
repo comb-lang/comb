@@ -58,7 +58,7 @@ game_of_life2 = |s: State| -> h.StateWithoutGlobalState[h.EmptyGlobalState] {
             return game_of_life(s)
         },
         serialize = || -> String {
-            return serialize_json(s)
+            return serialize_to_json[State](s)
         },
     }
 }
@@ -122,7 +122,7 @@ site = {
 	initial_global_state = h.empty_global_state,
 	pages = OrderedHashMap(
 		"/" = |old_state: String| -> h.StateWithoutGlobalState[h.EmptyGlobalState] {
-			state = deserialize_json[State](old_state, pulsar_initial_state)
+			state = deserialize_from_json[State](old_state, pulsar_initial_state)
 			return game_of_life2(state)
 		},
 	)

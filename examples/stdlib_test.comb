@@ -29,7 +29,20 @@ test_quick_sort = || -> TestResult {
 	return :Passed
 }
 
+test_string_manipulation = || -> TestResult {
+	if u.starts_with("ab", "abc") != false { return :Failed }
+	if u.starts_with("abc", "abc") != true { return :Failed }
+	if u.starts_with("hello world", "h") != true { return :Failed }
+
+	if u.ends_with("ab", "dab") != false { return :Failed }
+	if u.ends_with("dab", "dab") != true { return :Failed }
+	if u.ends_with("hello world", "d") != true { return :Failed }
+	
+	return :Passed
+}
+
 test_all = || -> Int {
 	println("quick_sort: " & test_result_to_str(test_quick_sort()))
+	println("string_manipulation: " & test_result_to_str(test_string_manipulation()))
 	return 0
 }

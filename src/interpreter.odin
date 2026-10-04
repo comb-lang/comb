@@ -153,7 +153,7 @@ interp_execute_function :: proc(
     case compiler.SerialiseToJsonFunc:
         panic("TODO")
     case compiler.DeserialiseFromJsonFunc:
-        // BEFORE MERGE TODO: Actually deserialize rather than resorting to the fallback
+        // TODO: Actually deserialize rather than resorting to the fallback
         return args[1]
     case compiler.BuiltinFunction:
         return s.builtin_handler.procedure(s, val, args)

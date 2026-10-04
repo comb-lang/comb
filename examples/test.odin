@@ -1079,6 +1079,8 @@ stdlib_test :: proc(t: ^testing.T) {
     testing.expect(t, ran.compiler.stderr == "")
     e := utils.TestingTextExpecter{0, ran.program.stdout, t}
     utils.expect_string(&e, "quick_sort: passed\n")
+    utils.expect_string(&e, "string_manipulation: passed\n")
+    utils.expect_finished(&e)
 }
 
 @(test)

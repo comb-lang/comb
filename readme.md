@@ -48,7 +48,8 @@ A new language for the web, because it's time to stop working around javascript.
 # Todo
 
 - Update type hashing so that the hash is based only on the contents of a type so that the hot reload can detect whether the old state had the same type as the new state
-- Make the `examples/std` standard library accessible from source code in any directory
+- Actually desrialize in the interpreter rather than always resorting to the fallback
+- Be able to `deserialize_from_json` even when there's a type mismatch
 - I think there should be a better syntax for multiline strings:
   - Something like:
     ```

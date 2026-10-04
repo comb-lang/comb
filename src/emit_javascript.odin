@@ -29,8 +29,11 @@ emit_js_exact_value :: proc(s: ^GeneralEmitterState, v: compiler.ExactValue) {
             emit_js_exact_value(s, comptime.payload^)
         }
         strings.write_byte(&s.b, '}')
-    case compiler.SetHttpServerHandler, compiler.HttpServerListenAndServe:
-        panic("TODO")
+    case compiler.SetHttpServerHandler,
+         compiler.HttpServerListenAndServe,
+         compiler.SetWebSocketHandler,
+         compiler.SendToWebSockets:
+        strings.write_string(&s.b, "/* TODO: Implement web server in JS emitter */ undefined")
     case compiler.Array(compiler.ExactValue):
         strings.write_byte(&s.b, '[')
         for elem in comptime.elements {
@@ -47,6 +50,22 @@ emit_js_exact_value :: proc(s: ^GeneralEmitterState, v: compiler.ExactValue) {
         }
     case compiler.CastFunction:
         strings.write_string(&s.b, "/* TODO: Implement cast in JS emitter */ undefined")
+    case compiler.DeserialiseFromJsonFunc:
+        strings.write_string(&s.b, "deserialize_from_json(")
+        if comptime.type > compiler.Type.MaxIndex {
+            strings.write_uint(&s.b, uint(comptime.type))
+        } else {
+            strings.write_uint(&s.b, uint(s.types.m.keys[comptime.type].key_hash))
+        }
+        strings.write_byte(&s.b, ')')
+    case compiler.SerialiseToJsonFunc:
+        strings.write_string(&s.b, "serialize_to_json(")
+        if comptime.type > compiler.Type.MaxIndex {
+            strings.write_uint(&s.b, uint(comptime.type))
+        } else {
+            strings.write_uint(&s.b, uint(s.types.m.keys[comptime.type].key_hash))
+        }
+        strings.write_byte(&s.b, ')')
     case compiler.BuiltinFunction:
         #partial switch comptime {
         case .print, .println:
@@ -545,6 +564,7 @@ emit_javascript :: proc(
 ) -> GeneralEmitterState {
     utils.call(loc, "emit_javascript", "", enable_debug = utils.debug_emitter)
     s := GeneralEmitterState{strings.builder_make(), types, checked_functions}
+    // TODO: Be able to `deserialize_from_json` even when there's a type mismatch
     strings.write_string(
         &s.b,
         "function builtin22(num) {" +
@@ -556,6 +576,20 @@ emit_javascript :: proc(
         "  }" +
         "  return num" +
         "}" +
+        "const serialize_to_json = (type) => (value) => JSON.stringify({type, value});" +
+        "const deserialize_from_json = (type) => (json, fallback) => {" +
+        "  try {" +
+        "    const parsed = JSON.parse(json);" +
+        "    if (parsed.type != type) {" +
+        "      throw new Error(`Type mismatch: Expected ${type}, got ${parsed.type}`)" +
+        "    }" +
+        "    return parsed.value" +
+        "  } catch (e) {" +
+        "    console.error(\"Failed to deserialize from json\");" +
+        "    console.error(e);" +
+        "    return fallback" +
+        "  }" +
+        "};" +
         "function in_map(a, b) {return Map.prototype.has.call(b, a)}" +
         "function with_update(value, key, func) {return value.with(key, func(value[key]))}" +
         "function object_update(object, field, func) {" +

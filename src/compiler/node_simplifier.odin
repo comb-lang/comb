@@ -3,6 +3,7 @@ package compiler
 import "../utils"
 import "core:math"
 import "core:slice"
+import "core:strings"
 
 // This file may become an implementation of the node simplifier in a sea of nodes style optimizer
 // See https://github.com/seaofnodes/simple
@@ -46,6 +47,16 @@ create_joined_values :: proc(
             return ExactValue(BoolValue(comptime0.(BoolValue) || comptime1.(BoolValue)))
         }
         flip_values = val0_is_comptime
+    case .StringConcat:
+        comptime0, val0_is_comptime := val0.(ExactValue)
+        comptime1, val1_is_comptime := val1.(ExactValue)
+        if val0_is_comptime && val1_is_comptime {
+            res, err := strings.concatenate(
+                []string{string(comptime0.(StringValue)), string(comptime1.(StringValue))},
+            )
+            assert(err == nil)
+            return ExactValue(StringValue(res))
+        }
     case .IsEqual,
          .IsNotEqual,
          .IsGreaterThan,
@@ -53,7 +64,6 @@ create_joined_values :: proc(
          .IsGreaterThanOrEqual,
          .IsLessThanOrEqual,
          .Modulo,
-         .StringConcat,
          .In: // TODO
     case .Multiplication, .Division, .Addition, .Subtraction:
         comptime0, val0_is_comptime := val0.(ExactValue)
@@ -403,7 +413,7 @@ create_derivation :: proc(
 
 create_sum_type_value :: proc(
     sum_type: Type,
-    variant_index: u32,
+    variant_index: SumTag,
     payload: ^CheckedValue,
 ) -> CheckedValue {
     if payload == nil {

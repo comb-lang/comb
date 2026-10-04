@@ -43,7 +43,6 @@ Type :: enum u32 {
     // - Ico
     // - Gif
     // - Jpeg
-    // - Js
     // - Json
     // - Png
     // - Svg
@@ -56,6 +55,7 @@ Type :: enum u32 {
     //   Plain: String,
     //   Css: String,
     //   Html: String,
+    //   Js: String,
     // \
     HttpResponse,
 
@@ -65,10 +65,28 @@ Type :: enum u32 {
     // (HttpRequestHandler) -> ()
     HttpRequestHandlerToNil,
 
+    // \
+    //   :None,
+    //   Text: String,
+    //   Binary: String,
+    // \
+    WebSocketMessage,
+
+    // (WebSocketMessage) -> WebSocketMessage
+    WebSocketMessageHandler,
+
+    // (WebSocketMessageHandler) -> ()
+    WebSocketMessageHandlerToNil,
+
+    // (WebSocketMessage) -> ()
+    WebSocketMessageToNil,
+
     // {
     //   set_handler: (HttpRequestHandler) -> (),
     //   listen_and_serve: () -> (),
     //   port: Int,
+    //   set_websocket_handler: (WebSocketMessageHandler) -> (),
+    //   send_to_websockets: (WebSocketMessage) -> (),
     // }
     HttpServer,
 
@@ -91,14 +109,27 @@ Type :: enum u32 {
     MaxIndex = max(u32) - 13,
 }
 
-response_type_variant_index_to_content_type :: proc(variant_index: u32) -> string {
-    switch variant_index {
-    case 0:
+SumTag :: enum u32 {
+    Plain,
+    Css,
+    Html,
+    Js,
+    None,
+    Text,
+    Binary,
+    TagLookupFailed = utils.does_not_exist.index,
+}
+
+response_type_variant_index_to_content_type :: proc(variant_index: SumTag) -> string {
+    #partial switch variant_index {
+    case .Plain:
         return "text/plain"
-    case 1:
+    case .Css:
         return "text/css"
-    case 2:
+    case .Html:
         return "text/html"
+    case .Js:
+        return "text/javascript"
     case:
         panic("Unreachable")
     }
@@ -146,13 +177,18 @@ create_types :: proc(a: ^utils.Arena) -> Types {
         utils.make_key_to_index(a, utils.KeyToIndex(string)),
     }
 
-    plain_tag, _ := utils.lookup_or_insert(
-        &out.sum_type_tags,
-        "Plain",
-        utils.string_to_index_procs,
-    )
-    css_tag, _ := utils.lookup_or_insert(&out.sum_type_tags, "Css", utils.string_to_index_procs)
-    html_tag, _ := utils.lookup_or_insert(&out.sum_type_tags, "Html", utils.string_to_index_procs)
+    add_tag :: proc(o: ^Types, tag_name: string) -> SumTag {
+        index, _ := utils.lookup_or_insert(&o.sum_type_tags, tag_name, utils.string_to_index_procs)
+        return SumTag(index.index)
+    }
+
+    assert(add_tag(&out, "Plain") == .Plain)
+    assert(add_tag(&out, "Css") == .Css)
+    assert(add_tag(&out, "Html") == .Html)
+    assert(add_tag(&out, "Js") == .Js)
+    assert(add_tag(&out, "None") == .None)
+    assert(add_tag(&out, "Text") == .Text)
+    assert(add_tag(&out, "Binary") == .Binary)
 
     array_with_string_type := utils.arena_make(a, []Type, 1)
     array_with_string_type[0] = .String
@@ -205,6 +241,15 @@ create_types :: proc(a: ^utils.Arena) -> Types {
 
     array_with_http_server := utils.arena_make(a, []Type, 1)
     array_with_http_server[0] = .HttpServer
+
+    array_with_websocket_message := utils.arena_make(a, []Type, 1)
+    array_with_websocket_message[0] = .WebSocketMessage
+
+    array_with_websocket_message_return := utils.arena_make(a, []Type, 1)
+    array_with_websocket_message_return[0] = .WebSocketMessage
+
+    array_with_websocket_message_handler := utils.arena_make(a, []Type, 1)
+    array_with_websocket_message_handler[0] = .WebSocketMessageHandler
 
     assert(.DynamicArrayOfStrings == create_type(&out, ArrayType{nil, .String}).type)
     assert(.StringToNil == create_type(&out, FuncType{array_with_string_type, nil}).type)
@@ -303,10 +348,11 @@ create_types :: proc(a: ^utils.Arena) -> Types {
         create_type(&out, StructType{http_request_map, utils.array_to_multi(http_request_types)}).type,
     )
 
-    http_response_types := make(map[u32]Maybe(Type))
-    http_response_types[plain_tag.index] = .String
-    http_response_types[css_tag.index] = .String
-    http_response_types[html_tag.index] = .String
+    http_response_types := make(map[SumTag]Maybe(Type))
+    http_response_types[SumTag.Plain] = .String
+    http_response_types[SumTag.Css] = .String
+    http_response_types[SumTag.Html] = .String
+    http_response_types[SumTag.Js] = .String
 
     assert(.HttpResponse == create_type(&out, SumType{http_response_types}).type)
 
@@ -320,6 +366,28 @@ create_types :: proc(a: ^utils.Arena) -> Types {
         create_type(&out, FuncType{array_with_http_request_handler, nil}).type,
     )
 
+    websocket_message_types := make(map[SumTag]Maybe(Type))
+    websocket_message_types[SumTag.None] = nil
+    websocket_message_types[SumTag.Text] = .String
+    websocket_message_types[SumTag.Binary] = .String
+
+    assert(.WebSocketMessage == create_type(&out, SumType{websocket_message_types}).type)
+
+    assert(
+        .WebSocketMessageHandler ==
+        create_type(&out, FuncType{array_with_websocket_message, array_with_websocket_message_return}).type,
+    )
+
+    assert(
+        .WebSocketMessageHandlerToNil ==
+        create_type(&out, FuncType{array_with_websocket_message_handler, nil}).type,
+    )
+
+    assert(
+        .WebSocketMessageToNil ==
+        create_type(&out, FuncType{array_with_websocket_message, nil}).type,
+    )
+
     http_server_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
     i, _ = utils.lookup_or_insert(&http_server_map, "set_handler", utils.string_to_index_procs)
     assert(i.index == 0)
@@ -331,12 +399,26 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     assert(i.index == 1)
     i, _ = utils.lookup_or_insert(&http_server_map, "port", utils.string_to_index_procs)
     assert(i.index == 2)
+    i, _ = utils.lookup_or_insert(
+        &http_server_map,
+        "set_websocket_handler",
+        utils.string_to_index_procs,
+    )
+    assert(i.index == 3)
+    i, _ = utils.lookup_or_insert(
+        &http_server_map,
+        "send_to_websockets",
+        utils.string_to_index_procs,
+    )
+    assert(i.index == 4)
     utils.fix_key_to_index(http_server_map)
 
-    http_server_types := utils.arena_make(a, []Type, 3)
+    http_server_types := utils.arena_make(a, []Type, 5)
     http_server_types[0] = .HttpRequestHandlerToNil
     http_server_types[1] = .NoArgsToNil
     http_server_types[2] = .Int
+    http_server_types[3] = .WebSocketMessageHandlerToNil
+    http_server_types[4] = .WebSocketMessageToNil
     assert(
         .HttpServer ==
         create_type(&out, StructType{http_server_map, utils.array_to_multi(http_server_types)}).type,
@@ -437,7 +519,7 @@ hash_struct_type :: proc(value: StructType) -> u32 {
 hash_sum_type :: proc(value: SumType) -> u32 {
     result: u32
     for tag_index, tag_payload in value.payloads {
-        result ~= tag_index
+        result ~= u32(tag_index)
         type, is_type := tag_payload.(Type)
         if is_type {
             result ~= u32(type)

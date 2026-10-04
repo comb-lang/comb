@@ -41,6 +41,8 @@ BuiltinFunction :: enum u8 {
     clear_after_cursor,
     make_dir_all,
     expect_uint,
+    serialize_to_json,
+    deserialize_from_json,
 }
 
 GotBuiltin :: struct {
@@ -89,6 +91,10 @@ get_builtin :: proc(name: string) -> GotBuiltin {
         return GotBuiltin{BuiltinFunction.make_dir_all, .StringToNil}
     case "expect_uint":
         return GotBuiltin{BuiltinFunction.expect_uint, .FloatToUInt}
+    case "serialize_to_json":
+        return GotBuiltin{BuiltinFunction.serialize_to_json, .Unknown}
+    case "deserialize_from_json":
+        return GotBuiltin{BuiltinFunction.deserialize_from_json, .Unknown}
     case "Int":
         return GotBuiltin{Type.Int, .Type}
     case "UInt":
@@ -117,6 +123,8 @@ get_builtin :: proc(name: string) -> GotBuiltin {
         return GotBuiltin{Type.HttpResponse, .Type}
     case "HttpServer":
         return GotBuiltin{Type.HttpServer, .Type}
+    case "WebSocketMessage":
+        return GotBuiltin{Type.WebSocketMessage, .Type}
     case "OrderedHashMap":
         return GotBuiltin{UninitialisedOrderedHashMapType{}, .Unknown}
     case "EmptyOrderedHashMap":

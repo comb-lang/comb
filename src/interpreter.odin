@@ -3,6 +3,7 @@ package main
 // This file is mostly AI generated
 // TODO: Proper memory management (garbage collector?)
 
+import "base:runtime"
 import "compiler"
 import "core:fmt"
 import "core:io"
@@ -12,6 +13,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
+import "core:time"
 import "utils"
 import "webserver"
 
@@ -39,14 +41,23 @@ ControlFlowOperation :: union {
 }
 
 HttpServer :: struct {
-    socket:  net.TCP_Socket,
-    handler: compiler.RuntimeFunc,
+    socket:            net.TCP_Socket,
+    handler:           compiler.RuntimeFunc,
+    websocket_handler: compiler.RuntimeFunc,
+}
+
+WebsocketConnection :: struct {
+    client:      net.TCP_Socket,
+    server:      uint,
+    open:        bool,
+    read_buffer: [dynamic]byte,
 }
 
 // Interpreter state that lasts when the program is restarted by the `-watch` flag
 LongLivedInterpState :: struct {
     cache:        map[string]compiler.ExactValue,
     http_servers: [dynamic]HttpServer,
+    websockets:   [dynamic]WebsocketConnection,
 }
 
 // Interpreter state that is reset when the program is restarted by the `-watch` flag
@@ -139,6 +150,11 @@ interp_execute_function :: proc(
     }
 
     #partial switch val in fn_val {
+    case compiler.SerialiseToJsonFunc:
+        panic("TODO")
+    case compiler.DeserialiseFromJsonFunc:
+        // TODO: Actually deserialize rather than resorting to the fallback
+        return args[1]
     case compiler.BuiltinFunction:
         return s.builtin_handler.procedure(s, val, args)
     case compiler.RuntimeFunc:
@@ -146,6 +162,29 @@ interp_execute_function :: proc(
     case compiler.SetHttpServerHandler:
         assert(len(args) == 1)
         s.l.http_servers[val.server].handler = args[0].(compiler.RuntimeFunc)
+        return nil
+    case compiler.SetWebSocketHandler:
+        assert(len(args) == 1)
+        s.l.http_servers[val.server].websocket_handler = args[0].(compiler.RuntimeFunc)
+        return nil
+    case compiler.SendToWebSockets:
+        assert(len(args) == 1)
+        message := args[0].(compiler.SumTypeInitialisation(^compiler.ExactValue))
+        if message.variant_index != .None {
+            opcode := webserver.WebSocket_Opcode.Text
+            if message.variant_index == .Binary {
+                opcode = .Binary
+            } else if message.variant_index != .Text {
+                panic("Expected the websocket message to be a `WebSocketMessage`")
+            }
+            payload := transmute([]byte)message.payload.(compiler.StringValue)
+            for i in 0 ..< len(s.l.websockets) {
+                conn := &s.l.websockets[i]
+                if conn.open && conn.server == val.server {
+                    webserver.send_ws_frame(conn.client, opcode, payload)
+                }
+            }
+        }
         return nil
     case compiler.HttpServerListenAndServe:
         assert(len(args) == 0)
@@ -155,14 +194,21 @@ interp_execute_function :: proc(
         }
         buf: [65536]byte
         for {
+            pump_websockets(s)
             // TODO: Set timeout on accept_tcp so it does not block the
             // automatic recompilation of the `-watch` flag
             client, _, accept_err := net.accept_tcp(server.socket)
+            if accept_err == .Would_Block {
+                if compiler.should_exit_early(s.exit_early) {
+                    return nil
+                }
+                time.sleep(utils.wait_time)
+                continue
+            }
             if accept_err != nil {
                 // TODO: Better error handling
                 panic(fmt.aprintf("Accept error: %v", accept_err))
             }
-            defer net.close(client)
 
             n, receive_err := net.recv_tcp(client, buf[:])
             if receive_err != nil {
@@ -173,8 +219,12 @@ interp_execute_function :: proc(
             data := buf[:n]
 
             if webserver.is_websocket_upgrade_request(data) {
-                panic("TODO: Add support for websockets")
+                // Successfully upgraded connections are kept open and are
+                // handled by `pump_websockets`, `accept_websocket` closes the
+                // client itself when the handshake fails
+                accept_websocket(s, val.server, client, data)
             } else {
+                defer net.close(client)
                 request, ok := webserver.parse_http_request(data)
                 if !ok {
                     err := webserver.send_error(client, 400, "Bad Request")
@@ -263,6 +313,225 @@ interp_execute_function2 :: proc(
     } else {
         assert(state.control_flow_op == nil)
         return nil
+    }
+}
+
+
+// Performs the websocket handshake and stores the connection so that
+// `pump_websockets` can dispatch its messages to the server's websocket
+// handler. Does not close `client` on success, the caller is responsible for
+// that. Closes `client` itself when the handshake fails.
+accept_websocket :: proc(
+    s: InterpState,
+    server_index: uint,
+    client: net.TCP_Socket,
+    upgrade_data: []byte,
+) {
+    key, key_ok := webserver.get_websocket_key(upgrade_data)
+    if !key_ok {
+        err := webserver.send_error(client, 400, "Bad Request")
+        if err != nil {
+            // TODO: Better error handling
+            panic("Failed to send error")
+        }
+        net.close(client)
+        return
+    }
+
+    accept_key, accept_ok := webserver.compute_accept_key(key)
+    if !accept_ok {
+        // TODO: Better error handling
+        panic("Failed to compute the `Sec-WebSocket-Accept` value")
+    }
+    defer delete(accept_key)
+
+    webserver.send_websocket_upgrade_response(client, accept_key)
+
+    err := net.set_blocking(client, false)
+    if err != nil {
+        utils.panicf("Failed to disable blocking: %v", err)
+    }
+
+    append(&s.l.websockets, WebsocketConnection{client, server_index, true, make([dynamic]byte)})
+}
+
+// Dispatches the messages which have been received on open websocket
+// connections to the websocket handlers and closes connections which the
+// clients have closed. Messages which arrive while the program is being
+// recompiled by the `-watch` flag stay in the connection's read buffer and
+// are dispatched on the next run.
+pump_websockets :: proc(s: InterpState) {
+    recv_buf: [65536]byte
+    frame_buf: [65536]byte
+
+    for conn_index in 0 ..< len(s.l.websockets) {
+        conn := &s.l.websockets[conn_index]
+        if !conn.open do continue
+
+        for conn.open {
+            if compiler.should_exit_early(s.exit_early) {
+                break
+            }
+
+            frame, parse_ok := webserver.parse_ws_frame(frame_buf[:], conn.read_buffer[:])
+            if !parse_ok {
+                close_websocket_connection(conn)
+                break
+            }
+
+            if frame == nil {
+                n, recv_err := net.recv_tcp(conn.client, recv_buf[:])
+                if recv_err == .Would_Block {
+                    break
+                }
+                if recv_err != nil || n == 0 {
+                    close_websocket_connection(conn)
+                    break
+                }
+                append_elems(&conn.read_buffer, ..recv_buf[:n])
+                continue
+            }
+
+            frame_len := ws_frame_len(conn.read_buffer[:])
+
+            switch frame.opcode {
+            case .Text:
+                dispatch_websocket_message(s, conn, .Text, frame.payload)
+            case .Binary:
+                dispatch_websocket_message(s, conn, .Binary, frame.payload)
+            case .Ping:
+                webserver.send_ws_frame(conn.client, .Pong, frame.payload)
+            case .Pong, .Continuation:
+            case .Close:
+                webserver.send_ws_frame(conn.client, .Close, nil)
+            }
+
+            // `parse_ws_frame` allocates the payload when the frame is
+            // masked, otherwise the payload points into the read buffer
+            if frame.mask {
+                delete(frame.payload)
+            }
+
+            consume_ws_frame(&conn.read_buffer, frame_len)
+
+            if frame.opcode == .Close {
+                close_websocket_connection(conn)
+            }
+        }
+    }
+
+    i := 0
+    for i < len(s.l.websockets) {
+        if s.l.websockets[i].open {
+            i += 1
+        } else {
+            last := pop(&s.l.websockets)
+            if i < len(s.l.websockets) {
+                s.l.websockets[i] = last
+            }
+        }
+    }
+}
+
+// Calls the server's websocket handler with the message and sends the
+// returned `WebSocketMessage` back over the connection
+dispatch_websocket_message :: proc(
+    s: InterpState,
+    conn: ^WebsocketConnection,
+    variant_index: compiler.SumTag,
+    payload: []byte,
+) {
+    server := s.l.http_servers[conn.server]
+    if server.websocket_handler.ref.index.v == max(uint) {
+        return
+    }
+
+    payload_value := new(compiler.ExactValue)
+    payload_value^ = compiler.StringValue(strings.clone(string(payload)))
+
+    args := make([]compiler.ExactValue, 1)
+    args[0] = compiler.SumTypeInitialisation(^compiler.ExactValue) {
+        .WebSocketMessage,
+        variant_index,
+        payload_value,
+    }
+
+    response := interp_execute_function2(s, server.websocket_handler, args)
+    if compiler.should_exit_early(s.exit_early) {
+        return
+    }
+
+    response_sum, ok := response.(compiler.SumTypeInitialisation(^compiler.ExactValue))
+    if !ok {
+        panic("Expected the websocket handler to return a `WebSocketMessage`")
+    }
+    if !conn.open {
+        return
+    }
+
+    #partial switch response_sum.variant_index {
+    case .None:
+    case .Text:
+        webserver.send_ws_frame(
+            conn.client,
+            .Text,
+            transmute([]byte)response_sum.payload.(compiler.StringValue),
+        )
+    case .Binary:
+        webserver.send_ws_frame(
+            conn.client,
+            .Binary,
+            transmute([]byte)response_sum.payload.(compiler.StringValue),
+        )
+    case:
+        panic("Unreachable")
+    }
+}
+
+close_websocket_connection :: proc(conn: ^WebsocketConnection) {
+    if !conn.open do return
+    conn.open = false
+    net.close(conn.client)
+    delete(conn.read_buffer)
+}
+
+// The number of bytes that the frame at the start of `data` takes up. `data`
+// must contain a full frame.
+ws_frame_len :: proc(data: []byte) -> int {
+    payload_len := int(data[1] & 0x7F)
+    offset := 2
+    if payload_len == 126 {
+        payload_len = int(data[2]) << 8 | int(data[3])
+        offset += 2
+    } else if payload_len == 127 {
+        payload_len = 0
+        for i in 0 ..< 8 {
+            payload_len = payload_len << 8 | int(data[2 + i])
+        }
+        offset += 8
+    }
+    if data[1] & 0x80 != 0 {
+        offset += 4
+    }
+    return offset + payload_len
+}
+
+consume_ws_frame :: proc(buffer: ^[dynamic]byte, frame_len: int) {
+    remaining := len(buffer^) - frame_len
+    copy((buffer^)[:remaining], (buffer^)[frame_len:])
+    resize(buffer, remaining)
+}
+
+// Called at the start of every program run because the handlers which are
+// stored in the long lived state point into the previous run's functions
+reset_persisted_handlers :: proc(l: ^LongLivedInterpState) {
+    no_runtime_func := compiler.RuntimeFunc {
+        compiler.CheckedFuncRef{utils.to_debug_value(max(uint))},
+        utils.Multi(compiler.ExactValue){nil},
+    }
+    for &server in l.http_servers {
+        server.handler = no_runtime_func
+        server.websocket_handler = no_runtime_func
     }
 }
 
@@ -477,7 +746,11 @@ interp_clone_value :: proc(
          compiler.BuiltinFunction,
          compiler.HttpServerListenAndServe,
          compiler.SetHttpServerHandler,
-         compiler.CastFunction:
+         compiler.CastFunction,
+         compiler.DeserialiseFromJsonFunc,
+         compiler.SerialiseToJsonFunc,
+         compiler.SetWebSocketHandler,
+         compiler.SendToWebSockets:
         return val
     }
     return compiler.ExactValue{}
@@ -664,7 +937,10 @@ interp_eval_comptime_value :: proc(
     value: compiler.ExactValue,
 ) -> compiler.ExactValue {
     switch comptime in value {
-    case compiler.SetHttpServerHandler, compiler.HttpServerListenAndServe:
+    case compiler.SetHttpServerHandler,
+         compiler.HttpServerListenAndServe,
+         compiler.SetWebSocketHandler,
+         compiler.SendToWebSockets:
         panic("TODO")
     case compiler.SumTypeInitialisation(^compiler.ExactValue):
         if comptime.payload == nil {
@@ -692,6 +968,10 @@ interp_eval_comptime_value :: proc(
         }
         return compiler.ExactOrderedHashMap{comptime.type, out_map, comptime.order}
     case compiler.CastFunction:
+        return comptime
+    case compiler.SerialiseToJsonFunc:
+        return comptime
+    case compiler.DeserialiseFromJsonFunc:
         return comptime
     case compiler.BuiltinFunction:
         return comptime
@@ -888,7 +1168,11 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
              compiler.ExactOrderedHashMap,
              compiler.HttpServerListenAndServe,
              compiler.SetHttpServerHandler,
-             compiler.CastFunction:
+             compiler.SetWebSocketHandler,
+             compiler.SendToWebSockets,
+             compiler.CastFunction,
+             compiler.DeserialiseFromJsonFunc,
+             compiler.SerialiseToJsonFunc:
             panic("Unreachable")
         }
 
@@ -986,6 +1270,11 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
         switch value.base_type {
         case .Array:
             arr := base.(compiler.Array(compiler.ExactValue))
+            if start_index < 0 || start_index >= len(arr.elements) {
+                fmt.printfln("Array index %d out of range 0..<%d", start_index, len(arr.elements))
+                dump_call_stack(s.s^)
+                runtime.trap()
+            }
             if value.i.end_index != nil {
                 end_index := compiler.expect_int(interp_eval_value(s, value.i.end_index^).(f64))
                 // TODO: Using `arr.type` means that the result has the incorrect type if `arr` is fixed-size
@@ -994,7 +1283,7 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
                     arr.elements[start_index:end_index],
                 }
             }
-            return base.(compiler.Array(compiler.ExactValue)).elements[start_index]
+            return arr.elements[start_index]
         case .String:
             str := base.(compiler.StringValue)
             if value.i.end_index != nil {
@@ -1150,9 +1439,11 @@ default_builtin_handler_procedure :: proc(
 
         server_index: uint = len(state.l.http_servers)
 
-        fields := make([]compiler.ExactValue, 3)
+        fields := make([]compiler.ExactValue, 5)
         fields[0] = compiler.SetHttpServerHandler{server_index}
         fields[1] = compiler.HttpServerListenAndServe{server_index}
+        fields[3] = compiler.SetWebSocketHandler{server_index}
+        fields[4] = compiler.SendToWebSockets{server_index}
 
         endpoint := net.Endpoint{net.IP4_Address{0, 0, 0, 0}, 8080}
         // TODO: Implement upper limit on number of ports to try
@@ -1160,17 +1451,17 @@ default_builtin_handler_procedure :: proc(
             // TODO: Log that the port is being tried
             socket, err := net.listen_tcp(endpoint)
             if err == nil {
+                err2 := net.set_blocking(socket, false)
+                if err2 != nil {
+                    utils.panicf("Failed to disable blocking: %v", err2)
+                }
+
                 fields[2] = f64(endpoint.port)
-                append(
-                    &state.l.http_servers,
-                    HttpServer {
-                        socket,
-                        compiler.RuntimeFunc {
-                            compiler.CheckedFuncRef{utils.to_debug_value(max(uint))},
-                            utils.Multi(compiler.ExactValue){nil},
-                        },
-                    },
-                )
+                no_runtime_func := compiler.RuntimeFunc {
+                    compiler.CheckedFuncRef{utils.to_debug_value(max(uint))},
+                    utils.Multi(compiler.ExactValue){nil},
+                }
+                append(&state.l.http_servers, HttpServer{socket, no_runtime_func, no_runtime_func})
                 return compiler.StructInitialisation(compiler.ExactValue){.HttpServer, fields}
             }
             if err != net.Bind_Error.Address_In_Use {
@@ -1200,6 +1491,10 @@ default_builtin_handler_procedure :: proc(
         io.write_string(data.pipe.stdout, "\033[0J")
         io.flush(data.pipe.stdout)
         return nil
+    case .serialize_to_json:
+        panic("TODO")
+    case .deserialize_from_json:
+        panic("Unreachable")
     case .cast_func:
         panic("Unreachable")
     case .expect_uint:

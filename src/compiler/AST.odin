@@ -18,7 +18,7 @@ SumUnit :: struct {
 
 SumType :: struct {
     // positions: utils.Multi(utils.Pos),
-    payloads: map[u32]Maybe(Type),
+    payloads: map[SumTag]Maybe(Type),
 }
 
 IdentNode :: struct {

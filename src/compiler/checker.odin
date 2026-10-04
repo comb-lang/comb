@@ -153,7 +153,7 @@ CheckedFunctionCall :: struct {
 }
 SumTypeInitialisation :: struct(PayloadType: typeid) {
     sum_type:      Type,
-    variant_index: u32,
+    variant_index: SumTag,
     payload:       PayloadType, // May be `nil`
 }
 LengthOfString :: struct {
@@ -205,6 +205,12 @@ UninitialisedOrderedHashMapType :: struct {}
 CastFunction :: struct {
     type: Type,
 }
+SerialiseToJsonFunc :: struct {
+    type: Type,
+}
+DeserialiseFromJsonFunc :: struct {
+    type: Type,
+}
 ExactOrderedHashMap :: struct {
     type:  Type,
     value: map[HashMapKey]ExactValue,
@@ -235,6 +241,8 @@ ExactValue :: union {
     Array(ExactValue),
     BuiltinFunction,
     CastFunction,
+    DeserialiseFromJsonFunc,
+    SerialiseToJsonFunc,
     StringValue,
     ExactOrderedHashMap,
     SumTypeInitialisation(^ExactValue),
@@ -253,6 +261,8 @@ ExactValue :: union {
     SetHttpServerHandler,
     HttpServerListenAndServe,
     RuntimeFunc,
+    SetWebSocketHandler,
+    SendToWebSockets,
 }
 
 get_exact_value_type :: proc(checked_funcs: []CheckedFunction, value: ExactValue) -> Type {
@@ -292,9 +302,17 @@ get_exact_value_type :: proc(checked_funcs: []CheckedFunction, value: ExactValue
         panic("TODO")
     case CastFunction:
         panic("TODO")
+    case SerialiseToJsonFunc:
+        panic("TODO")
+    case DeserialiseFromJsonFunc:
+        panic("TODO")
     case SetHttpServerHandler:
         panic("TODO")
     case HttpServerListenAndServe:
+        panic("TODO")
+    case SetWebSocketHandler:
+        panic("TODO")
+    case SendToWebSockets:
         panic("TODO")
     case:
         panic("Unreachable")
@@ -311,6 +329,14 @@ SetHttpServerHandler :: struct {
 }
 
 HttpServerListenAndServe :: struct {
+    server: uint,
+}
+
+SetWebSocketHandler :: struct {
+    server: uint,
+}
+
+SendToWebSockets :: struct {
     server: uint,
 }
 
@@ -840,7 +866,7 @@ CheckedMatchBranch :: struct {
 
 CheckedMatch :: struct {
     value:    VariableRef,
-    branches: map[u32]CheckedMatchBranch, // The key is the tag name index
+    branches: map[SumTag]CheckedMatchBranch, // The key is the tag name index
 }
 
 CheckedAssignment :: struct {
@@ -2478,7 +2504,7 @@ check_block :: proc(
             variable_ref := add_unnamed_variable(s, res.type, false)
             utils.debug_dynamic_array_append(body, CheckedAssignment{variable_ref, res.value})
 
-            branches := make(map[u32]CheckedMatchBranch)
+            branches := make(map[SumTag]CheckedMatchBranch)
             for branch in value.branches {
                 append_elem(&s.scopes, Scope{})
                 defer pop_scope(s)
@@ -2488,12 +2514,10 @@ check_block :: proc(
                     return nil, utils.to_debug_value(false)
                 }
 
-                variant := utils.lookup(
-                    s.types.sum_type_tags,
-                    tag.tag_name.text,
-                    utils.string_to_index_procs,
+                variant := SumTag(
+                    utils.lookup(s.types.sum_type_tags, tag.tag_name.text, utils.string_to_index_procs).index,
                 )
-                if variant == utils.does_not_exist || variant.index not_in val_sum_type.payloads {
+                if variant == .TagLookupFailed || variant not_in val_sum_type.payloads {
                     utils.diagnostic(
                         s.r,
                         get_range(tag.tag_name),
@@ -2504,20 +2528,20 @@ check_block :: proc(
                     return nil, utils.to_debug_value(false)
                 }
 
-                if variant.index in branches {
+                if variant in branches {
                     utils.diagnostic(
                         s.r,
                         get_range(tag.tag_name),
                         "The variant `%s` already has a branch defined at %v",
                         tag.tag_name.text,
-                        branches[variant.index].label_range,
+                        branches[variant].label_range,
                     )
                     return nil, utils.to_debug_value(false)
                 }
 
                 var: Maybe(VariableRef) = nil
                 if payload, has_payload := tag.payload.(Unit); has_payload {
-                    sum_type_payload, sum_type_has_payload := val_sum_type.payloads[variant.index].(Type)
+                    sum_type_payload, sum_type_has_payload := val_sum_type.payloads[variant].(Type)
                     if !sum_type_has_payload {
                         utils.diagnostic(
                             s.r,
@@ -2546,7 +2570,7 @@ check_block :: proc(
                     return nil, utils.to_debug_value(false)
                 }
 
-                branches[variant.index] = CheckedMatchBranch {
+                branches[variant] = CheckedMatchBranch {
                     get_range(branch.label),
                     CheckedBlock{variables, body.v[:]},
                     var,
@@ -3491,12 +3515,12 @@ check_tag_value :: proc(
         utils.string_to_index_procs,
     )
 
-    sum_type_payloads := make(map[u32]Maybe(Type))
-    sum_type_payloads[i.index] = variant_type
+    sum_type_payloads := make(map[SumTag]Maybe(Type))
+    sum_type_payloads[SumTag(i.index)] = variant_type
     sum_type := create_type(&s.types, SumType{sum_type_payloads}).type
 
     return utils.to_debug_value(
-        CheckValueResult{create_sum_type_value(sum_type, i.index, payload), sum_type},
+        CheckValueResult{create_sum_type_value(sum_type, SumTag(i.index), payload), sum_type},
     )
 }
 
@@ -3821,8 +3845,8 @@ check_initial_value :: proc(
         if a.early_exit_if_value_is_type != nil {
             return finish_checking_early_return_type(s, a)
         }
-        variant_positions := make(map[u32]utils.Pos)
-        sum_type := SumType{make(map[u32]Maybe(Type))}
+        variant_positions := make(map[SumTag]utils.Pos)
+        sum_type := SumType{make(map[SumTag]Maybe(Type))}
         ok := true
         for elem in value.elements {
             tag, tag_ok := get_tag(s.r, elem).(GetTagResult)
@@ -3836,26 +3860,26 @@ check_initial_value :: proc(
                 tag.tag_name.text,
                 utils.string_to_index_procs,
             )
-            if index.index in sum_type.payloads {
+            if SumTag(index.index) in sum_type.payloads {
                 utils.diagnostic(
                     s.r,
                     get_range(tag.tag_name),
                     "The variant `%s` is already defined at %v in this sum type",
                     tag.tag_name.text,
-                    variant_positions[index.index],
+                    variant_positions[SumTag(index.index)],
                 )
                 ok = false
                 continue
             }
             if tag.payload == nil {
-                sum_type.payloads[index.index] = nil
+                sum_type.payloads[SumTag(index.index)] = nil
             } else {
                 payload := check_type(s, tag.payload.(Unit), a.generic_args)
                 if payload == .Invalid {
                     ok = false
                     continue
                 }
-                sum_type.payloads[index.index] = payload
+                sum_type.payloads[SumTag(index.index)] = payload
             }
         }
         if !ok {
@@ -4589,20 +4613,53 @@ check_value :: proc(
                     res.type = .Type
                     continue
                 case BuiltinFunction:
-                    assert(comptime_value == .cast_func)
-                    if len(checked_args) != 1 {
-                        argument_count_mismatch(s, res_range, len(checked_args), 1)
-                        return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                    #partial switch comptime_value {
+                    case .deserialize_from_json:
+                        if len(checked_args) != 1 {
+                            argument_count_mismatch(s, res_range, len(checked_args), 1)
+                            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                        }
+                        args := make([]Type, 2)
+                        args[0] = .String
+                        args[1] = checked_args[0]
+                        return_types := make([]Type, 1)
+                        return_types[0] = checked_args[0]
+                        res = CheckValueResult {
+                            ExactValue(DeserialiseFromJsonFunc{checked_args[0]}),
+                            create_type(&s.types, FuncType{args, return_types}).type,
+                        }
+                        continue
+                    case .serialize_to_json:
+                        if len(checked_args) != 1 {
+                            argument_count_mismatch(s, res_range, len(checked_args), 1)
+                            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                        }
+                        args := make([]Type, 1)
+                        args[0] = checked_args[0]
+                        return_types := make([]Type, 1)
+                        return_types[0] = .String
+                        res = CheckValueResult {
+                            ExactValue(SerialiseToJsonFunc{checked_args[0]}),
+                            create_type(&s.types, FuncType{args, return_types}).type,
+                        }
+                        continue
+                    case .cast_func:
+                        if len(checked_args) != 1 {
+                            argument_count_mismatch(s, res_range, len(checked_args), 1)
+                            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                        }
+                        args := make([]Type, 1)
+                        args[0] = .Any
+                        return_types := make([]Type, 1)
+                        return_types[0] = checked_args[0]
+                        res = CheckValueResult {
+                            ExactValue(CastFunction{checked_args[0]}),
+                            create_type(&s.types, FuncType{args, return_types}).type,
+                        }
+                        continue
+                    case:
+                        panic("Unreachable")
                     }
-                    args := make([]Type, 1)
-                    args[0] = .Any
-                    return_types := make([]Type, 1)
-                    return_types[0] = checked_args[0]
-                    res = CheckValueResult {
-                        ExactValue(CastFunction{checked_args[0]}),
-                        create_type(&s.types, FuncType{args, return_types}).type,
-                    }
-                    continue
                 }
                 panic("Unreachable")
             } else if res.type == .Type {
@@ -4977,7 +5034,7 @@ CheckerOutput :: struct {
 
 add_sum_type :: proc(
     s: ^CheckerState,
-    variants: ^map[u32]Maybe(map[Type]struct{}),
+    variants: ^map[SumTag]Maybe(map[Type]struct{}),
     sum_type: SumType,
 ) -> Maybe(Type) {
     for tag_index, payload in sum_type.payloads {
@@ -5033,7 +5090,7 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]struct{})
     }
     switch type in simplified.key {
     case SumType:
-        variants := make(map[u32]Maybe(map[Type]struct{}))
+        variants := make(map[SumTag]Maybe(map[Type]struct{}))
         out, should_return := add_sum_type(s, &variants, type).(Type)
         if should_return {
             return out

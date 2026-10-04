@@ -7,7 +7,7 @@ The second programming language that I've developed, after [common assembly](htt
 ## Locally
 
 ```sh
-odin build .
+odin build src
 ```
 
 ## Using docker
@@ -26,7 +26,7 @@ cp ./gitignore_docker_build/amd64-linux-comb ./comb
 # Running tests
 
 ```sh
-odin test .
+odin test examples
 ```
 
 # Future slogan
@@ -47,7 +47,9 @@ A new language for the web, because it's time to stop working around javascript.
 
 # Todo
 
-- Make the `examples/std` standard library accessible from source code in any directory
+- Update type hashing so that the hash is based only on the contents of a type so that the hot reload can detect whether the old state had the same type as the new state
+- Actually desrialize in the interpreter rather than always resorting to the fallback
+- Be able to `deserialize_from_json` even when there's a type mismatch
 - I think there should be a better syntax for multiline strings:
   - Something like:
     ```
@@ -179,6 +181,7 @@ A new language for the web, because it's time to stop working around javascript.
       return self(n + 1, sum + n)
     }
     ```
+- It might be better to use [nbio](https://pkg.odin-lang.org/core/nbio/) for the http server, the websocket server, and checking if the source code has changed for the `-watch` flag instead of finding non-blocking ways to perform the IO operation and `time.sleep`
 
 # The syntax
 
@@ -212,6 +215,7 @@ A new language for the web, because it's time to stop working around javascript.
       - An executable for a server to handle requests
       - JS code that could run on the edge
   - Metaprogramming:
+    - Maybe be able to interpret a function call to generate an exact value at compile time
     - [x] Decide which metaprogramming capabilities should be ran by the compiler interpreting bytecode and which should be ran by the compiler compiling them into an executable and running the executable
       - Advantages of the interpreter-based approach
         - You can guarantee that the metaprogram does the same thing regardless of:

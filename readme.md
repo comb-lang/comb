@@ -215,6 +215,7 @@ A new language for the web, because it's time to stop working around javascript.
       - An executable for a server to handle requests
       - JS code that could run on the edge
   - Metaprogramming:
+    - Maybe be able to interpret a function call to generate an exact value at compile time
     - [x] Decide which metaprogramming capabilities should be ran by the compiler interpreting bytecode and which should be ran by the compiler compiling them into an executable and running the executable
       - Advantages of the interpreter-based approach
         - You can guarantee that the metaprogram does the same thing regardless of:

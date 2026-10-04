@@ -564,6 +564,7 @@ emit_javascript :: proc(
 ) -> GeneralEmitterState {
     utils.call(loc, "emit_javascript", "", enable_debug = utils.debug_emitter)
     s := GeneralEmitterState{strings.builder_make(), types, checked_functions}
+    // TODO: Be able to `deserialize_from_json` even when there's a type mismatch
     strings.write_string(
         &s.b,
         "function builtin22(num) {" +
@@ -595,7 +596,7 @@ emit_javascript :: proc(
         "  const shallow_copy = {...object};" +
         "  shallow_copy[field] = func(shallow_copy[field]);" +
         "  return shallow_copy;" +
-        "}" +// TODO: Be able to deserialize when there's a type mismatch
+        "}" +
         "function map_update(map, key, func) {return new Map(map).set(key, func(map.get(key)))}",
     )
 

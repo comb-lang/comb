@@ -1,7 +1,6 @@
 package compiler
 
 import "../utils"
-import "core:fmt"
 
 Type :: enum u32 {
     DynamicArrayOfStrings, // []String

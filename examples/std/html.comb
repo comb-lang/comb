@@ -87,7 +87,7 @@ html_page = |js: String| -> String {
                 "<script>" & js & "</" & "script>" &
             "</" & "head>" &
             "<body></" & "body>" &
-        "</" & "html>"   
+        "</" & "html>"
 }
 
 base_js = #load "./js/base.js"

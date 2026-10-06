@@ -1345,6 +1345,9 @@ default_builtin_handler_procedure :: proc(
     // TODO: Maybe we should use the definitions in glue.c
     // https://odin-lang.org/news/binding-to-c/
     switch index {
+    case .exponential:
+        assert(len(args) == 1)
+        return math.exp(args[0].(f64))
     case .print:
         assert(len(args) == 1)
         fmt.wprint(data.pipe.stdout, args[0].(compiler.StringValue))

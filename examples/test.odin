@@ -760,6 +760,7 @@ example_12_lambda_functions :: proc(t: ^testing.T) {
 }
 
 utils_path :: #directory + "std/utils.comb"
+math_path :: #directory + "std/math.comb"
 
 @(test)
 invalid_example_03_constants_and_reassignables_with_same_name :: proc(t: ^testing.T) {
@@ -775,6 +776,7 @@ invalid_example_03_constants_and_reassignables_with_same_name :: proc(t: ^testin
     utils.expect_string(&e, "Reading `" + path + "`...\n")
     utils.expect_string(&e, "Parsing `" + path + "`...\n")
     utils.expect_string(&e, "Parsing `" + utils_path + "`...\n")
+    utils.expect_string(&e, "Parsing `" + math_path + "`...\n")
     utils.expect_string(&e, "Checking...\n")
     utils.expect_string(&e, "\n")
     utils.expect_string(&e, "Warning compiling `" + path + "` (7:2 - 7:6)\n")
@@ -813,6 +815,7 @@ invalid_example_04_invalid_globals :: proc(t: ^testing.T) {
     utils.expect_string(&e, "Reading `" + path + "`...\n")
     utils.expect_string(&e, "Parsing `" + path + "`...\n")
     utils.expect_string(&e, "Parsing `" + utils_path + "`...\n")
+    utils.expect_string(&e, "Parsing `" + math_path + "`...\n")
     utils.expect_string(&e, "Checking...\n")
     utils.expect_done_message(&e)
     utils.expect_finished(&e)
@@ -1052,7 +1055,8 @@ example_15_compile_time_derivations :: proc(t: ^testing.T) {
     e := utils.TestingTextExpecter{0, ran.compiler.stdout, t}
     utils.expect_string(&e, "Reading `" + file + "`...\n")
     utils.expect_string(&e, "Parsing `" + file + "`...\n")
-    utils.expect_string(&e, "Parsing `" + #directory + "std/utils.comb`...\n")
+    utils.expect_string(&e, "Parsing `" + utils_path + "`...\n")
+    utils.expect_string(&e, "Parsing `" + math_path + "`...\n")
     utils.expect_string(&e, "Checking...\n")
     utils.expect_string(&e, "Successfully checked with 0 errors and 0 warnings in ")
     utils.expect_digits(&e)

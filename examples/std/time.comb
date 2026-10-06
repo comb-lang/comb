@@ -1,4 +1,5 @@
 u = import "utils.comb"
+m = import "math.comb"
 
 Date = {
 	elapsed_ms: UInt, // The number of milliseconds since january 1, 1970 00:00:00 UTC
@@ -10,9 +11,9 @@ minutes_per_hour = 60
 hours_per_day = 24
 
 get_date_info = |d: Date| -> DateInfo {
-	total_seconds = u.uint_div(d.elapsed_ms, milliseconds_per_second)
-	total_minutes = u.uint_div(total_seconds, seconds_per_minute)
-	total_hours = u.uint_div(total_minutes, minutes_per_hour)
+	total_seconds = m.uint_div(d.elapsed_ms, milliseconds_per_second)
+	total_minutes = m.uint_div(total_seconds, seconds_per_minute)
+	total_hours = m.uint_div(total_minutes, minutes_per_hour)
 
 	return {
 		milliseconds = d.elapsed_ms % milliseconds_per_second,

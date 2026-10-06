@@ -43,6 +43,7 @@ BuiltinFunction :: enum u8 {
     expect_uint,
     serialize_to_json,
     deserialize_from_json,
+    exponential,
 }
 
 GotBuiltin :: struct {
@@ -95,6 +96,8 @@ get_builtin :: proc(name: string) -> GotBuiltin {
         return GotBuiltin{BuiltinFunction.serialize_to_json, .Unknown}
     case "deserialize_from_json":
         return GotBuiltin{BuiltinFunction.deserialize_from_json, .Unknown}
+    case "exp":
+        return GotBuiltin{BuiltinFunction.exponential, .FloatToFloat}
     case "Int":
         return GotBuiltin{Type.Int, .Type}
     case "UInt":

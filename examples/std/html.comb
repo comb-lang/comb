@@ -26,9 +26,21 @@ SvgElem = \
     },
 \
 
+BasicHtmlElemProps[GlobalState] = {
+    style: String,
+    children: HtmlElem[GlobalState][],
+}
+
 HtmlElem[GlobalState] = \
+    // TODO: Maybe add a better way of creating several variants with the same payload
+    H1: BasicHtmlElemProps[GlobalState],
+    H2: BasicHtmlElemProps[GlobalState],
+    H3: BasicHtmlElemProps[GlobalState],
+    H4: BasicHtmlElemProps[GlobalState],
+    H5: BasicHtmlElemProps[GlobalState],
+    H6: BasicHtmlElemProps[GlobalState],
     Button: {children: HtmlElem[GlobalState][], onclick: State[GlobalState]},
-    Div: {style: String, children: HtmlElem[GlobalState][]},
+    Div: BasicHtmlElemProps[GlobalState],
     Text: String,
     Span: String,
     Svg: {style: String, width: UInt, height: UInt, contents: SvgElem[]},

@@ -17,8 +17,35 @@ function create_svg_elem(elem) {
   }
 }
 
+function create_basic_html_elem(elem_name, props) {
+  const out = document.createElement(elem_name)
+  out.setAttribute("style", props.field0)
+  for (const child of props.field1) {
+    out.appendChild(create_html_elem(child))
+  }
+  return out
+}
+
 function create_html_elem(elem) {
   switch (elem.variant) {
+    case tag_indexes.H1: {
+      return create_basic_html_elem("h1", elem.payload)
+    }
+    case tag_indexes.H2: {
+      return create_basic_html_elem("h2", elem.payload)
+    }
+    case tag_indexes.H3: {
+      return create_basic_html_elem("h3", elem.payload)
+    }
+    case tag_indexes.H4: {
+      return create_basic_html_elem("h4", elem.payload)
+    }
+    case tag_indexes.H5: {
+      return create_basic_html_elem("h5", elem.payload)
+    }
+    case tag_indexes.H6: {
+      return create_basic_html_elem("h6", elem.payload)
+    }
     case tag_indexes.Button: {
       const button = document.createElement("button")
       button.onclick = () => {
@@ -31,12 +58,7 @@ function create_html_elem(elem) {
       return button
     }
     case tag_indexes.Div: {
-      const div = document.createElement("div")
-      div.setAttribute("style", elem.payload.field0)
-      for (const child of elem.payload.field1) {
-        div.appendChild(create_html_elem(child))
-      }
-      return div
+      return create_basic_html_elem("div", elem.payload)
     }
     case tag_indexes.Text: {
       return document.createTextNode(elem.payload)

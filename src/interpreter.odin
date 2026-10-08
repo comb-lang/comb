@@ -8,6 +8,7 @@ import "compiler"
 import "core:fmt"
 import "core:io"
 import "core:math"
+import "core:math/rand"
 import "core:net"
 import "core:os"
 import "core:path/filepath"
@@ -1348,6 +1349,9 @@ default_builtin_handler_procedure :: proc(
     case .exponential:
         assert(len(args) == 1)
         return math.exp(args[0].(f64))
+    case .random:
+        assert(len(args) == 0)
+        return rand.float64()
     case .print:
         assert(len(args) == 1)
         fmt.wprint(data.pipe.stdout, args[0].(compiler.StringValue))

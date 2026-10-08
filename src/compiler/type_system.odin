@@ -19,6 +19,7 @@ Type :: enum u32 {
     StringToAny, // (String) -> Any
     FloatToUInt, // (Float) -> UInt
     FloatToFloat, // (Float) -> Float
+    NoArgsToFloat, // () -> Float
 
     // {
     //   contains: (String) -> Bool,
@@ -292,6 +293,7 @@ create_types :: proc(a: ^utils.Arena) -> Types {
         .FloatToFloat ==
         create_type(&out, FuncType{array_with_float_type, array_with_float_type}).type,
     )
+    assert(.NoArgsToFloat == create_type(&out, FuncType{nil, array_with_float_type}).type)
 
     // positions := utils.arena_make_multi(a, utils.Multi(utils.Pos), 3)
     // positions.d[0] = utils.unknown_pos

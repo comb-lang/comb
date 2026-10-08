@@ -70,6 +70,8 @@ emit_js_exact_value :: proc(s: ^GeneralEmitterState, v: compiler.ExactValue) {
         #partial switch comptime {
         case .exponential:
             strings.write_string(&s.b, "Math.exp")
+        case .random:
+            strings.write_string(&s.b, "Math.random")
         case .print, .println:
             strings.write_string(&s.b, "console.log")
         case .eprint, .eprintln:

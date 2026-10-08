@@ -77,6 +77,13 @@ function create_html_elem(elem) {
       }
       return svg
     }
+    case tag_indexes.Img: {
+      const img = document.createElement("img")
+      img.setAttribute("style", elem.payload.field0)
+      img.setAttribute("src", elem.payload.field1)
+      img.setAttribute("alt", elem.payload.field2)
+      return img
+    }
     case tag_indexes.Br: {
       return document.createElement("br")
     }

@@ -44,6 +44,7 @@ HtmlElem[GlobalState] = \
     Text: String,
     Span: String,
     Svg: {style: String, width: UInt, height: UInt, contents: SvgElem[]},
+    Img: {style: String, src: String, alt: String},
     :Br,
     Select: {
         style: String,

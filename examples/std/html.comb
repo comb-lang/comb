@@ -132,7 +132,6 @@ build_reactive_site[GlobalState] = |c: Compiler, s: Site[GlobalState], path: Str
     }
 }
 
-// TODO: Implement state-preserving hot-reload using the `-watch` flag and compiler cache and a websocket
 serve_reactive_site[GlobalState] = |c: Compiler, server: HttpServer, s: Site[GlobalState]| {
     println("Serving reactive site on port " & server.port.to_str)
     html = html_page(reload_js)

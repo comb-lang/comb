@@ -39,7 +39,7 @@ counter2 = |s: CounterState| -> h.StateWithoutGlobalState[h.EmptyGlobalState] {
             return counter(s)
         },
         serialize = || -> String {
-            return serialize_to_json[CounterState](s)
+            return serialize_to_json(to_typed[CounterState](s))
         },
     }
 }

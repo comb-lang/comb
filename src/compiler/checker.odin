@@ -205,10 +205,10 @@ UninitialisedOrderedHashMapType :: struct {}
 CastFunction :: struct {
     type: Type,
 }
-SerialiseToJsonFunc :: struct {
+DeserialiseFromJsonFunc :: struct {
     type: Type,
 }
-DeserialiseFromJsonFunc :: struct {
+ToTyped :: struct {
     type: Type,
 }
 ExactOrderedHashMap :: struct {
@@ -242,7 +242,7 @@ ExactValue :: union {
     BuiltinFunction,
     CastFunction,
     DeserialiseFromJsonFunc,
-    SerialiseToJsonFunc,
+    ToTyped,
     StringValue,
     ExactOrderedHashMap,
     SumTypeInitialisation(^ExactValue),
@@ -263,10 +263,19 @@ ExactValue :: union {
     RuntimeFunc,
     SetWebSocketHandler,
     SendToWebSockets,
+    Typed,
 }
 
+Typed :: struct {
+    type:  Type,
+    value: ^ExactValue,
+}
+
+/*
 get_exact_value_type :: proc(checked_funcs: []CheckedFunction, value: ExactValue) -> Type {
     switch v in value {
+    case Typed:
+        return .Typed
     case Type, Import, GlobalValueWithGenericRef, UninitialisedOrderedHashMapType:
         panic("Unreachable")
     case f64:
@@ -318,6 +327,7 @@ get_exact_value_type :: proc(checked_funcs: []CheckedFunction, value: ExactValue
         panic("Unreachable")
     }
 }
+*/
 
 RuntimeFunc :: struct {
     ref:         CheckedFuncRef,
@@ -1603,6 +1613,8 @@ build_type_string :: proc(
         strings.write_string(b, "ImportedFile")
     case .Type:
         strings.write_string(b, "Type")
+    case .Typed:
+        strings.write_string(b, "Typed")
     case .Any:
         strings.write_string(b, "Any")
     case:
@@ -4614,6 +4626,20 @@ check_value :: proc(
                     continue
                 case BuiltinFunction:
                     #partial switch comptime_value {
+                    case .to_typed:
+                        if len(checked_args) != 1 {
+                            argument_count_mismatch(s, res_range, len(checked_args), 1)
+                            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                        }
+                        args := make([]Type, 1)
+                        args[0] = checked_args[0]
+                        return_types := make([]Type, 1)
+                        return_types[0] = .Typed
+                        res = CheckValueResult {
+                            ExactValue(ToTyped{checked_args[0]}),
+                            create_type(&s.types, FuncType{args, return_types}).type,
+                        }
+                        continue
                     case .deserialize_from_json:
                         if len(checked_args) != 1 {
                             argument_count_mismatch(s, res_range, len(checked_args), 1)
@@ -4629,27 +4655,13 @@ check_value :: proc(
                             create_type(&s.types, FuncType{args, return_types}).type,
                         }
                         continue
-                    case .serialize_to_json:
-                        if len(checked_args) != 1 {
-                            argument_count_mismatch(s, res_range, len(checked_args), 1)
-                            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-                        }
-                        args := make([]Type, 1)
-                        args[0] = checked_args[0]
-                        return_types := make([]Type, 1)
-                        return_types[0] = .String
-                        res = CheckValueResult {
-                            ExactValue(SerialiseToJsonFunc{checked_args[0]}),
-                            create_type(&s.types, FuncType{args, return_types}).type,
-                        }
-                        continue
                     case .cast_func:
                         if len(checked_args) != 1 {
                             argument_count_mismatch(s, res_range, len(checked_args), 1)
                             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
                         }
                         args := make([]Type, 1)
-                        args[0] = .Any
+                        args[0] = .Typed
                         return_types := make([]Type, 1)
                         return_types[0] = checked_args[0]
                         res = CheckValueResult {

@@ -15,16 +15,17 @@ Type :: enum u32 {
     StringAnyOrderedHashmapAndStringToString, // (OrderedHashMap[String, Any], String) -> String
     StringToBool, // (String) -> Bool
     NoArgsToInt, // () -> Int
-    StringAnyToNil, // (String, Any) -> ()
-    StringToAny, // (String) -> Any
+    StringTypedToNil, // (String, Typed) -> ()
+    StringToTyped, // (String) -> Typed
     FloatToUInt, // (Float) -> UInt
     FloatToFloat, // (Float) -> Float
     NoArgsToFloat, // () -> Float
+    TypedToString, // (Typed) -> String
 
     // {
     //   contains: (String) -> Bool,
-    //   set: (String, Any) -> (),
-    //   get: (String) -> Any
+    //   set: (String, Typed) -> (),
+    //   get: (String) -> Typed
     // }
     CompilerCache,
 
@@ -108,7 +109,8 @@ Type :: enum u32 {
     Invalid = max(u32) - 10,
     Unknown = max(u32) - 11, // TODO: Ideally `unknown_type` would not be necersarry
     EmptyOrderedHashMap = max(u32) - 12,
-    MaxIndex = max(u32) - 13,
+    Typed = max(u32) - 13,
+    MaxIndex = max(u32) - 14,
 }
 
 SumTag :: enum u32 {
@@ -195,6 +197,9 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     array_with_string_type := utils.arena_make(a, []Type, 1)
     array_with_string_type[0] = .String
 
+    array_with_typed_type := utils.arena_make(a, []Type, 1)
+    array_with_typed_type[0] = .Typed
+
     array_with_float_type := utils.arena_make(a, []Type, 1)
     array_with_float_type[0] = .Float
 
@@ -222,9 +227,9 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     array_with_compiler_type := utils.arena_make(a, []Type, 1)
     array_with_compiler_type[0] = .Compiler
 
-    array_with_string_any_type := utils.arena_make(a, []Type, 2)
-    array_with_string_any_type[0] = .String
-    array_with_string_any_type[1] = .Any
+    array_with_string_typed_type := utils.arena_make(a, []Type, 2)
+    array_with_string_typed_type[0] = .String
+    array_with_string_typed_type[1] = .Typed
 
     array_with_bool_type := utils.arena_make(a, []Type, 1)
     array_with_bool_type[0] = .Bool
@@ -280,10 +285,12 @@ create_types :: proc(a: ^utils.Arena) -> Types {
         create_type(&out, FuncType{array_with_string_type, array_with_bool_type}).type,
     )
     assert(.NoArgsToInt == create_type(&out, FuncType{nil, array_with_int_type}).type)
-    assert(.StringAnyToNil == create_type(&out, FuncType{array_with_string_any_type, nil}).type)
     assert(
-        .StringToAny ==
-        create_type(&out, FuncType{array_with_string_type, array_with_any_type}).type,
+        .StringTypedToNil == create_type(&out, FuncType{array_with_string_typed_type, nil}).type,
+    )
+    assert(
+        .StringToTyped ==
+        create_type(&out, FuncType{array_with_string_type, array_with_typed_type}).type,
     )
     assert(
         .FloatToUInt ==
@@ -294,6 +301,10 @@ create_types :: proc(a: ^utils.Arena) -> Types {
         create_type(&out, FuncType{array_with_float_type, array_with_float_type}).type,
     )
     assert(.NoArgsToFloat == create_type(&out, FuncType{nil, array_with_float_type}).type)
+    assert(
+        .TypedToString ==
+        create_type(&out, FuncType{array_with_typed_type, array_with_string_type}).type,
+    )
 
     // positions := utils.arena_make_multi(a, utils.Multi(utils.Pos), 3)
     // positions.d[0] = utils.unknown_pos
@@ -311,8 +322,8 @@ create_types :: proc(a: ^utils.Arena) -> Types {
 
     compiler_cache_types := utils.arena_make(a, []Type, 3)
     compiler_cache_types[0] = .StringToBool
-    compiler_cache_types[1] = .StringAnyToNil
-    compiler_cache_types[2] = .StringToAny
+    compiler_cache_types[1] = .StringTypedToNil
+    compiler_cache_types[2] = .StringToTyped
 
     assert(
         .CompilerCache ==

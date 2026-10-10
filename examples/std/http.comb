@@ -3,7 +3,7 @@ get_http_server = |cache: CompilerCache, cache_name: String| -> HttpServer {
         return cast[HttpServer](cache.get(cache_name))
     } else {
         server = init_http_server()
-        cache.set(cache_name, server)
+        cache.set(cache_name, to_typed[HttpServer](server))
         return server
     }
 }

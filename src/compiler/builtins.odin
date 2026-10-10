@@ -45,6 +45,7 @@ BuiltinFunction :: enum u8 {
     deserialize_from_json,
     exponential,
     random,
+    to_typed,
 }
 
 GotBuiltin :: struct {
@@ -94,13 +95,15 @@ get_builtin :: proc(name: string) -> GotBuiltin {
     case "expect_uint":
         return GotBuiltin{BuiltinFunction.expect_uint, .FloatToUInt}
     case "serialize_to_json":
-        return GotBuiltin{BuiltinFunction.serialize_to_json, .Unknown}
+        return GotBuiltin{BuiltinFunction.serialize_to_json, .TypedToString}
     case "deserialize_from_json":
         return GotBuiltin{BuiltinFunction.deserialize_from_json, .Unknown}
     case "exp":
         return GotBuiltin{BuiltinFunction.exponential, .FloatToFloat}
     case "random":
         return GotBuiltin{BuiltinFunction.random, .NoArgsToFloat}
+    case "to_typed":
+        return GotBuiltin{BuiltinFunction.to_typed, .Unknown}
     case "Int":
         return GotBuiltin{Type.Int, .Type}
     case "UInt":
@@ -119,6 +122,8 @@ get_builtin :: proc(name: string) -> GotBuiltin {
         return GotBuiltin{Type.ImportedFile, .Type}
     case "Any":
         return GotBuiltin{Type.Any, .Type}
+    case "Typed":
+        return GotBuiltin{Type.Typed, .Type}
     case "Compiler":
         return GotBuiltin{Type.Compiler, .Type}
     case "CompilerCache":

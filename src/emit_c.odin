@@ -77,6 +77,10 @@ emit_c_func_call :: proc(s: ^CEmitterState, c: compiler.CheckedFunctionCall) {
 
 emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.ExactValue) {
     switch comptime in value {
+    case compiler.ToTyped:
+        panic("TODO")
+    case compiler.Typed:
+        panic("TODO")
     case compiler.SumTypeInitialisation(^compiler.ExactValue):
         panic("TODO")
     case compiler.SetHttpServerHandler,
@@ -90,7 +94,7 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.ExactValue) {
         panic("TODO")
     case compiler.ExactOrderedHashMap:
         panic("TODO")
-    case compiler.CastFunction, compiler.DeserialiseFromJsonFunc, compiler.SerialiseToJsonFunc:
+    case compiler.CastFunction, compiler.DeserialiseFromJsonFunc:
         panic("TODO")
     case compiler.BuiltinFunction:
         strings.write_string(&s.b, "builtin")

@@ -118,8 +118,9 @@ interp_execute_function :: proc(
     */
     case compiler.CastFunction:
         assert(len(args) == 1)
-        got_type := compiler.get_exact_value_type(s.checked_funcs, args[0])
-        if got_type != val.type {
+        typed := args[0].(compiler.Typed)
+        // got_type := compiler.get_exact_value_type(s.checked_funcs, args[0])
+        if typed.type != val.type {
             panic(
                 fmt.aprintf(
                     "Expected the type `%s`\nGot the type `%s`",
@@ -133,14 +134,13 @@ interp_execute_function :: proc(
                         s.types,
                         s.globals_without_generic,
                         s.globals_with_generic,
-                        got_type,
+                        typed.type,
                     ),
                 ),
             )
         }
-        out := args[0]
         delete(args)
-        return out
+        return typed.value^
     }
 
     defer {
@@ -151,8 +151,9 @@ interp_execute_function :: proc(
     }
 
     #partial switch val in fn_val {
-    case compiler.SerialiseToJsonFunc:
-        panic("TODO")
+    case compiler.ToTyped:
+        assert(len(args) == 1)
+        return compiler.Typed{val.type, new_clone(args[0])}
     case compiler.DeserialiseFromJsonFunc:
         // TODO: Actually deserialize rather than resorting to the fallback
         return args[1]
@@ -749,9 +750,10 @@ interp_clone_value :: proc(
          compiler.SetHttpServerHandler,
          compiler.CastFunction,
          compiler.DeserialiseFromJsonFunc,
-         compiler.SerialiseToJsonFunc,
          compiler.SetWebSocketHandler,
-         compiler.SendToWebSockets:
+         compiler.SendToWebSockets,
+         compiler.ToTyped,
+         compiler.Typed:
         return val
     }
     return compiler.ExactValue{}
@@ -970,11 +972,13 @@ interp_eval_comptime_value :: proc(
         return compiler.ExactOrderedHashMap{comptime.type, out_map, comptime.order}
     case compiler.CastFunction:
         return comptime
-    case compiler.SerialiseToJsonFunc:
-        return comptime
     case compiler.DeserialiseFromJsonFunc:
         return comptime
     case compiler.BuiltinFunction:
+        return comptime
+    case compiler.ToTyped:
+        return comptime
+    case compiler.Typed:
         return comptime
     case compiler.StructInitialisation(compiler.ExactValue):
         out_fields := make([]compiler.ExactValue, len(comptime.fields))
@@ -1147,7 +1151,9 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
         case compiler.Type,
              compiler.Import,
              compiler.UninitialisedOrderedHashMapType,
-             compiler.GlobalValueWithGenericRef:
+             compiler.GlobalValueWithGenericRef,
+             compiler.ToTyped,
+             compiler.Typed:
             panic("Unreachable")
         case nil:
             panic("Unreachable: Uninitialised")
@@ -1172,8 +1178,7 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
              compiler.SetWebSocketHandler,
              compiler.SendToWebSockets,
              compiler.CastFunction,
-             compiler.DeserialiseFromJsonFunc,
-             compiler.SerialiseToJsonFunc:
+             compiler.DeserialiseFromJsonFunc:
             panic("Unreachable")
         }
 
@@ -1503,6 +1508,8 @@ default_builtin_handler_procedure :: proc(
     case .deserialize_from_json:
         panic("Unreachable")
     case .cast_func:
+        panic("Unreachable")
+    case .to_typed:
         panic("Unreachable")
     case .expect_uint:
         assert(len(args) == 1)

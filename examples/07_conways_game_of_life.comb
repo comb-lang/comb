@@ -58,7 +58,7 @@ game_of_life2 = |s: State| -> h.StateWithoutGlobalState[h.EmptyGlobalState] {
             return game_of_life(s)
         },
         serialize = || -> String {
-            return serialize_to_json[State](s)
+            return serialize_to_json(to_typed[State](s))
         },
     }
 }

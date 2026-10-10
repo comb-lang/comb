@@ -276,59 +276,52 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     array_with_websocket_message_handler := utils.arena_make(a, []Type, 1)
     array_with_websocket_message_handler[0] = .WebSocketMessageHandler
 
-    assert(.DynamicArrayOfStrings == create_type(&out, ArrayType{nil, .String}, false).type)
-    assert(.StringToNil == create_type(&out, FuncType{array_with_string_type, nil}, false).type)
-    assert(
-        .StringStringToNil ==
-        create_type(&out, FuncType{array_with_2string_types, nil}, false).type,
-    )
+    assert(.DynamicArrayOfStrings == create_type(&out, ArrayType{nil, .String}).type)
+    assert(.StringToNil == create_type(&out, FuncType{array_with_string_type, nil}).type)
+    assert(.StringStringToNil == create_type(&out, FuncType{array_with_2string_types, nil}).type)
     assert(
         .StringToString ==
-        create_type(&out, FuncType{array_with_string_type, array_with_string_type}, false).type,
+        create_type(&out, FuncType{array_with_string_type, array_with_string_type}).type,
     )
-    assert(
-        .StringAnyOrderedHashmap ==
-        create_type(&out, OrderedHashMapType{.String, .Any}, false).type,
-    )
-    assert(.NoArgsToNil == create_type(&out, FuncType{nil, nil}, false).type)
+    assert(.StringAnyOrderedHashmap == create_type(&out, OrderedHashMapType{.String, .Any}).type)
+    assert(.NoArgsToNil == create_type(&out, FuncType{nil, nil}).type)
     assert(
         .ArrayOfStringsToNil ==
-        create_type(&out, FuncType{array_with_dynamic_array_of_strings, nil}, false).type,
+        create_type(&out, FuncType{array_with_dynamic_array_of_strings, nil}).type,
     )
-    assert(.IntToNil == create_type(&out, FuncType{array_with_int_type, nil}, false).type)
+    assert(.IntToNil == create_type(&out, FuncType{array_with_int_type, nil}).type)
     assert(
         .StringUintToString ==
-        create_type(&out, FuncType{array_with_string_uint_types, array_with_string_type}, false).type,
+        create_type(&out, FuncType{array_with_string_uint_types, array_with_string_type}).type,
     )
     assert(
         .StringAnyOrderedHashmapAndStringToString ==
-        create_type(&out, FuncType{array_with_string_any_ordered_hash_map_and_string, array_with_string_type}, false).type,
+        create_type(&out, FuncType{array_with_string_any_ordered_hash_map_and_string, array_with_string_type}).type,
     )
     assert(
         .StringToBool ==
-        create_type(&out, FuncType{array_with_string_type, array_with_bool_type}, false).type,
+        create_type(&out, FuncType{array_with_string_type, array_with_bool_type}).type,
     )
-    assert(.NoArgsToInt == create_type(&out, FuncType{nil, array_with_int_type}, false).type)
+    assert(.NoArgsToInt == create_type(&out, FuncType{nil, array_with_int_type}).type)
     assert(
-        .StringTypedToNil ==
-        create_type(&out, FuncType{array_with_string_typed_type, nil}, false).type,
+        .StringTypedToNil == create_type(&out, FuncType{array_with_string_typed_type, nil}).type,
     )
     assert(
         .StringToTyped ==
-        create_type(&out, FuncType{array_with_string_type, array_with_typed_type}, false).type,
+        create_type(&out, FuncType{array_with_string_type, array_with_typed_type}).type,
     )
     assert(
         .FloatToUInt ==
-        create_type(&out, FuncType{array_with_float_type, array_with_uint_type}, false).type,
+        create_type(&out, FuncType{array_with_float_type, array_with_uint_type}).type,
     )
     assert(
         .FloatToFloat ==
-        create_type(&out, FuncType{array_with_float_type, array_with_float_type}, false).type,
+        create_type(&out, FuncType{array_with_float_type, array_with_float_type}).type,
     )
-    assert(.NoArgsToFloat == create_type(&out, FuncType{nil, array_with_float_type}, false).type)
+    assert(.NoArgsToFloat == create_type(&out, FuncType{nil, array_with_float_type}).type)
     assert(
         .TypedToString ==
-        create_type(&out, FuncType{array_with_typed_type, array_with_string_type}, false).type,
+        create_type(&out, FuncType{array_with_typed_type, array_with_string_type}).type,
     )
 
     // positions := utils.arena_make_multi(a, utils.Multi(utils.Pos), 3)
@@ -352,7 +345,7 @@ create_types :: proc(a: ^utils.Arena) -> Types {
 
     assert(
         .CompilerCache ==
-        create_type(&out, StructType{compiler_cache_map, utils.array_to_multi(compiler_cache_types)}, false).type,
+        create_type(&out, StructType{compiler_cache_map, utils.array_to_multi(compiler_cache_types)}).type,
     )
 
     compiler_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
@@ -368,12 +361,12 @@ create_types :: proc(a: ^utils.Arena) -> Types {
 
     assert(
         .Compiler ==
-        create_type(&out, StructType{compiler_map, utils.array_to_multi(compiler_types)}, false).type,
+        create_type(&out, StructType{compiler_map, utils.array_to_multi(compiler_types)}).type,
     )
 
     assert(
         .CompilerToInt ==
-        create_type(&out, FuncType{array_with_compiler_type, array_with_int_type}, false).type,
+        create_type(&out, FuncType{array_with_compiler_type, array_with_int_type}).type,
     )
 
     http_request_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
@@ -388,7 +381,7 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     http_request_types[1] = .String
     assert(
         .HttpRequest ==
-        create_type(&out, StructType{http_request_map, utils.array_to_multi(http_request_types)}, false).type,
+        create_type(&out, StructType{http_request_map, utils.array_to_multi(http_request_types)}).type,
     )
 
     http_response_types := make(map[SumTag]Maybe(Type))
@@ -397,16 +390,16 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     http_response_types[SumTag.Html] = .String
     http_response_types[SumTag.Js] = .String
 
-    assert(.HttpResponse == create_type(&out, SumType{http_response_types}, false).type)
+    assert(.HttpResponse == create_type(&out, SumType{http_response_types}).type)
 
     assert(
         .HttpRequestHandler ==
-        create_type(&out, FuncType{array_with_http_request, array_with_http_response}, false).type,
+        create_type(&out, FuncType{array_with_http_request, array_with_http_response}).type,
     )
 
     assert(
         .HttpRequestHandlerToNil ==
-        create_type(&out, FuncType{array_with_http_request_handler, nil}, false).type,
+        create_type(&out, FuncType{array_with_http_request_handler, nil}).type,
     )
 
     websocket_message_types := make(map[SumTag]Maybe(Type))
@@ -414,21 +407,21 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     websocket_message_types[SumTag.Text] = .String
     websocket_message_types[SumTag.Binary] = .String
 
-    assert(.WebSocketMessage == create_type(&out, SumType{websocket_message_types}, false).type)
+    assert(.WebSocketMessage == create_type(&out, SumType{websocket_message_types}).type)
 
     assert(
         .WebSocketMessageHandler ==
-        create_type(&out, FuncType{array_with_websocket_message, array_with_websocket_message_return}, false).type,
+        create_type(&out, FuncType{array_with_websocket_message, array_with_websocket_message_return}).type,
     )
 
     assert(
         .WebSocketMessageHandlerToNil ==
-        create_type(&out, FuncType{array_with_websocket_message_handler, nil}, false).type,
+        create_type(&out, FuncType{array_with_websocket_message_handler, nil}).type,
     )
 
     assert(
         .WebSocketMessageToNil ==
-        create_type(&out, FuncType{array_with_websocket_message, nil}, false).type,
+        create_type(&out, FuncType{array_with_websocket_message, nil}).type,
     )
 
     http_server_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
@@ -464,19 +457,17 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     http_server_types[4] = .WebSocketMessageToNil
     assert(
         .HttpServer ==
-        create_type(&out, StructType{http_server_map, utils.array_to_multi(http_server_types)}, false).type,
+        create_type(&out, StructType{http_server_map, utils.array_to_multi(http_server_types)}).type,
     )
 
-    assert(
-        .NoArgsToHttpServer ==
-        create_type(&out, FuncType{nil, array_with_http_server}, false).type,
-    )
+    assert(.NoArgsToHttpServer == create_type(&out, FuncType{nil, array_with_http_server}).type)
 
     return out
 }
 
 TypeValue :: struct {
-    needs_scope: bool,
+    created_at:  utils.CallStackOnDebug,
+    needs_scope: Maybe(bool),
     // aliases: [dynamic]string, // TODO
 
     // Either `.Unknown` or a simplification of the type
@@ -502,9 +493,9 @@ get_type :: proc(types: Types, t: Type, loc := #caller_location) -> GotType {
     }
     if t > Type.MaxIndex {
         if t == Type.Scoped {
-            return GotType{nil, TypeValue{true, .Unknown}}
+            return GotType{nil, TypeValue{utils.get_call_stack_on_debug(), true, .Unknown}}
         } else {
-            return GotType{nil, TypeValue{false, .Unknown}}
+            return GotType{nil, TypeValue{utils.get_call_stack_on_debug(), false, .Unknown}}
         }
     }
     return GotType{types.m.keys[t].key, types.values.d[t]}
@@ -516,13 +507,8 @@ CreatedType :: struct {
     result:     utils.Result,
 }
 
-create_type :: proc(
-    types: ^Types,
-    value: TypeKey,
-    needs_scope: bool,
-    loc := #caller_location,
-) -> CreatedType {
-    utils.call(loc, "create_type", "")
+create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> CreatedType {
+    utils.call(loc, "create_type", "", enable_debug = true)
     utils.debug("value: %v", value)
     type, result := utils.lookup_or_insert(
         &types.m,
@@ -532,18 +518,17 @@ create_type :: proc(
     )
     if result == .Inserted {
         utils.resize_multi(&types.values, len(types.m.keys))
-        types.values.d[type.index] = TypeValue{needs_scope, .Unknown}
+        types.values.d[type.index] = TypeValue{utils.get_call_stack_on_debug(), nil, .Unknown}
     }
 
     out := CreatedType{Type(type.index), types.values.d[type.index], result}
-    assert(needs_scope == out.type_value.needs_scope)
     utils.debug("out: %v", out)
     return out
 }
 
 create_unique_type :: proc(types: ^Types) -> Type {
     t := Type(len(types.m.keys))
-    return create_type(types, UniqueType{t}, false).type
+    return create_type(types, UniqueType{t}).type
 }
 
 hash_type_value :: proc(value: TypeKey) -> u32 {

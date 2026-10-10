@@ -49,7 +49,7 @@ function create_html_elem(elem) {
     case tag_indexes.Button: {
       const button = document.createElement("button")
       button.onclick = () => {
-        state = elem.payload.field1
+        state = elem.payload.field1(state.field0, state.field1)
         render_ui()
       }
       for (const child of elem.payload.field0) {
@@ -106,10 +106,9 @@ function create_html_elem(elem) {
 }
 
 function render_ui() {
-  const now = Date.now()
   // TODO: Sync global state across multiple instances of the website
-  localStorage.setItem("global-state", JSON.stringify(state.field0))
-  ui = state.field1.field0(state.field0, {field0: {field0: now}})
+  localStorage.setItem("global-state", JSON.stringify(state.field1))
+  ui = render(state.field0, state.field1)
   document.body.innerHTML = ""
   document.title = ui.field0
   for (const elem of ui.field1) {
@@ -118,6 +117,6 @@ function render_ui() {
 }
 
 window.onkeydown = (e) => {
-  state = ui.field2({field0: e.key})
+  state = on_key_down({field0: e.key}, state, global_state)
   render_ui()
 }

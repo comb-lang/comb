@@ -19,6 +19,19 @@ pop_map :: proc(m: ^map[$K]$V) -> (K, V) {
     panic("Empty map")
 }
 
+NonEmptyLinkedList :: struct(T: typeid) {
+    head: T,
+    tail: LinkedList(T),
+}
+
+LinkedList :: struct(T: typeid) {
+    c: ^NonEmptyLinkedList(T),
+}
+
+insert :: proc(list: LinkedList($E), elem: E) -> LinkedList(E) {
+    return LinkedList(E){new_clone(NonEmptyLinkedList(E){elem, list})}
+}
+
 ReadableRange :: struct {
     start: ReadablePos,
     end:   ReadablePos,
@@ -96,6 +109,25 @@ override_close_handler :: proc(
 
 panicf :: proc(format: string, args: ..any, loc := #caller_location) -> ! {
     panic(fmt.aprintf(format, ..args), loc)
+}
+
+assert_eq :: proc(
+    left: $T,
+    right: T,
+    left_expr := #caller_expression(left),
+    right_expr := #caller_expression(right),
+    loc := #caller_location,
+) {
+    if left != right {
+        panicf(
+            "assertion `%s == %s` failed\n  left side: %v\n right side: %v",
+            left_expr,
+            right_expr,
+            left,
+            right,
+            loc = loc,
+        )
+    }
 }
 
 reader_stream_proc :: proc(

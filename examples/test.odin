@@ -440,18 +440,15 @@ basic_type_system_test :: proc(t: ^testing.T) {
     generic0 := compiler.create_type(
         &types,
         compiler.GenericTypeValue{compiler.GlobalValueWithGenericRef{7}, generic_args0},
-        false,
     )
     generic1 := compiler.create_type(
         &types,
         compiler.GenericTypeValue{compiler.GlobalValueWithGenericRef{7}, generic_args0},
-        false,
     )
     types.values.d[generic1.type].type = .Int
     generic2 := compiler.create_type(
         &types,
         compiler.GenericTypeValue{compiler.GlobalValueWithGenericRef{7}, generic_args1},
-        false,
     )
     testing.expect(t, generic0.type == generic1.type)
     generic0_initialised := compiler.get_type(types, generic0.type).value.type

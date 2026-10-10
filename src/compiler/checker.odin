@@ -609,7 +609,6 @@ check_struct_type :: proc(
 ) -> Type {
     field_types := utils.arena_make_multi(s.a, utils.Multi(Type), len(type_m.keys))
     ok := true
-    needs_scope := false
     for field, i in type_m.keys {
         expect_snake_case(
             s,
@@ -620,21 +619,14 @@ check_struct_type :: proc(
         field_types.d[i] = check_type(s, type_types.d[i], generic_args)
         if field_types.d[i] == .Invalid {
             ok = false
-        } else if get_type(s.types, field_types.d[i]).value.needs_scope {
-            needs_scope = true
         }
     }
     if !ok {
         return .Invalid
     }
 
-    created := create_type(&s.types, StructType{type_m, field_types}, needs_scope)
+    created := create_type(&s.types, StructType{type_m, field_types})
     return created.type
-}
-
-CheckedFuncType :: struct {
-    needs_scope: bool,
-    type:        FuncType,
 }
 
 // Returns `nil` on failure
@@ -643,7 +635,7 @@ check_function_type :: proc(
     inputs: []Unit,
     output: Maybe(Unit), // if the function has no output, then `output` is `nil`
     generic_args: map[string]Type,
-) -> Maybe(CheckedFuncType) {
+) -> Maybe(FuncType) {
     get_outputs :: proc(output: Maybe(Unit)) -> []Unit {
         if output == nil {
             return nil
@@ -660,15 +652,12 @@ check_function_type :: proc(
     }
 
     ok := true
-    needs_scope := false
 
     args := make([]Type, len(inputs))
     for input, i in inputs {
         args[i] = check_type(s, input, generic_args)
         if args[i] == .Invalid {
             ok = false
-        } else if get_type(s.types, args[i]).value.needs_scope {
-            needs_scope = true
         }
     }
 
@@ -678,8 +667,6 @@ check_function_type :: proc(
         return_types[i] = check_type(s, output, generic_args)
         if return_types[i] == .Invalid {
             ok = false
-        } else if get_type(s.types, return_types[i]).value.needs_scope {
-            needs_scope = true
         }
     }
 
@@ -687,7 +674,7 @@ check_function_type :: proc(
         return nil
     }
 
-    return CheckedFuncType{needs_scope, FuncType{args, return_types}}
+    return FuncType{args, return_types}
 }
 
 // Returns nil if there are errors in the type
@@ -1027,11 +1014,7 @@ check_comptime_func_call :: proc(
         if checked_value2.value == nil {
             s.types.values.d[type_value].type = .Invalid
         } else {
-            assert(s.types.values.d[type_value].needs_scope == false)
-            type := checked_value2.value.(ExactValue).(Type)
-            s.types.values.d[type_value].needs_scope = s.types.values.d[type].needs_scope
-            // utils.panicf("%v", s.types.values.d[type].needs_scope)
-            s.types.values.d[type_value].type = type
+            s.types.values.d[type_value].type = checked_value2.value.(ExactValue).(Type)
         }
     }
 
@@ -1299,6 +1282,11 @@ get_func_type :: proc(
     return nil
 }
 
+SubtypeSupertypePair :: struct {
+    subtype:   Type,
+    supertype: Type,
+}
+
 // Returns `nil` on success
 // Returns a writer that needs closing on failure
 expect_type_helper :: proc(
@@ -1306,6 +1294,7 @@ expect_type_helper :: proc(
     range: utils.Range,
     got_unsimplified: Type,
     expected_unsimplified: Type,
+    equal_unsimplified_types: utils.LinkedList(SubtypeSupertypePair),
     loc := #caller_location,
 ) -> (
     out: Maybe(io.Writer),
@@ -1329,8 +1318,25 @@ expect_type_helper :: proc(
             io.write_string(w, "`\n")
         }
     }
+    equal_unsimplified_types2 := equal_unsimplified_types
+    for equal_unsimplified_types2.c != nil {
+        if equal_unsimplified_types2.c.head.supertype == expected_unsimplified &&
+           equal_unsimplified_types2.c.head.subtype == got_unsimplified {
+            // Prevents infinite recursion
+            return
+        }
+        equal_unsimplified_types2 = equal_unsimplified_types2.c.tail
+    }
     got := simplify_type(s, got_unsimplified)
     expected := simplify_type(s, expected_unsimplified)
+    equal_unsimplified_types2 = equal_unsimplified_types
+    if got.type != got_unsimplified && expected.type != expected_unsimplified {
+        // Prevents infinite recursion
+        equal_unsimplified_types2 = utils.insert(
+            equal_unsimplified_types2,
+            SubtypeSupertypePair{got_unsimplified, expected_unsimplified},
+        )
+    }
     if got.type == expected.type {
         return
     }
@@ -1359,6 +1365,39 @@ expect_type_helper :: proc(
     case:
         out = s.r.diagnostic_header(s.r.data, range, .Error)
         return
+    case FuncType:
+        type_value, is_func_type := got.key.(FuncType)
+        if !is_func_type ||
+           len(type_value.args) != len(superset_value.args) ||
+           len(type_value.return_types) != len(superset_value.return_types) {
+            out = s.r.diagnostic_header(s.r.data, range, .Error)
+            return
+        }
+        for type_arg, i in type_value.args {
+            out = expect_type_helper(
+                s,
+                range,
+                type_arg,
+                superset_value.args[i],
+                equal_unsimplified_types2,
+            )
+            if out != nil {
+                return
+            }
+        }
+        for type_return, i in type_value.return_types {
+            out = expect_type_helper(
+                s,
+                range,
+                superset_value.return_types[i],
+                type_return,
+                equal_unsimplified_types2,
+            )
+            if out != nil {
+                return
+            }
+        }
+        return
     case OrderedHashMapType:
         if got.type == .EmptyOrderedHashMap {
             return
@@ -1373,11 +1412,18 @@ expect_type_helper :: proc(
             range,
             Type(type_value.key_type),
             Type(superset_value.key_type),
+            equal_unsimplified_types2,
         )
         if out != nil {
             return
         }
-        out = expect_type_helper(s, range, type_value.value_type, superset_value.value_type)
+        out = expect_type_helper(
+            s,
+            range,
+            type_value.value_type,
+            superset_value.value_type,
+            equal_unsimplified_types2,
+        )
         if out != nil {
             return
         }
@@ -1392,7 +1438,13 @@ expect_type_helper :: proc(
             return
         }
         if superset_value.length == nil || superset_value.length == type_value.length {
-            out = expect_type_helper(s, range, type_value.item_type, superset_value.item_type)
+            out = expect_type_helper(
+                s,
+                range,
+                type_value.item_type,
+                superset_value.item_type,
+                equal_unsimplified_types2,
+            )
             return
         }
         out = s.r.diagnostic_header(s.r.data, range, .Error)
@@ -1412,7 +1464,13 @@ expect_type_helper :: proc(
                 out = s.r.diagnostic_header(s.r.data, range, .Error)
                 return
             }
-            out = expect_type_helper(s, range, type_value.types.d[i], superset_value.types.d[i])
+            out = expect_type_helper(
+                s,
+                range,
+                type_value.types.d[i],
+                superset_value.types.d[i],
+                equal_unsimplified_types2,
+            )
             if out != nil {
                 return
             }
@@ -1438,7 +1496,13 @@ expect_type_helper :: proc(
             if !type_has_payload {
                 continue
             }
-            out = expect_type_helper(s, range, type_payload, superset_payload)
+            out = expect_type_helper(
+                s,
+                range,
+                type_payload,
+                superset_payload,
+                equal_unsimplified_types2,
+            )
             if out != nil {
                 return
             }
@@ -1558,7 +1622,7 @@ expect_type :: proc(
     loc := #caller_location,
 ) -> bool {
     utils.call(loc, "expect_type", "")
-    out := expect_type_helper(s, range, got, expected)
+    out := expect_type_helper(s, range, got, expected, utils.LinkedList(SubtypeSupertypePair){nil})
     if out == nil {
         return true
     }
@@ -3024,7 +3088,7 @@ check_array_initialisation :: proc(
     if len(types) != 0 {
         elem_type = find_most_specific_supertype(s, &types)
     }
-    array_type := create_type(&s.types, ArrayType{u32(len(elements)), elem_type}, false).type
+    array_type := create_type(&s.types, ArrayType{u32(len(elements)), elem_type}).type
     if has_non_compiletime_value {
         segments := make([]ArraySegment, len(elements))
         for v, i in values {
@@ -3313,11 +3377,11 @@ check_joined_unit_value :: proc(
             )
             return CheckValueResult{ExactValue(Type.Invalid), .Type}
         }
-        t, ok := check_function_type(s, tuple.elements, after, a.generic_args).(CheckedFuncType)
+        t, ok := check_function_type(s, tuple.elements, after, a.generic_args).(FuncType)
         if !ok {
             return CheckValueResult{nil, .Type}
         }
-        out: CheckedValue = ExactValue(create_type(&s.types, t.type, t.needs_scope).type)
+        out: CheckedValue = ExactValue(create_type(&s.types, t).type)
         return CheckValueResult{out, .Type}
 
     case .BooleanAnd, .BooleanOr:
@@ -3371,7 +3435,7 @@ check_joined_unit_value :: proc(
             return CheckValueResult{nil, .Invalid}
         }
         return_type1 := ArrayType{nil, item_type}
-        return_type0 := create_type(&s.types, return_type1, false).type // TODO: Maybe `::` should be able to output fixed size arrays
+        return_type0 := create_type(&s.types, return_type1).type // TODO: Maybe `::` should be able to output fixed size arrays
         segments := make([]ArraySegment, 2)
         segments[0] = InlineArraySegment{val0.value}
         segments[1] = SingleElemSegment{val1}
@@ -3414,7 +3478,7 @@ check_joined_unit_value :: proc(
             return CheckValueResult{nil, .Invalid}
         }
         return_type1 := ArrayType{nil, item_type0}
-        return_type := create_type(&s.types, return_type1, false).type // TODO: Maybe `++` should be able to output fixed size arrays
+        return_type := create_type(&s.types, return_type1).type // TODO: Maybe `++` should be able to output fixed size arrays
         segments := make([]ArraySegment, 2)
         segments[0] = InlineArraySegment{val0.value}
         segments[1] = InlineArraySegment{val1.value}
@@ -3553,7 +3617,7 @@ finish_checking_early_return_type :: proc(
     a: CheckValueArgs,
 ) -> utils.DebugValue(CheckValueResult) {
     // TODO: Maybe parsing in false will cause problems
-    out := ExactValue(create_type(&s.types, a.early_exit_if_value_is_type, false).type)
+    out := ExactValue(create_type(&s.types, a.early_exit_if_value_is_type).type)
     return utils.to_debug_value(CheckValueResult{out, .Type})
 }
 
@@ -3629,7 +3693,7 @@ check_tag_value :: proc(
 
     sum_type_payloads := make(map[SumTag]Maybe(Type))
     sum_type_payloads[SumTag(i.index)] = variant_type
-    sum_type := create_type(&s.types, SumType{sum_type_payloads}, false).type
+    sum_type := create_type(&s.types, SumType{sum_type_payloads}).type
 
     return utils.to_debug_value(
         CheckValueResult{create_sum_type_value(sum_type, SumTag(i.index), payload), sum_type},
@@ -3770,7 +3834,6 @@ check_ordered_hashmap_initialisation :: proc(
             HashMapKeyType(find_most_specific_supertype(s, &key_types)),
             find_most_specific_supertype(s, &value_types),
         },
-        false,
     )
     if len(runtime_items) == 0 {
         return utils.to_debug_value(
@@ -3930,7 +3993,7 @@ check_initial_value :: proc(
                 return utils.to_debug_value(CheckValueResult{nil, .Invalid})
             }
             struct_type :=
-                create_type(&s.types, StructType{fields_map, utils.array_to_multi(arg_types)}, false).type
+                create_type(&s.types, StructType{fields_map, utils.array_to_multi(arg_types)}).type
             return utils.to_debug_value(
                 CheckValueResult{create_struct(struct_type, arg_values), struct_type},
             )
@@ -3961,7 +4024,6 @@ check_initial_value :: proc(
         variant_positions := make(map[SumTag]utils.Pos)
         sum_type := SumType{make(map[SumTag]Maybe(Type))}
         ok := true
-        needs_scope := false
         for elem in value.elements {
             tag, tag_ok := get_tag(s.r, elem).(GetTagResult)
             if !tag_ok {
@@ -3992,8 +4054,6 @@ check_initial_value :: proc(
                 if payload == .Invalid {
                     ok = false
                     continue
-                } else if get_type(s.types, payload).value.needs_scope {
-                    needs_scope = true
                 }
                 sum_type.payloads[SumTag(index.index)] = payload
             }
@@ -4002,7 +4062,7 @@ check_initial_value :: proc(
             return utils.to_debug_value(CheckValueResult{nil, .Type})
         }
         return utils.to_debug_value(
-            CheckValueResult{ExactValue(create_type(&s.types, sum_type, needs_scope).type), .Type},
+            CheckValueResult{ExactValue(create_type(&s.types, sum_type).type), .Type},
         )
 
     case Import:
@@ -4054,7 +4114,7 @@ check_initial_value :: proc(
             return utils.to_debug_value(
                 CheckValueResult {
                     return_value.v.value,
-                    create_type(&s.types, TypeScope{return_type}, false).type,
+                    create_type(&s.types, TypeScope{return_type}).type,
                 },
             )
         }
@@ -4065,7 +4125,7 @@ check_initial_value :: proc(
         }
         if expect_type(s, get_range(contents.elements[0]), .Type, initial.v.type) {
             scope_contents := initial.v.value.(ExactValue).(Type)
-            scope_type := create_type(&s.types, TypeScope{scope_contents}, false).type
+            scope_type := create_type(&s.types, TypeScope{scope_contents}).type
             return utils.to_debug_value(CheckValueResult{ExactValue(scope_type), .Type})
         }
         return utils.to_debug_value(CheckValueResult{nil, .Invalid})
@@ -4245,11 +4305,11 @@ replace_scoped :: proc(s: ^CheckerState, type: Type, replace_with: Type) -> Type
 
     case ArrayType:
         item_type := replace_scoped(s, t.item_type, replace_with)
-        return create_type(&s.types, ArrayType{t.length, item_type}, false).type
+        return create_type(&s.types, ArrayType{t.length, item_type}).type
 
     case OrderedHashMapType:
         value_type := replace_scoped(s, t.value_type, replace_with)
-        return create_type(&s.types, OrderedHashMapType{t.key_type, value_type}, true).type
+        return create_type(&s.types, OrderedHashMapType{t.key_type, value_type}).type
 
     case FuncType:
         args := make([]Type, len(t.args))
@@ -4262,7 +4322,7 @@ replace_scoped :: proc(s: ^CheckerState, type: Type, replace_with: Type) -> Type
             return_types[i] = replace_scoped(s, return_type, replace_with)
         }
 
-        return create_type(&s.types, FuncType{args, return_types}, false).type
+        return create_type(&s.types, FuncType{args, return_types}).type
 
     case SumType:
         payloads := make(map[SumTag]Maybe(Type))
@@ -4273,17 +4333,17 @@ replace_scoped :: proc(s: ^CheckerState, type: Type, replace_with: Type) -> Type
                 payloads[tag] = nil
             }
         }
-        return create_type(&s.types, SumType{payloads}, false).type
+        return create_type(&s.types, SumType{payloads}).type
 
     case StructType:
         struct_fields := utils.arena_make_multi(s.a, utils.Multi(Type), len(t.m.keys))
         for struct_field, i in utils.multi_to_array(t.types, len(t.m.keys)) {
             struct_fields.d[i] = replace_scoped(s, struct_field, replace_with)
         }
-        return create_type(&s.types, StructType{t.m, struct_fields}, false).type
+        return create_type(&s.types, StructType{t.m, struct_fields}).type
 
     case GlobalType, GenericTypeValue:
-        out := create_type(&s.types, ReplaceScoped{type, replace_with}, false)
+        out := create_type(&s.types, ReplaceScoped{type, replace_with})
         if out.result == .Inserted {
             s.types.values.d[out.type].type = replace_scoped(
                 s,
@@ -4539,7 +4599,7 @@ check_derivation_alteration :: proc(
             s,
             unit,
             CheckValueArgs{body, generic_args, nil},
-            create_type(&s.types, FuncType{arr, arr}, false).type,
+            create_type(&s.types, FuncType{arr, arr}).type,
         )
         if func == nil {
             return DerivationAlteration{}
@@ -4863,14 +4923,11 @@ check_value :: proc(
             res.type = simplify_type(s, res.type).type
             if res.type == .Unknown {
                 checked_args := make([]Type, len(contents.elements))
-                checked_args_need_scope := false
                 ok := true
                 for arg, i in contents.elements {
                     checked_args[i] = check_type(s, arg, a.generic_args)
                     if checked_args[i] == .Invalid {
                         ok = false
-                    } else if get_type(s.types, checked_args[i]).value.needs_scope {
-                        checked_args_need_scope = true
                     }
                 }
                 if !ok {
@@ -4903,9 +4960,7 @@ check_value :: proc(
                         )
                         return utils.to_debug_value(CheckValueResult{nil, .Type})
                     }
-                    res.value = ExactValue(
-                        create_type(&s.types, type_key, checked_args_need_scope).type,
-                    )
+                    res.value = ExactValue(create_type(&s.types, type_key).type)
                     res.type = .Type
                     continue
                 case BuiltinFunction:
@@ -4921,7 +4976,7 @@ check_value :: proc(
                         return_types[0] = .Typed
                         res = CheckValueResult {
                             ExactValue(ToTyped{checked_args[0]}),
-                            create_type(&s.types, FuncType{args, return_types}, false).type,
+                            create_type(&s.types, FuncType{args, return_types}).type,
                         }
                         continue
                     case .deserialize_from_json:
@@ -4936,7 +4991,7 @@ check_value :: proc(
                         return_types[0] = checked_args[0]
                         res = CheckValueResult {
                             ExactValue(DeserialiseFromJsonFunc{checked_args[0]}),
-                            create_type(&s.types, FuncType{args, return_types}, false).type,
+                            create_type(&s.types, FuncType{args, return_types}).type,
                         }
                         continue
                     case .cast_func:
@@ -4950,7 +5005,7 @@ check_value :: proc(
                         return_types[0] = checked_args[0]
                         res = CheckValueResult {
                             ExactValue(CastFunction{checked_args[0]}),
-                            create_type(&s.types, FuncType{args, return_types}, false).type,
+                            create_type(&s.types, FuncType{args, return_types}).type,
                         }
                         continue
                     case .make_func:
@@ -4965,15 +5020,15 @@ check_value :: proc(
                         args := make([]Type, 2)
                         args[0] = .UInt
                         args[1] =
-                            create_type(&s.types, FuncType{array_with_uint, checked_args[0:1]}, false).type
+                            create_type(&s.types, FuncType{array_with_uint, checked_args[0:1]}).type
 
                         return_types := make([]Type, 1)
                         return_types[0] =
-                            create_type(&s.types, ArrayType{nil, checked_args[0]}, false).type
+                            create_type(&s.types, ArrayType{nil, checked_args[0]}).type
 
                         res = CheckValueResult {
                             ExactValue(MakeFunction{return_types[0]}),
-                            create_type(&s.types, FuncType{args, return_types}, false).type,
+                            create_type(&s.types, FuncType{args, return_types}).type,
                         }
                         continue
                     case:
@@ -4996,11 +5051,7 @@ check_value :: proc(
                 if !ok {
                     return utils.to_debug_value(CheckValueResult{nil, .Type})
                 }
-                needs_scope := get_type(s.types, item_type).value.needs_scope
-                res = CheckValueResult {
-                    ExactValue(create_type(&s.types, array, needs_scope).type),
-                    .Type,
-                }
+                res = CheckValueResult{ExactValue(create_type(&s.types, array).type), .Type}
                 continue
             }
             if len(contents.elements) != 1 {
@@ -5124,11 +5175,11 @@ check_anonymous_func_head :: proc(
         func.inputs.value_type[:len(func.inputs)],
         func.output,
         generic_args,
-    ).(CheckedFuncType)
+    ).(FuncType)
     if !ok {
         return nil, .Invalid
     }
-    type := create_type(&s.types, checked_func_type.type, checked_func_type.needs_scope).type
+    type := create_type(&s.types, checked_func_type).type
     checked_ref := CheckedFuncRef{utils.to_debug_value(uint(len(s.checked_functions)))}
     append(
         &s.checked_functions,
@@ -5269,10 +5320,7 @@ check_global_value_without_generic :: proc(
         if checked_value.v.value == nil {
             s.types.values.d[type_value].type = .Invalid
         } else {
-            assert(s.types.values.d[type_value].needs_scope == false)
-            type := checked_value.v.value.(ExactValue).(Type)
-            s.types.values.d[type_value].needs_scope = s.types.values.d[type].needs_scope
-            s.types.values.d[type_value].type = type
+            s.types.values.d[type_value].type = checked_value.v.value.(ExactValue).(Type)
         }
     }
     return global.v
@@ -5402,9 +5450,11 @@ add_sum_type :: proc(
 
 // Never fails by returning `.Any`
 find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]struct{}) -> Type {
+    /*
     for arg in args {
-        assert(get_type(s.types, arg).value.needs_scope == false)
+        utils.assert_eq(get_type(s.types, arg).value.needs_scope, false)
     }
+    */
     key, _ := utils.pop_map(args)
     if len(args) == 0 {
         return key
@@ -5432,7 +5482,20 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]struct{})
     }
     switch type in simplified.key {
     case TypeScope:
-        panic("BEFORE MERGE TODO")
+        contents := make(map[Type]struct{})
+        contents[type.contents] = struct{}{}
+        for arg in args {
+            type_scope, is_type_scope := get_type(s.types, arg).key.(TypeScope)
+            if !is_type_scope {
+                return .Any // TODO
+            }
+            contents[type_scope.contents] = struct{}{}
+        }
+        contents_most_specific_supertype := find_most_specific_supertype(s, &contents)
+        if contents_most_specific_supertype == .Any {
+            return .Any
+        }
+        return create_type(&s.types, TypeScope{contents_most_specific_supertype}).type
     case UniqueType:
         return .Any
     case SumType:
@@ -5462,7 +5525,7 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]struct{})
                 )
             }
         }
-        return create_type(&s.types, sum_type, false).type
+        return create_type(&s.types, sum_type).type
     case StructType:
         fields := type.m
         field_types := make([]map[Type]struct{}, len(fields.keys))
@@ -5491,7 +5554,7 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]struct{})
             finalized_field_types.d[i] = find_most_specific_supertype(s, &field_type)
         }
 
-        return create_type(&s.types, StructType{fields, finalized_field_types}, false).type
+        return create_type(&s.types, StructType{fields, finalized_field_types}).type
     case FuncType:
         // TODO: Implement a function like `find_most_general_subtype` for the function arguments
         // TODO: Implement this branch
@@ -5523,7 +5586,6 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]struct{})
         out := create_type(
             &s.types,
             ArrayType{length, find_most_specific_supertype(s, &item_types)},
-            false,
         )
         return out.type
     case OrderedHashMapType:
@@ -5552,7 +5614,6 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]struct{})
                 HashMapKeyType(find_most_specific_supertype(s, &key_types)),
                 find_most_specific_supertype(s, &value_types),
             },
-            false,
         )
         return out.type
     case GlobalType, GenericTypeValue, ReplaceScoped:

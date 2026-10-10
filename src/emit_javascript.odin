@@ -66,9 +66,9 @@ emit_js_exact_value :: proc(s: ^GeneralEmitterState, v: compiler.ExactValue) {
         emit_js_value(s, comptime.value^)
         strings.write_byte(&s.b, '}')
     case compiler.ToTyped:
-        strings.write_string(&s.b, "(v) => {type: ")
+        strings.write_string(&s.b, "((v) => {return {type: ")
         strings.write_uint(&s.b, get_type_index(s.types, comptime.type))
-        strings.write_string(&s.b, ", value: v}")
+        strings.write_string(&s.b, ", value: v}})")
     case compiler.MakeFunction:
         strings.write_string(&s.b, "make")
     case compiler.DeserialiseFromJsonFunc:

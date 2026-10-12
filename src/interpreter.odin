@@ -1137,10 +1137,7 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
                 panic("Unreachable")
             }
         }
-        return compiler.Array(compiler.ExactValue) {
-            compiler.create_type(&s.types, compiler.ArrayType{nil, .String}).type,
-            out,
-        }
+        return compiler.Array(compiler.ExactValue){.DynamicArrayOfStrings, out}
 
     case compiler.ExactValue:
         return interp_eval_comptime_value(s, value)

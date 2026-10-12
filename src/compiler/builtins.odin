@@ -124,6 +124,8 @@ get_builtin :: proc(name: string) -> GotBuiltin {
         return GotBuiltin{Type.Any, .Type}
     case "Typed":
         return GotBuiltin{Type.Typed, .Type}
+    case "Scoped":
+        return GotBuiltin{Type.Scoped, .Type}
     case "Compiler":
         return GotBuiltin{Type.Compiler, .Type}
     case "CompilerCache":

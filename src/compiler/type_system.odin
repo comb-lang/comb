@@ -110,7 +110,8 @@ Type :: enum u32 {
     Unknown = max(u32) - 11, // TODO: Ideally `unknown_type` would not be necersarry
     EmptyOrderedHashMap = max(u32) - 12,
     Typed = max(u32) - 13,
-    MaxIndex = max(u32) - 14,
+    Scoped = max(u32) - 14,
+    MaxIndex = max(u32) - 15,
 }
 
 SumTag :: enum u32 {
@@ -156,16 +157,28 @@ get_hash_of_array_of_types :: proc(arr: []Type) -> u32 {
     return result
 }
 
+TypeScope :: struct {
+    contents: Type,
+}
+
 TypeKey :: union {
+    TypeScope,
     ArrayType,
     OrderedHashMapType,
     FuncType,
     SumType,
     StructType,
 
-    // Both of these are included to be able to prevent cycles
+    // All of these are included to be able to prevent cycles
     GlobalType, // The `TypeValue.type` is the initialised type, which is set to `unknown_type` when the global is not initialised yet
     GenericTypeValue, // The `TypeValue.type` is the initialised type, which is set to `unknown_type` when the generic is not initialised yet
+    ReplaceScoped,
+}
+
+ReplaceScoped :: struct {
+    type:         Type,
+    // Never a type that needs a scope
+    replace_with: Type,
 }
 
 fix_types :: proc(t: Types) {
@@ -258,52 +271,59 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     array_with_websocket_message_handler := utils.arena_make(a, []Type, 1)
     array_with_websocket_message_handler[0] = .WebSocketMessageHandler
 
-    assert(.DynamicArrayOfStrings == create_type(&out, ArrayType{nil, .String}).type)
-    assert(.StringToNil == create_type(&out, FuncType{array_with_string_type, nil}).type)
-    assert(.StringStringToNil == create_type(&out, FuncType{array_with_2string_types, nil}).type)
+    assert(.DynamicArrayOfStrings == create_type(&out, ArrayType{nil, .String}, false).type)
+    assert(.StringToNil == create_type(&out, FuncType{array_with_string_type, nil}, false).type)
+    assert(
+        .StringStringToNil ==
+        create_type(&out, FuncType{array_with_2string_types, nil}, false).type,
+    )
     assert(
         .StringToString ==
-        create_type(&out, FuncType{array_with_string_type, array_with_string_type}).type,
+        create_type(&out, FuncType{array_with_string_type, array_with_string_type}, false).type,
     )
-    assert(.StringAnyOrderedHashmap == create_type(&out, OrderedHashMapType{.String, .Any}).type)
-    assert(.NoArgsToNil == create_type(&out, FuncType{nil, nil}).type)
+    assert(
+        .StringAnyOrderedHashmap ==
+        create_type(&out, OrderedHashMapType{.String, .Any}, false).type,
+    )
+    assert(.NoArgsToNil == create_type(&out, FuncType{nil, nil}, false).type)
     assert(
         .ArrayOfStringsToNil ==
-        create_type(&out, FuncType{array_with_dynamic_array_of_strings, nil}).type,
+        create_type(&out, FuncType{array_with_dynamic_array_of_strings, nil}, false).type,
     )
-    assert(.IntToNil == create_type(&out, FuncType{array_with_int_type, nil}).type)
+    assert(.IntToNil == create_type(&out, FuncType{array_with_int_type, nil}, false).type)
     assert(
         .StringUintToString ==
-        create_type(&out, FuncType{array_with_string_uint_types, array_with_string_type}).type,
+        create_type(&out, FuncType{array_with_string_uint_types, array_with_string_type}, false).type,
     )
     assert(
         .StringAnyOrderedHashmapAndStringToString ==
-        create_type(&out, FuncType{array_with_string_any_ordered_hash_map_and_string, array_with_string_type}).type,
+        create_type(&out, FuncType{array_with_string_any_ordered_hash_map_and_string, array_with_string_type}, false).type,
     )
     assert(
         .StringToBool ==
-        create_type(&out, FuncType{array_with_string_type, array_with_bool_type}).type,
+        create_type(&out, FuncType{array_with_string_type, array_with_bool_type}, false).type,
     )
-    assert(.NoArgsToInt == create_type(&out, FuncType{nil, array_with_int_type}).type)
+    assert(.NoArgsToInt == create_type(&out, FuncType{nil, array_with_int_type}, false).type)
     assert(
-        .StringTypedToNil == create_type(&out, FuncType{array_with_string_typed_type, nil}).type,
+        .StringTypedToNil ==
+        create_type(&out, FuncType{array_with_string_typed_type, nil}, false).type,
     )
     assert(
         .StringToTyped ==
-        create_type(&out, FuncType{array_with_string_type, array_with_typed_type}).type,
+        create_type(&out, FuncType{array_with_string_type, array_with_typed_type}, false).type,
     )
     assert(
         .FloatToUInt ==
-        create_type(&out, FuncType{array_with_float_type, array_with_uint_type}).type,
+        create_type(&out, FuncType{array_with_float_type, array_with_uint_type}, false).type,
     )
     assert(
         .FloatToFloat ==
-        create_type(&out, FuncType{array_with_float_type, array_with_float_type}).type,
+        create_type(&out, FuncType{array_with_float_type, array_with_float_type}, false).type,
     )
-    assert(.NoArgsToFloat == create_type(&out, FuncType{nil, array_with_float_type}).type)
+    assert(.NoArgsToFloat == create_type(&out, FuncType{nil, array_with_float_type}, false).type)
     assert(
         .TypedToString ==
-        create_type(&out, FuncType{array_with_typed_type, array_with_string_type}).type,
+        create_type(&out, FuncType{array_with_typed_type, array_with_string_type}, false).type,
     )
 
     // positions := utils.arena_make_multi(a, utils.Multi(utils.Pos), 3)
@@ -327,7 +347,7 @@ create_types :: proc(a: ^utils.Arena) -> Types {
 
     assert(
         .CompilerCache ==
-        create_type(&out, StructType{compiler_cache_map, utils.array_to_multi(compiler_cache_types)}).type,
+        create_type(&out, StructType{compiler_cache_map, utils.array_to_multi(compiler_cache_types)}, false).type,
     )
 
     compiler_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
@@ -343,12 +363,12 @@ create_types :: proc(a: ^utils.Arena) -> Types {
 
     assert(
         .Compiler ==
-        create_type(&out, StructType{compiler_map, utils.array_to_multi(compiler_types)}).type,
+        create_type(&out, StructType{compiler_map, utils.array_to_multi(compiler_types)}, false).type,
     )
 
     assert(
         .CompilerToInt ==
-        create_type(&out, FuncType{array_with_compiler_type, array_with_int_type}).type,
+        create_type(&out, FuncType{array_with_compiler_type, array_with_int_type}, false).type,
     )
 
     http_request_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
@@ -363,7 +383,7 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     http_request_types[1] = .String
     assert(
         .HttpRequest ==
-        create_type(&out, StructType{http_request_map, utils.array_to_multi(http_request_types)}).type,
+        create_type(&out, StructType{http_request_map, utils.array_to_multi(http_request_types)}, false).type,
     )
 
     http_response_types := make(map[SumTag]Maybe(Type))
@@ -372,16 +392,16 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     http_response_types[SumTag.Html] = .String
     http_response_types[SumTag.Js] = .String
 
-    assert(.HttpResponse == create_type(&out, SumType{http_response_types}).type)
+    assert(.HttpResponse == create_type(&out, SumType{http_response_types}, false).type)
 
     assert(
         .HttpRequestHandler ==
-        create_type(&out, FuncType{array_with_http_request, array_with_http_response}).type,
+        create_type(&out, FuncType{array_with_http_request, array_with_http_response}, false).type,
     )
 
     assert(
         .HttpRequestHandlerToNil ==
-        create_type(&out, FuncType{array_with_http_request_handler, nil}).type,
+        create_type(&out, FuncType{array_with_http_request_handler, nil}, false).type,
     )
 
     websocket_message_types := make(map[SumTag]Maybe(Type))
@@ -389,21 +409,21 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     websocket_message_types[SumTag.Text] = .String
     websocket_message_types[SumTag.Binary] = .String
 
-    assert(.WebSocketMessage == create_type(&out, SumType{websocket_message_types}).type)
+    assert(.WebSocketMessage == create_type(&out, SumType{websocket_message_types}, false).type)
 
     assert(
         .WebSocketMessageHandler ==
-        create_type(&out, FuncType{array_with_websocket_message, array_with_websocket_message_return}).type,
+        create_type(&out, FuncType{array_with_websocket_message, array_with_websocket_message_return}, false).type,
     )
 
     assert(
         .WebSocketMessageHandlerToNil ==
-        create_type(&out, FuncType{array_with_websocket_message_handler, nil}).type,
+        create_type(&out, FuncType{array_with_websocket_message_handler, nil}, false).type,
     )
 
     assert(
         .WebSocketMessageToNil ==
-        create_type(&out, FuncType{array_with_websocket_message, nil}).type,
+        create_type(&out, FuncType{array_with_websocket_message, nil}, false).type,
     )
 
     http_server_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
@@ -439,21 +459,25 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     http_server_types[4] = .WebSocketMessageToNil
     assert(
         .HttpServer ==
-        create_type(&out, StructType{http_server_map, utils.array_to_multi(http_server_types)}).type,
+        create_type(&out, StructType{http_server_map, utils.array_to_multi(http_server_types)}, false).type,
     )
 
-    assert(.NoArgsToHttpServer == create_type(&out, FuncType{nil, array_with_http_server}).type)
+    assert(
+        .NoArgsToHttpServer ==
+        create_type(&out, FuncType{nil, array_with_http_server}, false).type,
+    )
 
     return out
 }
 
 TypeValue :: struct {
+    needs_scope: bool,
     // aliases: [dynamic]string, // TODO
 
-    // Either `.unknown_type` or a simplification of the type
+    // Either `.Unknown` or a simplification of the type
     // Should only be a simplification of the type if the type is `GlobalType`
     // or `GenericTypeValue`
-    type: Type,
+    type:        Type,
 }
 
 Types :: struct {
@@ -472,7 +496,11 @@ get_type :: proc(types: Types, t: Type, loc := #caller_location) -> GotType {
         utils.call(loc, "get_type", "")
     }
     if t > Type.MaxIndex {
-        return GotType{nil, TypeValue{}}
+        if t == Type.Scoped {
+            return GotType{nil, TypeValue{true, .Unknown}}
+        } else {
+            return GotType{nil, TypeValue{false, .Unknown}}
+        }
     }
     return GotType{types.m.keys[t].key, types.values.d[t]}
 }
@@ -483,7 +511,12 @@ CreatedType :: struct {
     result:     utils.Result,
 }
 
-create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> CreatedType {
+create_type :: proc(
+    types: ^Types,
+    value: TypeKey,
+    needs_scope: bool,
+    loc := #caller_location,
+) -> CreatedType {
     utils.call(loc, "create_type", "")
     utils.debug("value: %v", value)
     type, result := utils.lookup_or_insert(
@@ -494,16 +527,19 @@ create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> C
     )
     if result == .Inserted {
         utils.resize_multi(&types.values, len(types.m.keys))
-        types.values.d[type.index] = TypeValue{.Unknown}
+        types.values.d[type.index] = TypeValue{needs_scope, .Unknown}
     }
 
     out := CreatedType{Type(type.index), types.values.d[type.index], result}
+    assert(needs_scope == out.type_value.needs_scope)
     utils.debug("out: %v", out)
     return out
 }
 
 hash_type_value :: proc(value: TypeKey) -> u32 {
     switch v in value {
+    case TypeScope:
+        return u32(v.contents)
     case ArrayType:
         length := v.length == nil ? max(u32) : v.length.(u32)
         return length ~ u32(v.item_type)
@@ -517,6 +553,8 @@ hash_type_value :: proc(value: TypeKey) -> u32 {
         return hash_func_type(v)
     case GenericTypeValue:
         return v.global.index ~ get_hash_of_array_of_types(v.generic_args)
+    case ReplaceScoped:
+        return u32(v.type) ~ u32(v.replace_with)
     case GlobalType:
         return u32(v.global.index)
     }
@@ -559,6 +597,12 @@ hash_func_type :: proc(value: FuncType) -> u32 {
 
 type_key_is_equal :: proc(a: TypeKey, b: TypeKey) -> bool {
     switch va in a {
+    case ReplaceScoped:
+        vb, ok := b.(ReplaceScoped)
+        return ok && va.replace_with == vb.replace_with && va.type == vb.type
+    case TypeScope:
+        vb, ok := b.(TypeScope)
+        return ok && va.contents == vb.contents
     case OrderedHashMapType:
         vb, ok := b.(OrderedHashMapType)
         return ok && va.key_type == vb.key_type && va.value_type == vb.value_type

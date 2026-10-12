@@ -1,7 +1,6 @@
 package main
 
 import "compiler"
-import "core:fmt"
 import "core:strings"
 import "utils"
 
@@ -411,6 +410,7 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
     }
 }
 
+/*
 emit_js_global_type :: proc(s: ^GeneralEmitterState, index: int) {
     name := fmt.aprintf("Type%d", index)
     defer delete(name)
@@ -449,6 +449,7 @@ emit_js_global_type :: proc(s: ^GeneralEmitterState, index: int) {
         strings.write_string(&s.b, "}}")
     }
 }
+*/
 
 emit_js_block_body :: proc(
     s: ^GeneralEmitterState,
@@ -632,9 +633,11 @@ emit_javascript :: proc(
     }
     strings.write_string(&s.b, "};")
 
+    /*
     for _, index in types.m.keys {
         emit_js_global_type(&s, index)
     }
+    */
 
     /*
     for _, i in c.types.values {

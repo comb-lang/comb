@@ -110,6 +110,8 @@ UnitSegmentContents :: union #no_nil {
     Char,
     Bool,
     Marker,
+    ScopeToken,
+    UnScopeToken,
     Import,
     UnitJoinMethod,
 }

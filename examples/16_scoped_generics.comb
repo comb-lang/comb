@@ -1,0 +1,70 @@
+u = import "std/utils.comb"
+
+Sequence[ItemType] = {
+	stringify: (ItemType) -> String,
+	items: ItemType[],
+	generate: (ItemType[]) -> ItemType,
+}
+
+Sequences = OrderedHashMap[String, scope (Sequence[Scoped])]
+
+run_command = |sequences: Sequences| -> \Continue: Sequences, :Quit\ {
+	command = readline("Enter the name of a sequence to expand or `quit` to quit: ")
+	if command == "quit" {
+		return :Quit
+	}
+	if command in sequences {
+		return Continue: (sequences ~ [command] |= |sequence: scope (Sequence[Scoped])| -> scope (Sequence[Scoped]) {
+			s = unscope(sequence, SequenceItem)
+			return s ~ .items = s.items :: s.generate(s.items)
+		})
+	} else {
+		println("`" & command & "` is not one of the sequences")
+		return run_command(sequences)
+	}
+}
+
+show_sequences = |sequences: Sequences| {
+	for name, sequence in sequences {
+		print("name: ")
+		re first_item$ = true
+		s = unscope(sequence, SequenceItem)
+		for item in s.items {
+			if first_item$ == false {
+				print(", ")
+			}
+			print(s.stringify(item))
+			first_item$ = false
+		}
+	}
+}
+
+main = || -> Int {
+	uint_to_str = |v: UInt| -> String {
+		return v.to_str
+	}
+	re sequences$ = u.as[Sequences](OrderedHashMap(
+		"fibonacci" = {
+			stringify = uint_to_str,
+			items = [1, 1],
+			generate = |i: UInt[]| -> UInt {
+				return i[i.len-2] + i[i.len-1]
+			}
+		},
+		"factorial" = {
+			stringify = uint_to_str,
+			items = [1],
+			generate = |i: UInt[]| -> UInt {
+				return i[i.len-1] * (i.len + 1)
+			}
+		},
+	))
+	while true {
+		match run_command(sequences$) {
+			:Quit { return 0 }
+			Continue: new_sequences {
+				sequences$ = new_sequences
+			}
+		}
+	}
+}

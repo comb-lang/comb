@@ -487,6 +487,10 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
     name := fmt.aprintf("Type%d", index)
     defer delete(name)
     switch type in s.types.m.keys[index].key {
+    case compiler.ReplaceScoped:
+        panic("TODO")
+    case compiler.TypeScope:
+        panic("Unimplemented")
     case compiler.GlobalType:
         panic("TODO")
     case compiler.ArrayType:

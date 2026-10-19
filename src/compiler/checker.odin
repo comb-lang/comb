@@ -3262,6 +3262,30 @@ check_value_with_marker :: proc(
     a: CheckValueArgs,
 ) -> CheckValueResult {
     switch marker.text {
+    case "abs":
+        value := check_initial_value(s, v, i, CheckValueArgs{a.body, a.generic_args, nil}).v
+        if value.value == nil {
+            return CheckValueResult{nil, .Invalid}
+        }
+        if !expect_type(s, get_segment(v, i^).range, .String, value.type) {
+            return CheckValueResult{nil, .Invalid}
+        }
+        comptime_value, is_comptime := value.value.(ExactValue)
+        if !is_comptime {
+            utils.diagnostic(s.r, get_segment(v, i^).range, "Expected a compile time known value")
+            return CheckValueResult{nil, .Invalid}
+        }
+
+        out, join_err := filepath.join(
+            []string{v.first.range.file.dir_path, string(comptime_value.(StringValue))},
+            context.allocator,
+        )
+        if join_err != nil {
+            utils.diagnostic(s.r, get_range(marker), "Failed to join paths: %v", join_err)
+            return CheckValueResult{nil, .Invalid}
+        }
+
+        return CheckValueResult{ExactValue(StringValue(out)), .String}
     case "load":
         value := check_initial_value(s, v, i, CheckValueArgs{a.body, a.generic_args, nil}).v
         if value.value == nil {
@@ -3281,7 +3305,7 @@ check_value_with_marker :: proc(
             context.allocator,
         )
         if join_err != nil {
-            utils.diagnostic(s.r, get_range(marker), "Failed to join strings: %v", join_err)
+            utils.diagnostic(s.r, get_range(marker), "Failed to join paths: %v", join_err)
             return CheckValueResult{nil, .Invalid}
         }
         data, data_err := os.read_entire_file(joined, context.allocator)

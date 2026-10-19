@@ -76,7 +76,9 @@ get_builtin :: proc(name: string) -> GotBuiltin {
     case "clear":
         return GotBuiltin{BuiltinFunction.clear, .NoArgsToNil}
     case "run_executable":
-        return GotBuiltin{BuiltinFunction.run_executable, .ArrayOfStringsToNil}
+        return GotBuiltin{BuiltinFunction.run_executable, .ProcessDescriptionToInt}
+    case "ProcessDescription":
+        return GotBuiltin{Type.ProcessDescription, Type.Type}
     case "exit":
         return GotBuiltin{BuiltinFunction.exit, .IntToNil}
     case "string_repeat":

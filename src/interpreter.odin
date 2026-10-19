@@ -1427,7 +1427,32 @@ default_builtin_handler_procedure :: proc(
         fmt.wprint(data.pipe.stdout, utils.ansi_clear)
         return nil
     case .run_executable:
-        panic("TODO")
+        assert(len(args) == 1)
+        process_description := args[0].(compiler.StructInitialisation(compiler.ExactValue))
+        assert(len(process_description.fields) == 2)
+        command_elems := process_description.fields[1].(compiler.Array(compiler.ExactValue))
+        command := make([]string, len(command_elems.elements))
+        for command_elem, i in command_elems.elements {
+            command[i] = string(command_elem.(compiler.StringValue))
+        }
+
+        env, err := os.environ(context.allocator)
+        assert(err == nil)
+        process, err2 := os.process_start(
+            os.Process_Desc {
+                working_dir = string(process_description.fields[0].(compiler.StringValue)),
+                command = command,
+                env = env,
+                stderr = os.stderr,
+                stdout = os.stdout,
+                stdin = os.stdin,
+            },
+        )
+        assert(err2 == nil)
+        state, err3 := os.process_wait(process)
+        assert(err3 == nil)
+
+        return f64(state.exit_code)
     case .exit:
         assert(len(args) == 1)
         os.exit(compiler.expect_int(args[0].(f64)))

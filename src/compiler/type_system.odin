@@ -96,6 +96,15 @@ Type :: enum u32 {
     // () -> HttpServer
     NoArgsToHttpServer,
 
+    // {
+    //   working_dir: String,
+    //   command: []String,
+    // }
+    ProcessDescription,
+
+    // (ProcessDescription) -> Int
+    ProcessDescriptionToInt,
+
     // Primitive types
     String = max(u32),
     UInt = max(u32) - 1, // Numbers without a decimal >= 0
@@ -275,6 +284,9 @@ create_types :: proc(a: ^utils.Arena) -> Types {
 
     array_with_websocket_message_handler := utils.arena_make(a, []Type, 1)
     array_with_websocket_message_handler[0] = .WebSocketMessageHandler
+
+    array_with_process_description := utils.arena_make(a, []Type, 1)
+    array_with_process_description[0] = .ProcessDescription
 
     assert(.DynamicArrayOfStrings == create_type(&out, ArrayType{nil, .String}).type)
     assert(.StringToNil == create_type(&out, FuncType{array_with_string_type, nil}).type)
@@ -461,6 +473,31 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     )
 
     assert(.NoArgsToHttpServer == create_type(&out, FuncType{nil, array_with_http_server}).type)
+
+    process_description_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
+    i, _ = utils.lookup_or_insert(
+        &process_description_map,
+        "working_dir",
+        utils.string_to_index_procs,
+    )
+    assert(i.index == 0)
+    i, _ = utils.lookup_or_insert(&process_description_map, "command", utils.string_to_index_procs)
+    assert(i.index == 1)
+    utils.fix_key_to_index(process_description_map)
+
+    process_description_types := utils.arena_make(a, []Type, 2)
+    process_description_types[0] = .String
+    process_description_types[1] = .DynamicArrayOfStrings
+
+    assert(
+        .ProcessDescription ==
+        create_type(&out, StructType{process_description_map, utils.array_to_multi(process_description_types)}).type,
+    )
+
+    assert(
+        .ProcessDescriptionToInt ==
+        create_type(&out, FuncType{array_with_process_description, array_with_int_type}).type,
+    )
 
     return out
 }

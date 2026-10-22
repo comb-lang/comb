@@ -69,6 +69,8 @@ emit_js_exact_value :: proc(s: ^GeneralEmitterState, v: compiler.ExactValue) {
         strings.write_string(&s.b, "(v) => {type: ")
         strings.write_uint(&s.b, get_type_index(s.types, comptime.type))
         strings.write_string(&s.b, ", value: v}")
+    case compiler.MakeFunction:
+        strings.write_string(&s.b, "make")
     case compiler.DeserialiseFromJsonFunc:
         strings.write_string(&s.b, "deserialize_from_json(")
         strings.write_uint(&s.b, get_type_index(s.types, comptime.type))
@@ -85,6 +87,8 @@ emit_js_exact_value :: proc(s: ^GeneralEmitterState, v: compiler.ExactValue) {
             strings.write_string(&s.b, "console.log")
         case .eprint, .eprintln:
             strings.write_string(&s.b, "console.error")
+        case .expect_uint:
+            strings.write_string(&s.b, "expect_uint")
         case:
             strings.write_string(&s.b, "builtin")
             strings.write_uint(&s.b, uint(comptime))
@@ -582,7 +586,14 @@ emit_javascript :: proc(
     // TODO: Be able to `deserialize_from_json` even when there's a type mismatch
     strings.write_string(
         &s.b,
-        "function builtin22(num) {" +
+        "function make(l, f) {" +
+        "  const out = [];" +
+        "  for (let i = 0; i < l; i += 1) {" +
+        "    out.push(f(i));" +
+        "  }" +
+        "  return out;" +
+        "}" +
+        "function expect_uint(num) {" +
         "  if (!Number.isInteger(num)) {" +
         "    throw new Error(\"Attempted to convert float to UInt\")" +
         "  }" +

@@ -36,6 +36,7 @@ BuiltinFunction :: enum u8 {
     cache_get,
     init_http_server,
     cast_func,
+    make_func,
     save_cursor_pos,
     restore_cursor_pos,
     clear_after_cursor,
@@ -84,6 +85,8 @@ get_builtin :: proc(name: string) -> GotBuiltin {
         return GotBuiltin{BuiltinFunction.init_http_server, .NoArgsToHttpServer}
     case "cast":
         return GotBuiltin{BuiltinFunction.cast_func, .Unknown}
+    case "make":
+        return GotBuiltin{BuiltinFunction.make_func, .Unknown}
     case "save_cursor_pos":
         return GotBuiltin{BuiltinFunction.save_cursor_pos, .NoArgsToNil}
     case "restore_cursor_pos":

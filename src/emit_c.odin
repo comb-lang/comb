@@ -81,6 +81,8 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.ExactValue) {
         panic("TODO")
     case compiler.Typed:
         panic("TODO")
+    case compiler.MakeFunction:
+        panic("Not implemented")
     case compiler.SumTypeInitialisation(^compiler.ExactValue):
         panic("TODO")
     case compiler.SetHttpServerHandler,

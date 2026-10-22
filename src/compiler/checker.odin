@@ -220,6 +220,9 @@ UninitialisedOrderedHashMapType :: struct {}
 CastFunction :: struct {
     type: Type,
 }
+MakeFunction :: struct {
+    return_type: Type,
+}
 DeserialiseFromJsonFunc :: struct {
     type: Type,
 }
@@ -256,6 +259,7 @@ ExactValue :: union {
     Array(ExactValue),
     BuiltinFunction,
     CastFunction,
+    MakeFunction,
     DeserialiseFromJsonFunc,
     ToTyped,
     StringValue,
@@ -325,6 +329,8 @@ get_exact_value_type :: proc(checked_funcs: []CheckedFunction, value: ExactValue
     case BuiltinFunction:
         panic("TODO")
     case CastFunction:
+        panic("TODO")
+    case MakeFunction:
         panic("TODO")
     case SerialiseToJsonFunc:
         panic("TODO")
@@ -4944,6 +4950,29 @@ check_value :: proc(
                         return_types[0] = checked_args[0]
                         res = CheckValueResult {
                             ExactValue(CastFunction{checked_args[0]}),
+                            create_type(&s.types, FuncType{args, return_types}, false).type,
+                        }
+                        continue
+                    case .make_func:
+                        if len(checked_args) != 1 {
+                            argument_count_mismatch(s, res_range, len(checked_args), 1)
+                            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                        }
+
+                        array_with_uint := make([]Type, 1)
+                        array_with_uint[0] = .UInt
+
+                        args := make([]Type, 2)
+                        args[0] = .UInt
+                        args[1] =
+                            create_type(&s.types, FuncType{array_with_uint, checked_args[0:1]}, false).type
+
+                        return_types := make([]Type, 1)
+                        return_types[0] =
+                            create_type(&s.types, ArrayType{nil, checked_args[0]}, false).type
+
+                        res = CheckValueResult {
+                            ExactValue(MakeFunction{return_types[0]}),
                             create_type(&s.types, FuncType{args, return_types}, false).type,
                         }
                         continue

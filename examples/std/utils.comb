@@ -73,11 +73,9 @@ assert_with_message = |cond: Bool, message: String| {
 }
 
 map[I, O] = |array: I[], func: (I) -> O| -> O[] {
-	re out$ = empty_array[O]()
-	for elem in array {
-		out$ = out$ :: func(elem)
-	}
-	return out$
+	return make[O](array.len, |i: UInt| -> O {
+		return func(array[i])
+	})
 }
 
 flat_map[I, O] = |array: I[], func: (I) -> O[]| -> O[] {

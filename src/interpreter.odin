@@ -154,6 +154,17 @@ interp_execute_function :: proc(
     case compiler.ToTyped:
         assert(len(args) == 1)
         return compiler.Typed{val.type, new_clone(args[0])}
+    case compiler.MakeFunction:
+        assert(len(args) == 2)
+        length := compiler.expect_int(args[0].(f64))
+        func := new_clone(compiler.CheckedValue(args[1]))
+        args_array := make([]compiler.CheckedValue, 1)
+        out := make([]compiler.ExactValue, length)
+        for i in 0 ..< length {
+            args_array[0] = compiler.ExactValue(f64(i))
+            out[i] = interp_execute_function(s, compiler.CheckedFunctionCall{func, args_array})
+        }
+        return compiler.Array(compiler.ExactValue){val.return_type, out}
     case compiler.DeserialiseFromJsonFunc:
         // TODO: Actually deserialize rather than resorting to the fallback
         return args[1]
@@ -753,7 +764,8 @@ interp_clone_value :: proc(
          compiler.SetWebSocketHandler,
          compiler.SendToWebSockets,
          compiler.ToTyped,
-         compiler.Typed:
+         compiler.Typed,
+         compiler.MakeFunction:
         return val
     }
     return compiler.ExactValue{}
@@ -972,6 +984,8 @@ interp_eval_comptime_value :: proc(
         return compiler.ExactOrderedHashMap{comptime.type, out_map, comptime.order}
     case compiler.CastFunction:
         return comptime
+    case compiler.MakeFunction:
+        return comptime
     case compiler.DeserialiseFromJsonFunc:
         return comptime
     case compiler.BuiltinFunction:
@@ -1175,6 +1189,7 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
              compiler.SetWebSocketHandler,
              compiler.SendToWebSockets,
              compiler.CastFunction,
+             compiler.MakeFunction,
              compiler.DeserialiseFromJsonFunc:
             panic("Unreachable")
         }
@@ -1504,7 +1519,7 @@ default_builtin_handler_procedure :: proc(
         panic("TODO")
     case .deserialize_from_json:
         panic("Unreachable")
-    case .cast_func:
+    case .cast_func, .make_func:
         panic("Unreachable")
     case .to_typed:
         panic("Unreachable")

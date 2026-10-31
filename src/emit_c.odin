@@ -491,6 +491,8 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
         panic("TODO")
     case compiler.TypeScope:
         panic("Unimplemented")
+    case compiler.UniqueType:
+        panic("Unimplemented")
     case compiler.GlobalType:
         panic("TODO")
     case compiler.ArrayType:

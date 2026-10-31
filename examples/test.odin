@@ -785,13 +785,13 @@ invalid_example_03_constants_and_reassignables_with_same_name :: proc(t: ^testin
     utils.expect_string(&e, "Warning compiling `" + path + "` (7:2 - 7:6)\n")
     utils.expect_string(
         &e,
-        "Declaring variable called `hello` when variable called `hello$` is already declared\n",
+        "Declaring local called `hello` when local called `hello$` is already declared\n",
     )
     utils.expect_string(&e, "\n")
     utils.expect_string(&e, "Warning compiling `" + path + "` (13:5 - 13:7)\n")
     utils.expect_string(
         &e,
-        "Declaring variable called `hi$` when variable called `hi` is already declared\n",
+        "Declaring local called `hi$` when local called `hi` is already declared\n",
     )
     utils.expect_string(&e, "\n")
     utils.expect_string(&e, "Successfully checked with 0 errors and 2 warnings in ")

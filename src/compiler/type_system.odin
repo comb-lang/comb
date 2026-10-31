@@ -161,7 +161,12 @@ TypeScope :: struct {
     contents: Type,
 }
 
+UniqueType :: struct {
+    type: Type,
+}
+
 TypeKey :: union {
+    UniqueType,
     TypeScope,
     ArrayType,
     OrderedHashMapType,
@@ -476,7 +481,7 @@ TypeValue :: struct {
 
     // Either `.Unknown` or a simplification of the type
     // Should only be a simplification of the type if the type is `GlobalType`
-    // or `GenericTypeValue`
+    // `GenericTypeValue`, or `ReplaceScoped`
     type:        Type,
 }
 
@@ -536,8 +541,15 @@ create_type :: proc(
     return out
 }
 
+create_unique_type :: proc(types: ^Types) -> Type {
+    t := Type(len(types.m.keys))
+    return create_type(types, UniqueType{t}, false).type
+}
+
 hash_type_value :: proc(value: TypeKey) -> u32 {
     switch v in value {
+    case UniqueType:
+        return u32(v.type)
     case TypeScope:
         return u32(v.contents)
     case ArrayType:
@@ -597,6 +609,9 @@ hash_func_type :: proc(value: FuncType) -> u32 {
 
 type_key_is_equal :: proc(a: TypeKey, b: TypeKey) -> bool {
     switch va in a {
+    case UniqueType:
+        vb, ok := b.(UniqueType)
+        return ok && va.type == vb.type
     case ReplaceScoped:
         vb, ok := b.(ReplaceScoped)
         return ok && va.replace_with == vb.replace_with && va.type == vb.type

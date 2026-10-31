@@ -16,14 +16,29 @@ VariableRef :: struct {
     index:         uint,
 }
 
+BindingRef :: struct {
+    nesting_level: uint,
+    index:         uint,
+}
+
+LocalRef :: union {
+    VariableRef,
+    BindingRef,
+}
+
 ScopeVariable :: struct {
     type:            Type,
     is_reassignable: bool,
 }
 
+ScopeBinding :: struct {
+    type:  Type,
+    value: ExactValue,
+}
+
 Scope :: struct {
-    // The length of these arrays should be the same
     variables: #soa[dynamic]ScopeVariable,
+    bindings:  [dynamic]ScopeBinding,
 }
 
 ArrayType :: struct {
@@ -82,7 +97,7 @@ CheckerScopeState :: struct {
 
     // The following fields depend on which variables are in scope
     scopes:            [dynamic]Scope,
-    variables_map:     map[string]VariableRef,
+    locals_map:        map[string]LocalRef,
     labels_map:        map[string]LabelRef,
 }
 
@@ -108,8 +123,8 @@ CheckerState :: struct {
 }
 
 InlineFuncFields :: struct {
-    variables_from_outer_scope: map[string]VariableRef,
-    scope0:                     Scope,
+    locals_from_outer_scope: map[string]LocalRef,
+    scope0:                  Scope,
 }
 
 CheckedFunction :: struct {
@@ -1003,8 +1018,15 @@ check_comptime_func_call :: proc(
                 GenericTypeValue{global, generic_args},
             ),
         )
-        s.types.values.d[type_value].type =
-            checked_value2.value == nil ? .Invalid : checked_value2.value.(ExactValue).(Type)
+        if checked_value2.value == nil {
+            s.types.values.d[type_value].type = .Invalid
+        } else {
+            assert(s.types.values.d[type_value].needs_scope)
+            type := checked_value2.value.(ExactValue).(Type)
+            s.types.values.d[type_value].needs_scope = s.types.values.d[type].needs_scope
+            // utils.panicf("%v", s.types.values.d[type].needs_scope)
+            s.types.values.d[type_value].type = type
+        }
     }
 
     return checked_value
@@ -1109,14 +1131,15 @@ simplify_type :: proc(s: ^CheckerState, type: Type, loc := #caller_location) -> 
     for {
         got := get_type(s.types, cur_type)
         #partial switch key in got.key {
-        case GenericTypeValue, GlobalType:
+        case GenericTypeValue, GlobalType, ReplaceScoped:
             cur_type = got.value.type
             assert(cur_type != .Unknown)
         case nil:
             return SimplifiedType{cur_type, nil}
         case:
             if got.value.type != .Unknown {
-                utils.panicf("got.value.type == %v", got.value.type)
+                str := type_to_string(s, got.value.type)
+                utils.panicf("got.value.type == %v == %s", got.value.type, str)
             }
             return SimplifiedType{cur_type, got.key}
         }
@@ -1537,13 +1560,16 @@ expect_type :: proc(
     return false
 }
 
-get_variable_type :: proc(
-    s: ^CheckerState,
-    variable: VariableRef,
-    loc := #caller_location,
-) -> Type {
-    utils.call(loc, "get_variable_type", "")
-    return s.scopes[variable.nesting_level].variables[variable.index].type
+get_local_type :: proc(s: ^CheckerState, local: LocalRef, loc := #caller_location) -> Type {
+    utils.call(loc, "get_local_type", "")
+    switch l in local {
+    case VariableRef:
+        return s.scopes[l.nesting_level].variables[l.index].type
+    case BindingRef:
+        return s.scopes[l.nesting_level].bindings[l.index].type
+    case:
+        panic("Unreachable")
+    }
 }
 
 type_to_string :: proc(s: ^CheckerState, t: Type, loc := #caller_location) -> string {
@@ -1632,6 +1658,10 @@ build_type_string :: proc(
     case:
         // TODO: For `GlobalType` and `StructType`, put the right namespace before the type
         switch tv in get_type(types, t).key {
+        case UniqueType:
+            // TODO: Better printing of unique types
+            strings.write_string(b, "unique type ")
+            strings.write_uint(b, uint(tv.type))
         case ReplaceScoped:
             strings.write_string(b, "ReplaceScoped[")
             build_type_string(types, globals_without_generic, globals_with_generic, b, tv.type)
@@ -1766,11 +1796,20 @@ build_type_string :: proc(
 pop_scope :: proc(s: ^CheckerState, loc := #caller_location) {
     utils.call(loc, "pop_scope", "")
     pop(&s.scopes)
-    for var_name, var_ref in s.variables_map {
-        if var_ref.nesting_level == len(s.scopes) {
-            delete_key(&s.variables_map, var_name)
+    for local_name, local_ref in s.locals_map {
+        nesting_level: uint = ---
+        switch l in local_ref {
+        case BindingRef:
+            nesting_level = l.nesting_level
+        case VariableRef:
+            nesting_level = l.nesting_level
+        case:
+            panic("Unreachable")
+        }
+        if nesting_level == len(s.scopes) {
+            delete_key(&s.locals_map, local_name)
         } else {
-            assert(var_ref.nesting_level < len(s.scopes))
+            assert(nesting_level < len(s.scopes))
         }
     }
     for label_name, label_ref in s.labels_map {
@@ -1887,12 +1926,22 @@ check_mutation :: proc(
         return false
     }
     if !ident.has_re_before && ident.ident.has_dollar_at_end {
-        var_ref, ok := s.variables_map[ident.ident.ident]
+        local_ref, ok := s.locals_map[ident.ident.ident]
         if !ok {
             utils.diagnostic(
                 s.r,
                 split.before_split.range,
-                "The variable `%s` is not defined",
+                "The local `%s` is not defined",
+                ident.ident.ident,
+            )
+            return false
+        }
+        var_ref, is_variable := local_ref.(VariableRef)
+        if !is_variable {
+            utils.diagnostic(
+                s.r,
+                split.before_split.range,
+                "The local `%s` is a binding",
                 ident.ident.ident,
             )
             return false
@@ -2246,6 +2295,9 @@ check_block :: proc(
                         array_item_type,
                         IdentAndPos{value.variables[0].text, false, value.variables[0].pos},
                     )
+                    fmt.printfln("text: %s", value.variables[1].text)
+                    fmt.printfln("pos.index: %v", value.variables[1].pos.index)
+                    fmt.printfln("pos.file.file_path: %v", value.variables[1].pos.file.file_path)
                     index_ref, index_ok := add_variable(
                         s,
                         .UInt,
@@ -2769,8 +2821,17 @@ check_var_ref_start :: proc(
         }
     }
     */
-    if var_ref, ok := s.variables_map[ident.ident]; ok {
-        return CheckValueResult{var_ref, get_variable_type(s, var_ref)}
+    if local_ref, ok := s.locals_map[ident.ident]; ok {
+        switch local_ref_value in local_ref {
+        case BindingRef:
+            binding := s.scopes[local_ref_value.nesting_level].bindings[local_ref_value.index]
+            return CheckValueResult{binding.value, binding.type}
+        case VariableRef:
+            variable := s.scopes[local_ref_value.nesting_level].variables[local_ref_value.index]
+            return CheckValueResult{local_ref_value, variable.type}
+        case:
+            panic("Unreachable")
+        }
     }
     return check_namespaced_var_ref(s, ident.pos.file, ident)
 }
@@ -4003,9 +4064,23 @@ check_initial_value :: proc(
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
 
-        type := replace_scoped(s, scope.contents, .Unknown)
+        unique_identifier, is_ident := get_text_and_pos_from_unit(
+            s.r,
+            contents.elements[1],
+        ).(TextAndPos)
+        if !is_ident {
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+        unique_type := create_unique_type(&s.types)
+        type := replace_scoped(s, scope.contents, unique_type)
+        add_binding(
+            s,
+            .Type,
+            unique_type,
+            IdentAndPos{unique_identifier.text, false, unique_identifier.pos},
+        )
 
-        panic("BEFORE MERGE TODO")
+        return utils.to_debug_value(CheckValueResult{checked_value.v.value, type})
 
     case Tuple:
         if len(value.elements) != 1 {
@@ -4123,6 +4198,8 @@ replace_scoped :: proc(s: ^CheckerState, type: Type, replace_with: Type) -> Type
     case ReplaceScoped:
         return type
     case TypeScope:
+        return type
+    case UniqueType:
         return type
 
     case ArrayType:
@@ -4932,28 +5009,39 @@ check_value :: proc(
 }
 
 get_inline_func_fields :: proc(s: ^CheckerState) -> (InlineFuncFields, utils.Multi(VariableRef)) {
-    if len(s.variables_map) == 0 {
+    if len(s.locals_map) == 0 {
         return InlineFuncFields{}, utils.Multi(VariableRef){nil}
     }
-    variables_from_outer_scope: map[string]VariableRef
+    locals_from_outer_scope: map[string]LocalRef
     scope0: Scope
     lambda_args := utils.arena_make_multi(s.a, utils.Multi(VariableRef), 0, resizable = true)
     defer utils.fix_resizable_multi(lambda_args)
 
-    for var_name, var_ref in s.variables_map {
-        variable := s.scopes[var_ref.nesting_level].variables[var_ref.index]
+    for local_name, local_ref in s.locals_map {
+        switch local_ref_value in local_ref {
+        case VariableRef:
+            variable := s.scopes[local_ref_value.nesting_level].variables[local_ref_value.index]
 
-        if variable.is_reassignable {
-            // Reassignable variables defined in an outer function are not accessible from an inline function
-            continue
+            if variable.is_reassignable {
+                // Reassignable variables defined in an outer function are not accessible from an inline function
+                continue
+            }
+
+            locals_from_outer_scope[local_name] = VariableRef{0, len(scope0.variables)}
+            utils.append_multi_dynamic(&lambda_args, len(scope0.variables), local_ref_value)
+            append(&scope0.variables, variable)
+        case BindingRef:
+            locals_from_outer_scope[local_name] = BindingRef{0, len(scope0.bindings)}
+            append(
+                &scope0.bindings,
+                s.scopes[local_ref_value.nesting_level].bindings[local_ref_value.index],
+            )
+        case:
+            panic("Unreachable")
         }
-
-        variables_from_outer_scope[var_name] = VariableRef{0, len(scope0.variables)}
-        utils.append_multi_dynamic(&lambda_args, len(scope0.variables), var_ref)
-        append(&scope0.variables, variable)
     }
 
-    return InlineFuncFields{variables_from_outer_scope, scope0}, lambda_args
+    return InlineFuncFields{locals_from_outer_scope, scope0}, lambda_args
 }
 
 // Returns `nil, Invalid` on failure
@@ -5007,11 +5095,11 @@ check_anonymous_func_body :: proc(s: ^CheckerState, ref: CheckedFuncRef) -> bool
     s.loop_index = 0
     s.parent_loop_index = max(uint)
     assert(len(s.scopes) == 0)
-    assert(len(s.variables_map) == 0)
+    assert(len(s.locals_map) == 0)
     // We do not need to shallow clone
     // `checked_func.inline_stuff.variables_from_outer_scope` because we are the
     // only consumer of `checked_func.inline_stuff.variables_from_outer_scope`
-    s.variables_map = checked_func.inline_stuff.variables_from_outer_scope
+    s.locals_map = checked_func.inline_stuff.locals_from_outer_scope
     assert(len(s.labels_map) == 0)
     for return_type, i in func_type.return_types {
         s.return_types[i] = return_type
@@ -5117,7 +5205,10 @@ check_global_value_without_generic :: proc(
         if checked_value.v.value == nil {
             s.types.values.d[type_value].type = .Invalid
         } else {
-            s.types.values.d[type_value].type = checked_value.v.value.(ExactValue).(Type)
+            assert(s.types.values.d[type_value].needs_scope)
+            type := checked_value.v.value.(ExactValue).(Type)
+            s.types.values.d[type_value].needs_scope = s.types.values.d[type].needs_scope
+            s.types.values.d[type_value].type = type
         }
     }
     return global.v
@@ -5278,6 +5369,8 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]struct{})
     switch type in simplified.key {
     case TypeScope:
         panic("BEFORE MERGE TODO")
+    case UniqueType:
+        return .Any
     case SumType:
         variants := make(map[SumTag]Maybe(map[Type]struct{}))
         out, should_return := add_sum_type(s, &variants, type).(Type)

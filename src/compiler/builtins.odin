@@ -206,15 +206,60 @@ add_unnamed_variable :: proc(
     loc := #caller_location,
 ) -> VariableRef {
     utils.call(loc, "add_unnamed_variable", "")
-    var_ref := VariableRef{len(s.scopes) - 1, len(s.scopes[len(s.scopes) - 1].variables)}
+    local_ref := VariableRef{len(s.scopes) - 1, len(s.scopes[len(s.scopes) - 1].variables)}
     append_soa_elem(
         &s.scopes[len(s.scopes) - 1].variables,
         ScopeVariable{variable_type, variable_is_re},
     )
-    return var_ref
+    return local_ref
 }
 
-// The boolean returned is whether there are errors
+// Returns `false` on failure
+check_local_name :: proc(s: ^CheckerState, name: IdentAndPos) -> bool {
+    if get_builtin(name.ident).value != nil {
+        utils.diagnostic(s.r, get_range(name), builtins_err, name.ident)
+        return false
+    }
+    if name.ident in s.locals_map {
+        utils.diagnostic(s.r, get_range(name), "Redeclaration of local `%s`", name.ident)
+        return false
+    }
+    alt_ident := ""
+    if name.has_dollar_at_end {
+        alt_ident = name.ident[:len(name.ident) - 1]
+    } else {
+        alt_ident = utils.aprintf(s.a, "%s$", name.ident)
+    }
+    if alt_ident in s.locals_map {
+        utils.diagnostic(
+            s.r,
+            get_range(name),
+            "Declaring local called `%s` when local called `%s` is already declared",
+            name.ident,
+            alt_ident,
+            type = .Warning,
+        )
+    }
+    return true
+}
+
+add_binding :: proc(
+    s: ^CheckerState,
+    type: Type,
+    value: ExactValue,
+    binding: IdentAndPos,
+) -> Maybe(BindingRef) {
+    if !check_local_name(s, binding) {
+        return nil
+    }
+    nesting_level := uint(len(s.scope_state.scopes) - 1)
+    out := BindingRef{nesting_level, len(s.scope_state.scopes[nesting_level].bindings)}
+    append_elem(&s.scope_state.scopes[nesting_level].bindings, ScopeBinding{type, value})
+    s.scope_state.locals_map[binding.ident] = out
+    return out
+}
+
+// Return `VariableRef{}, false` on failure
 add_variable :: proc(
     s: ^CheckerState,
     variable_type: Type,
@@ -232,38 +277,10 @@ add_variable :: proc(
         TextAndPos{variable.ident, variable.pos},
         can_have_dollar_postfix = true,
     )
-    if get_builtin(variable.ident).value != nil {
-        utils.diagnostic(s.r, get_range(variable), builtins_err, variable.ident)
+    if !check_local_name(s, variable) {
         return VariableRef{}, false
     }
-    if variable.ident in s.variables_map {
-        utils.diagnostic(
-            s.r,
-            get_range(variable),
-            "Redeclaration of variable `%s`",
-            variable.ident,
-        )
-        return VariableRef{}, false
-    }
-    alt_ident := ""
-    if variable.has_dollar_at_end {
-        alt_ident = variable.ident[:len(variable.ident) - 1]
-    } else {
-        alt_ident = utils.aprintf(s.a, "%s$", variable.ident)
-    }
-    if alt_ident in s.variables_map {
-        utils.diagnostic(
-            s.r,
-            get_range(variable),
-            "Declaring variable called `%s` when variable called `%s` is already declared",
-            variable.ident,
-            alt_ident,
-            type = .Warning,
-        )
-    }
-    var_ref := add_unnamed_variable(s, variable_type, variable.has_dollar_at_end)
-    if variable.ident != "" {
-        s.variables_map[variable.ident] = var_ref
-    }
-    return var_ref, true
+    ref := add_unnamed_variable(s, variable_type, variable.has_dollar_at_end)
+    s.scope_state.locals_map[variable.ident] = ref
+    return ref, true
 }

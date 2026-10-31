@@ -1021,7 +1021,7 @@ check_comptime_func_call :: proc(
         if checked_value2.value == nil {
             s.types.values.d[type_value].type = .Invalid
         } else {
-            assert(s.types.values.d[type_value].needs_scope)
+            assert(s.types.values.d[type_value].needs_scope == false)
             type := checked_value2.value.(ExactValue).(Type)
             s.types.values.d[type_value].needs_scope = s.types.values.d[type].needs_scope
             // utils.panicf("%v", s.types.values.d[type].needs_scope)
@@ -3543,8 +3543,8 @@ finish_checking_early_return_type :: proc(
     s: ^CheckerState,
     a: CheckValueArgs,
 ) -> utils.DebugValue(CheckValueResult) {
-    // TODO: Maybe parsing in true will cause problems
-    out := ExactValue(create_type(&s.types, a.early_exit_if_value_is_type, true).type)
+    // TODO: Maybe parsing in false will cause problems
+    out := ExactValue(create_type(&s.types, a.early_exit_if_value_is_type, false).type)
     return utils.to_debug_value(CheckValueResult{out, .Type})
 }
 
@@ -5205,7 +5205,7 @@ check_global_value_without_generic :: proc(
         if checked_value.v.value == nil {
             s.types.values.d[type_value].type = .Invalid
         } else {
-            assert(s.types.values.d[type_value].needs_scope)
+            assert(s.types.values.d[type_value].needs_scope == false)
             type := checked_value.v.value.(ExactValue).(Type)
             s.types.values.d[type_value].needs_scope = s.types.values.d[type].needs_scope
             s.types.values.d[type_value].type = type

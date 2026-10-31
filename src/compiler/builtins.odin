@@ -44,7 +44,7 @@ BuiltinFunction :: enum u8 {
     serialize_to_json,
     deserialize_from_json,
     exponential,
-    random,
+    random_float,
     to_typed,
 }
 
@@ -100,8 +100,8 @@ get_builtin :: proc(name: string) -> GotBuiltin {
         return GotBuiltin{BuiltinFunction.deserialize_from_json, .Unknown}
     case "exp":
         return GotBuiltin{BuiltinFunction.exponential, .FloatToFloat}
-    case "random":
-        return GotBuiltin{BuiltinFunction.random, .NoArgsToFloat}
+    case "random_float":
+        return GotBuiltin{BuiltinFunction.random_float, .NoArgsToFloat}
     case "to_typed":
         return GotBuiltin{BuiltinFunction.to_typed, .Unknown}
     case "Int":

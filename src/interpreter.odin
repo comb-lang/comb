@@ -1351,7 +1351,7 @@ default_builtin_handler_procedure :: proc(
     case .exponential:
         assert(len(args) == 1)
         return math.exp(args[0].(f64))
-    case .random:
+    case .random_float:
         assert(len(args) == 0)
         return rand.float64()
     case .print:

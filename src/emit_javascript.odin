@@ -79,7 +79,7 @@ emit_js_exact_value :: proc(s: ^GeneralEmitterState, v: compiler.ExactValue) {
             strings.write_string(&s.b, "JSON.stringify")
         case .exponential:
             strings.write_string(&s.b, "Math.exp")
-        case .random:
+        case .random_float:
             strings.write_string(&s.b, "Math.random")
         case .print, .println:
             strings.write_string(&s.b, "console.log")

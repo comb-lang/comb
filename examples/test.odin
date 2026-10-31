@@ -1108,6 +1108,56 @@ example_11_http_server :: proc(t: ^testing.T) {
     testing.expect(t, ran.program.stderr == "")
 }
 
+@(test)
+example_16_scoped_generics :: proc(t: ^testing.T) {
+    // TODO: Better test
+    a: utils.Arena
+    file :: #directory + "16_scoped_generics.comb"
+    defer utils.cleanup_arena(&a, expect_empty = false)
+    ran := interpret_example(t, &a, src.FunctionRef{file, "main"}, "quit\n")
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.compiler.stderr == "")
+    testing.expect(t, ran.program.stderr == "")
+
+    e := utils.TestingTextExpecter{0, ran.program.stdout, t}
+    utils.expect_string(&e, "fibonacci: 1, 1\n")
+    utils.expect_string(&e, "factorial: 1\n")
+    utils.expect_string(&e, "faces: :)\n")
+    utils.expect_string(&e, "Enter the name of a sequence to expand or `quit` to quit: ")
+    utils.expect_finished(&e)
+
+    e = utils.TestingTextExpecter{0, ran.compiler.stdout, t}
+    utils.expect_string(&e, "Reading `" + file + "`...\n")
+    utils.expect_string(&e, "Parsing `" + file + "`...\n")
+    utils.expect_string(&e, "Parsing `" + utils_path + "`...\n")
+    utils.expect_string(&e, "Parsing `" + math_path + "`...\n")
+    utils.expect_string(&e, "Checking...\n\n")
+    utils.expect_string(&e, "Warning compiling `" + file + "` (90:13 - 90:21)\n")
+    utils.expect_string(&e, "This array access is not bounds checked\n")
+    utils.expect_string(&e, "TODO: Bounds checks\n\n")
+    utils.expect_string(&e, "Warning compiling `" + file + "` (90:26 - 90:34)\n")
+    utils.expect_string(&e, "This array access is not bounds checked\n")
+    utils.expect_string(&e, "TODO: Bounds checks\n\n")
+    utils.expect_string(&e, "Warning compiling `" + file + "` (97:13 - 97:21)\n")
+    utils.expect_string(&e, "This array access is not bounds checked\n")
+    utils.expect_string(&e, "TODO: Bounds checks\n\n")
+    utils.expect_string(&e, "Warning compiling `" + file + "` (110:13 - 110:23)\n")
+    utils.expect_string(&e, "This array access is not bounds checked\n")
+    utils.expect_string(&e, "TODO: Bounds checks\n\n")
+    utils.expect_string(&e, "Successfully checked with 0 errors and 4 warnings in ")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, ".")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, " ms\n")
+    utils.expect_string(&e, "Interpreting `main`...\n")
+    utils.expect_string(&e, "Done in ")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, ".")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, " ms!\n")
+    utils.expect_finished(&e)
+}
+
 // TODO: Add a fuzz test where the code that gets compiled never has any syntax errors
 
 // TODO: Add a fuzz test where the code that gets compiled has no invalid utf8 runes

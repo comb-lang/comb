@@ -6,7 +6,7 @@ Sequence[ItemType] = {
 	generate: (ItemType[]) -> ItemType,
 }
 
-Sequences = OrderedHashMap[String, scope (Sequence[Scoped])]
+Sequences = OrderedHashMap[String, scope(Sequence[Scoped])]
 
 run_command = |sequences: Sequences| -> \Continue: Sequences, :Quit\ {
 	command = readline("Enter the name of a sequence to expand or `quit` to quit: ")
@@ -14,9 +14,9 @@ run_command = |sequences: Sequences| -> \Continue: Sequences, :Quit\ {
 		return :Quit
 	}
 	if command in sequences {
-		return Continue: (sequences ~ [command] |= |sequence: scope (Sequence[Scoped])| -> scope (Sequence[Scoped]) {
+		return Continue: (sequences ~ [command] |= |sequence: scope(Sequence[Scoped])| -> scope (Sequence[Scoped]) {
 			s = unscope(sequence, SequenceItem)
-			return s ~ .items = s.items :: s.generate(s.items)
+			return scope(Sequence[Scoped], SequenceItem, s ~ .items = s.items :: s.generate(s.items))
 		})
 	} else {
 		println("`" & command & "` is not one of the sequences")
@@ -26,7 +26,7 @@ run_command = |sequences: Sequences| -> \Continue: Sequences, :Quit\ {
 
 show_sequences = |sequences: Sequences| {
 	for name, sequence in sequences {
-		print("name: ")
+		print(name & ": ")
 		re first_item$ = true
 		s = unscope(sequence, SequenceItem)
 		for item in s.items {
@@ -36,6 +36,45 @@ show_sequences = |sequences: Sequences| {
 			print(s.stringify(item))
 			first_item$ = false
 		}
+		print("\n")
+	}
+}
+
+FaceSmile = \:Bracket, :SquareBracket\
+FaceEyes = \:Colon, :Semicolon\
+FaceOrientation = \:SmileFirst, :EyesFirst\
+Face = {
+	smile: FaceSmile,
+	eyes: FaceEyes,
+	orientation: FaceOrientation,
+}
+FaceSequenceItem = {
+	num: UInt, // 0-3 inclusive
+	decreasing: Bool,
+}
+
+render_eyes = |eyes: FaceEyes| -> String {
+	match eyes {
+		:Colon { return ":" }
+		:Semicolon { return ";" }
+	}
+}
+
+render_face = |face: Face| -> String {
+	eyes = render_eyes(face.eyes)
+	match face.orientation {
+		:SmileFirst {
+			match face.smile {
+				:Bracket { return "(" & eyes }
+				:SquareBracket { return "[" & eyes }
+			}
+		}
+		:EyesFirst {
+			match face.smile {
+				:Bracket { return eyes & ")" }
+				:SquareBracket { return eyes & "]" }
+			}
+		}
 	}
 }
 
@@ -44,22 +83,47 @@ main = || -> Int {
 		return v.to_str
 	}
 	re sequences$ = u.as[Sequences](OrderedHashMap(
-		"fibonacci" = {
+		"fibonacci" = scope(Sequence[Scoped], UInt, {
 			stringify = uint_to_str,
 			items = [1, 1],
 			generate = |i: UInt[]| -> UInt {
 				return i[i.len-2] + i[i.len-1]
 			}
-		},
-		"factorial" = {
+		}),
+		"factorial" = scope(Sequence[Scoped], UInt, {
 			stringify = uint_to_str,
 			items = [1],
 			generate = |i: UInt[]| -> UInt {
 				return i[i.len-1] * (i.len + 1)
 			}
-		},
+		}),
+		"faces" = scope(Sequence[Scoped], FaceSequenceItem, {
+			stringify = |i: FaceSequenceItem| -> String {
+				return render_face({
+					smile = u.branch[FaceSmile](i.num % 2 == 0, :Bracket, :SquareBracket),
+					eyes = u.branch[FaceEyes](i.num % 4 <= 1, :Colon, :Semicolon),
+					orientation = u.branch[FaceOrientation](i.decreasing, :SmileFirst, :EyesFirst),
+				})
+			},
+			items = [{num = 0, decreasing = false}],
+			generate = |i: FaceSequenceItem[]| -> FaceSequenceItem {
+				last = i[i.len - 1]
+				if last.decreasing {
+					if last.num == 0 {
+						return {num = 0, decreasing = false}
+					}
+					return {num = expect_uint(last.num - 1), decreasing = true}
+				} else {
+					if last.num == 3 {
+						return {num = 3, decreasing = true}
+					}
+					return {num = last.num + 1, decreasing = false}
+				}
+			}
+		})
 	))
 	while true {
+		show_sequences(sequences$)
 		match run_command(sequences$) {
 			:Quit { return 0 }
 			Continue: new_sequences {

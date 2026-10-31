@@ -4,6 +4,14 @@ m = import "math.comb"
 // TODO: Be able to iterate over the characters in a string like `for c in string { ... }`
 // You should not have to define these functions in every program you write that uses them
 
+branch[T] = |condition: Bool, on_true: T, on_false: T| -> T {
+	if condition {
+		return on_true
+	} else {
+		return on_false
+	}
+}
+
 swap[T] = |l: T[], a: Int, b: Int| -> T[] {
 	return l
 		~ [a] = l[b]

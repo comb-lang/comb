@@ -4020,12 +4020,44 @@ check_initial_value :: proc(
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
         i^ += 1
+        segment := get_segment(v, i^)
+        contents, is_tuple := segment.contents.(Tuple)
+        if !is_tuple || (len(contents.elements) != 1 && len(contents.elements) != 3) {
+            utils.diagnostic(
+                s.r,
+                segment.range,
+                "After scope\nExpected `()` with 1 unit or 3 units inside",
+            )
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+        if len(contents.elements) == 3 {
+            return_type := check_type(s, contents.elements[0], a.generic_args)
+            scope_type := check_type(s, contents.elements[1], a.generic_args)
+            return_value := check_value(
+                s,
+                contents.elements[2],
+                CheckValueArgs{a.body, a.generic_args, nil},
+            )
+            if return_type == .Invalid || scope_type == .Invalid || return_value.v.value == nil {
+                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+            }
+            replaced := replace_scoped(s, return_type, scope_type)
+            if !expect_type(s, get_range(contents.elements[2]), replaced, return_value.v.type) {
+                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+            }
+            return utils.to_debug_value(
+                CheckValueResult {
+                    return_value.v.value,
+                    create_type(&s.types, TypeScope{return_type}, false).type,
+                },
+            )
+        }
         body := utils.to_debug_value([dynamic]CheckedStatement{})
-        initial := check_initial_value(s, v, i, CheckValueArgs{&body, a.generic_args, nil})
+        initial := check_value(s, contents.elements[0], CheckValueArgs{&body, a.generic_args, nil})
         if initial.v.value == nil {
             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
         }
-        if expect_type(s, get_segment(v, i^).range, .Type, initial.v.type) {
+        if expect_type(s, get_range(contents.elements[0]), .Type, initial.v.type) {
             scope_contents := initial.v.value.(ExactValue).(Type)
             scope_type := create_type(&s.types, TypeScope{scope_contents}, false).type
             return utils.to_debug_value(CheckValueResult{ExactValue(scope_type), .Type})

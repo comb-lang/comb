@@ -2295,14 +2295,17 @@ check_block :: proc(
                         array_item_type,
                         IdentAndPos{value.variables[0].text, false, value.variables[0].pos},
                     )
-                    fmt.printfln("text: %s", value.variables[1].text)
-                    fmt.printfln("pos.index: %v", value.variables[1].pos.index)
-                    fmt.printfln("pos.file.file_path: %v", value.variables[1].pos.file.file_path)
-                    index_ref, index_ok := add_variable(
-                        s,
-                        .UInt,
-                        IdentAndPos{value.variables[1].text, false, value.variables[1].pos},
-                    )
+                    index_ref: VariableRef = ---
+                    index_ok: bool = ---
+                    if value.variables[1].text == "" {
+                        index_ref, index_ok = add_unnamed_variable(s, .UInt, false), true
+                    } else {
+                        index_ref, index_ok = add_variable(
+                            s,
+                            .UInt,
+                            IdentAndPos{value.variables[1].text, false, value.variables[1].pos},
+                        )
+                    }
                     if !elem_ok || !index_ok {
                         return nil, utils.to_debug_value(false)
                     }

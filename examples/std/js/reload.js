@@ -7,20 +7,20 @@ function fetch_code() {
     }
     return response.text()
   }).then(code => {
-    return new Function(code + "; return {state_from_serialized, render_ui, initial_global_state}")()
+    window.code = new Function(code + "; return {serialize_state, deserialize_state, initial_state, render_ui}")()
   })
 }
 
 // Handle initial code
-fetch_code().then(c => {
-  state.field1 = c.state_from_serialized("")
+fetch_code().then(() => {
+  state.field0 = window.code.deserialize_state("")
   let global_state_string = localStorage.getItem("global-state")
   if (global_state_string != null) {
-    state.field0 = JSON.parse(global_state_string)
+    state.field1 = JSON.parse(global_state_string)
   } else {
-    state.field0 = initial_global_state
+    state.field1 = initial_state.field1
   }
-  c.render_ui()
+  window.code.render_ui()
 })
 
 // Listen for reload
@@ -30,10 +30,10 @@ const port = parsed.port ? `:${parsed.port}` : ""
 const socket = new WebSocket(`${protocol}//${parsed.hostname}${port}${parsed.pathname}${parsed.search}`)
 socket.addEventListener("message", (event) => {
   if (event.data === "reload") {
-    const serialized = state.field1.field1()
-    fetch_code().then(c => {
-      state.field1 = c.state_from_serialized(serialized)
-      c.render_ui()
+    const serialized = window.code.serialize_state(state.field0)
+    fetch_code().then(() => {
+      state.field0 = window.code.deserialize_state(serialized)
+      window.code.render_ui()
     })
   }
 })

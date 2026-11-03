@@ -76,12 +76,15 @@ State[S, G] = {
 
 EmptyGlobalState = \:None\ // TODO: Be able to use `{:}`
 empty_global_state = :None // TODO: Be able to use `{=}`
+ignore_keypress[S, G] = |_: Key, s: S, g: G| -> State[S, G] {
+    return {state = s, global_state = g}
+}
 
 Page[S, G] = {
     state: (String) -> S,
+    serialize_state: (S) -> String,
     render: (S, G) -> UI[S, G],
     on_key_down: (Key, S, G) -> State[S, G],
-    serialize_state: (S) -> String,
 }
 
 Site[GlobalState] = {
@@ -120,7 +123,7 @@ build_reactive_site[GlobalState] = |c: Compiler, s: Site[GlobalState], path: Str
         ui = unscope(ui_scoped, PageState)
         // TODO: Be able to define the map something like `{"ui": ui()}`
         map = OrderedHashMap(
-            "state" = {state = ui.initial_state, global_state = s.initial_global_state},
+            "state" = {state = ui.state(""), global_state = s.initial_global_state},
             "render" = ui.render,
             "on_key_down" = ui.on_key_down,
         )
@@ -150,8 +153,9 @@ serve_reactive_site[GlobalState] = |c: Compiler, server: HttpServer, s: Site[Glo
                 if page_path in s.pages {
                     page = unscope(s.pages[page_path], PageState)
                     map = OrderedHashMap(
-                        "state_from_serialized" = page,
-                        "render_ui" = page.render,
+                        "deserialize_state" = page.state,
+                        "serialize_state" = page.serialize_state,
+                        "render" = page.render,
                         "initial_state" = {state = page.state, global_state = s.initial_global_state},
                         "on_key_down" = page.on_key_down,
                     )

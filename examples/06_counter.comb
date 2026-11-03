@@ -28,14 +28,14 @@ site = {
     initial_global_state = h.empty_global_state,
     pages = OrderedHashMap(
         "/" = scope(h.Page[Scoped, h.EmptyGlobalState], CounterState, {
-            initial_state = counter_initial_state,
-            render = counter,
-            on_key_down = |_: h.Key, state: CounterState, _g: h.EmptyGlobalState| -> h.State[CounterState, h.EmptyGlobalState] {
-                return {
-                    state = state,
-                    global_state = h.empty_global_state,
-                }
+            state = |s: String| -> CounterState {
+                return deserialize_from_json[CounterState](s, counter_initial_state)
             },
+            serialize_state = |s: CounterState| -> String {
+                return serialize_to_json(to_typed[CounterState](s))
+            },
+            render = counter,
+            on_key_down = h.ignore_keypress[CounterState, h.EmptyGlobalState],
         }),
     ),
 }

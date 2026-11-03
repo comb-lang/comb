@@ -25,7 +25,7 @@ count_pixel_life = |s: State, x: Int, y: Int| -> UInt {
 	return 0
 }
 
-run_tick = |s: State| -> State {
+run_tick = |s: State, _: h.EmptyGlobalState| -> h.State[State, h.EmptyGlobalState] {
     f = false
 	r = {cells = [f, f, f, f, f, f, f, f, f, f, f, f, f, f, f]}
     re new_state$ = {rows = [r, r, r, r, r, r, r, r, r, r, r, r, r, r, r]}
@@ -49,22 +49,11 @@ run_tick = |s: State| -> State {
 			}
 		}
     }
-    return new_state$
+    return {state = new_state$, global_state = h.empty_global_state}
 }
 
-game_of_life2 = |s: State| -> h.StateWithoutGlobalState[h.EmptyGlobalState] {
-    return {
-        render = |_state: h.EmptyGlobalState, _info: h.RenderInfo| -> h.UI[h.EmptyGlobalState] {
-            return game_of_life(s)
-        },
-        serialize = || -> String {
-            return serialize_to_json(to_typed[State](s))
-        },
-    }
-}
-
-game_of_life = |s: State| -> h.UI[h.EmptyGlobalState] {
-    re grid_pixels$ = u.empty_array[h.HtmlElem[h.EmptyGlobalState]]()
+game_of_life = |s: State, _: h.EmptyGlobalState| -> h.UI[State, h.EmptyGlobalState] {
+    re grid_pixels$ = u.empty_array[h.HtmlElem[State, h.EmptyGlobalState]]()
     for row in s.rows {
 		for pixel in row.cells {
 	        if pixel {
@@ -81,22 +70,13 @@ game_of_life = |s: State| -> h.UI[h.EmptyGlobalState] {
 	ui_contents = [
         Button: {
 			children = [Text: "Run tick"],
-			onclick = {
-				global_state = h.empty_global_state,
-				other_state = game_of_life2(run_tick(s))
-			},
+			onclick = run_tick,
 		},
         Div: {style = grid_style, children = grid_pixels$},
     ]
 	return {
 		page_title = main_title,
 		ui_contents = ui_contents,
-		on_key_down = |_: h.Key| -> h.State[h.EmptyGlobalState] {
-			return {
-				global_state = h.empty_global_state,
-				other_state = game_of_life2(s)
-			}
-		},
 	}
 }
 
@@ -121,10 +101,16 @@ pulsar_initial_state = {rows = [
 site = {
 	initial_global_state = h.empty_global_state,
 	pages = OrderedHashMap(
-		"/" = |old_state: String| -> h.StateWithoutGlobalState[h.EmptyGlobalState] {
-			state = deserialize_from_json[State](old_state, pulsar_initial_state)
-			return game_of_life2(state)
-		},
+		"/" = scope(h.Page[Scoped, h.EmptyGlobalState], State, {
+			state = |old_state: String| -> State {
+				return deserialize_from_json[State](old_state, pulsar_initial_state)
+			},
+			serialize_state = |state: State| -> String {
+				return serialize_to_json(to_typed[State](state))
+			},
+			render = game_of_life,
+			on_key_down = h.ignore_keypress[State, h.EmptyGlobalState],
+		}),
 	)
 }
 

@@ -6,10 +6,10 @@ function create_svg_elem(elem) {
   switch (elem.variant) {
     case tag_indexes.Line: {
       const line = document.createElementNS(svgNS, "line")
-      line.setAttribute("x1", elem.paylaod.field0)
-      line.setAttribute("y1", elem.paylaod.field1)
-      line.setAttribute("x2", elem.paylaod.field2)
-      line.setAttribute("y2", elem.paylaod.field3)
+      line.setAttribute("x1", elem.payload.field0)
+      line.setAttribute("y1", elem.payload.field1)
+      line.setAttribute("x2", elem.payload.field2)
+      line.setAttribute("y2", elem.payload.field3)
       line.setAttribute("stroke-width", elem.payload.field4)
       line.setAttribute("stroke", elem.payload.field5)
       return line

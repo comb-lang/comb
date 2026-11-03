@@ -8,6 +8,7 @@ import "compiler"
 import "core:fmt"
 import "core:io"
 import "core:math"
+import "core:math/rand"
 import "core:net"
 import "core:os"
 import "core:path/filepath"
@@ -117,8 +118,9 @@ interp_execute_function :: proc(
     */
     case compiler.CastFunction:
         assert(len(args) == 1)
-        got_type := compiler.get_exact_value_type(s.checked_funcs, args[0])
-        if got_type != val.type {
+        typed := args[0].(compiler.Typed)
+        // got_type := compiler.get_exact_value_type(s.checked_funcs, args[0])
+        if typed.type != val.type {
             panic(
                 fmt.aprintf(
                     "Expected the type `%s`\nGot the type `%s`",
@@ -132,14 +134,13 @@ interp_execute_function :: proc(
                         s.types,
                         s.globals_without_generic,
                         s.globals_with_generic,
-                        got_type,
+                        typed.type,
                     ),
                 ),
             )
         }
-        out := args[0]
         delete(args)
-        return out
+        return typed.value^
     }
 
     defer {
@@ -150,8 +151,20 @@ interp_execute_function :: proc(
     }
 
     #partial switch val in fn_val {
-    case compiler.SerialiseToJsonFunc:
-        panic("TODO")
+    case compiler.ToTyped:
+        assert(len(args) == 1)
+        return compiler.Typed{val.type, new_clone(args[0])}
+    case compiler.MakeFunction:
+        assert(len(args) == 2)
+        length := compiler.expect_int(args[0].(f64))
+        func := new_clone(compiler.CheckedValue(args[1]))
+        args_array := make([]compiler.CheckedValue, 1)
+        out := make([]compiler.ExactValue, length)
+        for i in 0 ..< length {
+            args_array[0] = compiler.ExactValue(f64(i))
+            out[i] = interp_execute_function(s, compiler.CheckedFunctionCall{func, args_array})
+        }
+        return compiler.Array(compiler.ExactValue){val.return_type, out}
     case compiler.DeserialiseFromJsonFunc:
         // TODO: Actually deserialize rather than resorting to the fallback
         return args[1]
@@ -748,9 +761,11 @@ interp_clone_value :: proc(
          compiler.SetHttpServerHandler,
          compiler.CastFunction,
          compiler.DeserialiseFromJsonFunc,
-         compiler.SerialiseToJsonFunc,
          compiler.SetWebSocketHandler,
-         compiler.SendToWebSockets:
+         compiler.SendToWebSockets,
+         compiler.ToTyped,
+         compiler.Typed,
+         compiler.MakeFunction:
         return val
     }
     return compiler.ExactValue{}
@@ -969,11 +984,15 @@ interp_eval_comptime_value :: proc(
         return compiler.ExactOrderedHashMap{comptime.type, out_map, comptime.order}
     case compiler.CastFunction:
         return comptime
-    case compiler.SerialiseToJsonFunc:
+    case compiler.MakeFunction:
         return comptime
     case compiler.DeserialiseFromJsonFunc:
         return comptime
     case compiler.BuiltinFunction:
+        return comptime
+    case compiler.ToTyped:
+        return comptime
+    case compiler.Typed:
         return comptime
     case compiler.StructInitialisation(compiler.ExactValue):
         out_fields := make([]compiler.ExactValue, len(comptime.fields))
@@ -1132,10 +1151,7 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
                 panic("Unreachable")
             }
         }
-        return compiler.Array(compiler.ExactValue) {
-            compiler.create_type(&s.types, compiler.ArrayType{nil, .String}).type,
-            out,
-        }
+        return compiler.Array(compiler.ExactValue){.DynamicArrayOfStrings, out}
 
     case compiler.ExactValue:
         return interp_eval_comptime_value(s, value)
@@ -1146,7 +1162,9 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
         case compiler.Type,
              compiler.Import,
              compiler.UninitialisedOrderedHashMapType,
-             compiler.GlobalValueWithGenericRef:
+             compiler.GlobalValueWithGenericRef,
+             compiler.ToTyped,
+             compiler.Typed:
             panic("Unreachable")
         case nil:
             panic("Unreachable: Uninitialised")
@@ -1171,8 +1189,8 @@ interp_eval_value :: proc(s: InterpState, v: compiler.CheckedValue) -> compiler.
              compiler.SetWebSocketHandler,
              compiler.SendToWebSockets,
              compiler.CastFunction,
-             compiler.DeserialiseFromJsonFunc,
-             compiler.SerialiseToJsonFunc:
+             compiler.MakeFunction,
+             compiler.DeserialiseFromJsonFunc:
             panic("Unreachable")
         }
 
@@ -1345,6 +1363,12 @@ default_builtin_handler_procedure :: proc(
     // TODO: Maybe we should use the definitions in glue.c
     // https://odin-lang.org/news/binding-to-c/
     switch index {
+    case .exponential:
+        assert(len(args) == 1)
+        return math.exp(args[0].(f64))
+    case .random_float:
+        assert(len(args) == 0)
+        return rand.float64()
     case .print:
         assert(len(args) == 1)
         fmt.wprint(data.pipe.stdout, args[0].(compiler.StringValue))
@@ -1403,7 +1427,32 @@ default_builtin_handler_procedure :: proc(
         fmt.wprint(data.pipe.stdout, utils.ansi_clear)
         return nil
     case .run_executable:
-        panic("TODO")
+        assert(len(args) == 1)
+        process_description := args[0].(compiler.StructInitialisation(compiler.ExactValue))
+        assert(len(process_description.fields) == 2)
+        command_elems := process_description.fields[1].(compiler.Array(compiler.ExactValue))
+        command := make([]string, len(command_elems.elements))
+        for command_elem, i in command_elems.elements {
+            command[i] = string(command_elem.(compiler.StringValue))
+        }
+
+        env, err := os.environ(context.allocator)
+        assert(err == nil)
+        process, err2 := os.process_start(
+            os.Process_Desc {
+                working_dir = string(process_description.fields[0].(compiler.StringValue)),
+                command = command,
+                env = env,
+                stderr = os.stderr,
+                stdout = os.stdout,
+                stdin = os.stdin,
+            },
+        )
+        assert(err2 == nil)
+        state, err3 := os.process_wait(process)
+        assert(err3 == nil)
+
+        return f64(state.exit_code)
     case .exit:
         assert(len(args) == 1)
         os.exit(compiler.expect_int(args[0].(f64)))
@@ -1495,7 +1544,9 @@ default_builtin_handler_procedure :: proc(
         panic("TODO")
     case .deserialize_from_json:
         panic("Unreachable")
-    case .cast_func:
+    case .cast_func, .make_func:
+        panic("Unreachable")
+    case .to_typed:
         panic("Unreachable")
     case .expect_uint:
         assert(len(args) == 1)

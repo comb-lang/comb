@@ -77,6 +77,12 @@ emit_c_func_call :: proc(s: ^CEmitterState, c: compiler.CheckedFunctionCall) {
 
 emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.ExactValue) {
     switch comptime in value {
+    case compiler.ToTyped:
+        panic("TODO")
+    case compiler.Typed:
+        panic("TODO")
+    case compiler.MakeFunction:
+        panic("Not implemented")
     case compiler.SumTypeInitialisation(^compiler.ExactValue):
         panic("TODO")
     case compiler.SetHttpServerHandler,
@@ -90,7 +96,7 @@ emit_c_comptime_value :: proc(s: ^CEmitterState, value: compiler.ExactValue) {
         panic("TODO")
     case compiler.ExactOrderedHashMap:
         panic("TODO")
-    case compiler.CastFunction, compiler.DeserialiseFromJsonFunc, compiler.SerialiseToJsonFunc:
+    case compiler.CastFunction, compiler.DeserialiseFromJsonFunc:
         panic("TODO")
     case compiler.BuiltinFunction:
         strings.write_string(&s.b, "builtin")
@@ -483,6 +489,12 @@ emit_c_global_type :: proc(s: ^CEmitterState, index: int, loc := #caller_locatio
     name := fmt.aprintf("Type%d", index)
     defer delete(name)
     switch type in s.types.m.keys[index].key {
+    case compiler.ReplaceScoped:
+        panic("TODO")
+    case compiler.TypeScope:
+        panic("Unimplemented")
+    case compiler.UniqueType:
+        panic("Unimplemented")
     case compiler.GlobalType:
         panic("TODO")
     case compiler.ArrayType:

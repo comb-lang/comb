@@ -6,10 +6,10 @@ function create_svg_elem(elem) {
   switch (elem.variant) {
     case tag_indexes.Line: {
       const line = document.createElementNS(svgNS, "line")
-      line.setAttribute("x1", elem.paylaod.field0)
-      line.setAttribute("y1", elem.paylaod.field1)
-      line.setAttribute("x2", elem.paylaod.field2)
-      line.setAttribute("y2", elem.paylaod.field3)
+      line.setAttribute("x1", elem.payload.field0)
+      line.setAttribute("y1", elem.payload.field1)
+      line.setAttribute("x2", elem.payload.field2)
+      line.setAttribute("y2", elem.payload.field3)
       line.setAttribute("stroke-width", elem.payload.field4)
       line.setAttribute("stroke", elem.payload.field5)
       return line
@@ -17,12 +17,39 @@ function create_svg_elem(elem) {
   }
 }
 
+function create_basic_html_elem(elem_name, props) {
+  const out = document.createElement(elem_name)
+  out.setAttribute("style", props.field0)
+  for (const child of props.field1) {
+    out.appendChild(create_html_elem(child))
+  }
+  return out
+}
+
 function create_html_elem(elem) {
   switch (elem.variant) {
+    case tag_indexes.H1: {
+      return create_basic_html_elem("h1", elem.payload)
+    }
+    case tag_indexes.H2: {
+      return create_basic_html_elem("h2", elem.payload)
+    }
+    case tag_indexes.H3: {
+      return create_basic_html_elem("h3", elem.payload)
+    }
+    case tag_indexes.H4: {
+      return create_basic_html_elem("h4", elem.payload)
+    }
+    case tag_indexes.H5: {
+      return create_basic_html_elem("h5", elem.payload)
+    }
+    case tag_indexes.H6: {
+      return create_basic_html_elem("h6", elem.payload)
+    }
     case tag_indexes.Button: {
       const button = document.createElement("button")
       button.onclick = () => {
-        state = elem.payload.field1
+        state = elem.payload.field1(state.field0, state.field1)
         render_ui()
       }
       for (const child of elem.payload.field0) {
@@ -31,12 +58,7 @@ function create_html_elem(elem) {
       return button
     }
     case tag_indexes.Div: {
-      const div = document.createElement("div")
-      div.setAttribute("style", elem.payload.field0)
-      for (const child of elem.payload.field1) {
-        div.appendChild(create_html_elem(child))
-      }
-      return div
+      return create_basic_html_elem("div", elem.payload)
     }
     case tag_indexes.Text: {
       return document.createTextNode(elem.payload)
@@ -54,6 +76,13 @@ function create_html_elem(elem) {
         svg.appendChild(create_svg_elem(child))
       }
       return svg
+    }
+    case tag_indexes.Img: {
+      const img = document.createElement("img")
+      img.setAttribute("style", elem.payload.field0)
+      img.setAttribute("src", elem.payload.field1)
+      img.setAttribute("alt", elem.payload.field2)
+      return img
     }
     case tag_indexes.Br: {
       return document.createElement("br")
@@ -77,10 +106,9 @@ function create_html_elem(elem) {
 }
 
 function render_ui() {
-  const now = Date.now()
   // TODO: Sync global state across multiple instances of the website
-  localStorage.setItem("global-state", JSON.stringify(state.field0))
-  ui = state.field1.field0(state.field0, {field0: {field0: now}})
+  localStorage.setItem("global-state", JSON.stringify(state.field1))
+  ui = render(state.field0, state.field1)
   document.body.innerHTML = ""
   document.title = ui.field0
   for (const elem of ui.field1) {
@@ -89,6 +117,6 @@ function render_ui() {
 }
 
 window.onkeydown = (e) => {
-  state = ui.field2({field0: e.key})
+  state = on_key_down({field0: e.key}, state, global_state)
   render_ui()
 }

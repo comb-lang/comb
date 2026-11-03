@@ -15,14 +15,17 @@ Type :: enum u32 {
     StringAnyOrderedHashmapAndStringToString, // (OrderedHashMap[String, Any], String) -> String
     StringToBool, // (String) -> Bool
     NoArgsToInt, // () -> Int
-    StringAnyToNil, // (String, Any) -> ()
-    StringToAny, // (String) -> Any
+    StringTypedToNil, // (String, Typed) -> ()
+    StringToTyped, // (String) -> Typed
     FloatToUInt, // (Float) -> UInt
+    FloatToFloat, // (Float) -> Float
+    NoArgsToFloat, // () -> Float
+    TypedToString, // (Typed) -> String
 
     // {
     //   contains: (String) -> Bool,
-    //   set: (String, Any) -> (),
-    //   get: (String) -> Any
+    //   set: (String, Typed) -> (),
+    //   get: (String) -> Typed
     // }
     CompilerCache,
 
@@ -93,6 +96,15 @@ Type :: enum u32 {
     // () -> HttpServer
     NoArgsToHttpServer,
 
+    // {
+    //   working_dir: String,
+    //   command: []String,
+    // }
+    ProcessDescription,
+
+    // (ProcessDescription) -> Int
+    ProcessDescriptionToInt,
+
     // Primitive types
     String = max(u32),
     UInt = max(u32) - 1, // Numbers without a decimal >= 0
@@ -106,7 +118,9 @@ Type :: enum u32 {
     Invalid = max(u32) - 10,
     Unknown = max(u32) - 11, // TODO: Ideally `unknown_type` would not be necersarry
     EmptyOrderedHashMap = max(u32) - 12,
-    MaxIndex = max(u32) - 13,
+    Typed = max(u32) - 13,
+    Scoped = max(u32) - 14,
+    MaxIndex = max(u32) - 15,
 }
 
 SumTag :: enum u32 {
@@ -152,16 +166,33 @@ get_hash_of_array_of_types :: proc(arr: []Type) -> u32 {
     return result
 }
 
+TypeScope :: struct {
+    contents: Type,
+}
+
+UniqueType :: struct {
+    type: Type,
+}
+
 TypeKey :: union {
+    UniqueType,
+    TypeScope,
     ArrayType,
     OrderedHashMapType,
     FuncType,
     SumType,
     StructType,
 
-    // Both of these are included to be able to prevent cycles
+    // All of these are included to be able to prevent cycles
     GlobalType, // The `TypeValue.type` is the initialised type, which is set to `unknown_type` when the global is not initialised yet
     GenericTypeValue, // The `TypeValue.type` is the initialised type, which is set to `unknown_type` when the generic is not initialised yet
+    ReplaceScoped,
+}
+
+ReplaceScoped :: struct {
+    type:         Type,
+    // Never a type that needs a scope
+    replace_with: Type,
 }
 
 fix_types :: proc(t: Types) {
@@ -193,6 +224,9 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     array_with_string_type := utils.arena_make(a, []Type, 1)
     array_with_string_type[0] = .String
 
+    array_with_typed_type := utils.arena_make(a, []Type, 1)
+    array_with_typed_type[0] = .Typed
+
     array_with_float_type := utils.arena_make(a, []Type, 1)
     array_with_float_type[0] = .Float
 
@@ -220,9 +254,9 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     array_with_compiler_type := utils.arena_make(a, []Type, 1)
     array_with_compiler_type[0] = .Compiler
 
-    array_with_string_any_type := utils.arena_make(a, []Type, 2)
-    array_with_string_any_type[0] = .String
-    array_with_string_any_type[1] = .Any
+    array_with_string_typed_type := utils.arena_make(a, []Type, 2)
+    array_with_string_typed_type[0] = .String
+    array_with_string_typed_type[1] = .Typed
 
     array_with_bool_type := utils.arena_make(a, []Type, 1)
     array_with_bool_type[0] = .Bool
@@ -251,6 +285,9 @@ create_types :: proc(a: ^utils.Arena) -> Types {
     array_with_websocket_message_handler := utils.arena_make(a, []Type, 1)
     array_with_websocket_message_handler[0] = .WebSocketMessageHandler
 
+    array_with_process_description := utils.arena_make(a, []Type, 1)
+    array_with_process_description[0] = .ProcessDescription
+
     assert(.DynamicArrayOfStrings == create_type(&out, ArrayType{nil, .String}).type)
     assert(.StringToNil == create_type(&out, FuncType{array_with_string_type, nil}).type)
     assert(.StringStringToNil == create_type(&out, FuncType{array_with_2string_types, nil}).type)
@@ -278,14 +315,25 @@ create_types :: proc(a: ^utils.Arena) -> Types {
         create_type(&out, FuncType{array_with_string_type, array_with_bool_type}).type,
     )
     assert(.NoArgsToInt == create_type(&out, FuncType{nil, array_with_int_type}).type)
-    assert(.StringAnyToNil == create_type(&out, FuncType{array_with_string_any_type, nil}).type)
     assert(
-        .StringToAny ==
-        create_type(&out, FuncType{array_with_string_type, array_with_any_type}).type,
+        .StringTypedToNil == create_type(&out, FuncType{array_with_string_typed_type, nil}).type,
+    )
+    assert(
+        .StringToTyped ==
+        create_type(&out, FuncType{array_with_string_type, array_with_typed_type}).type,
     )
     assert(
         .FloatToUInt ==
         create_type(&out, FuncType{array_with_float_type, array_with_uint_type}).type,
+    )
+    assert(
+        .FloatToFloat ==
+        create_type(&out, FuncType{array_with_float_type, array_with_float_type}).type,
+    )
+    assert(.NoArgsToFloat == create_type(&out, FuncType{nil, array_with_float_type}).type)
+    assert(
+        .TypedToString ==
+        create_type(&out, FuncType{array_with_typed_type, array_with_string_type}).type,
     )
 
     // positions := utils.arena_make_multi(a, utils.Multi(utils.Pos), 3)
@@ -304,8 +352,8 @@ create_types :: proc(a: ^utils.Arena) -> Types {
 
     compiler_cache_types := utils.arena_make(a, []Type, 3)
     compiler_cache_types[0] = .StringToBool
-    compiler_cache_types[1] = .StringAnyToNil
-    compiler_cache_types[2] = .StringToAny
+    compiler_cache_types[1] = .StringTypedToNil
+    compiler_cache_types[2] = .StringToTyped
 
     assert(
         .CompilerCache ==
@@ -426,16 +474,43 @@ create_types :: proc(a: ^utils.Arena) -> Types {
 
     assert(.NoArgsToHttpServer == create_type(&out, FuncType{nil, array_with_http_server}).type)
 
+    process_description_map := utils.make_key_to_index(a, utils.KeyToIndex(string))
+    i, _ = utils.lookup_or_insert(
+        &process_description_map,
+        "working_dir",
+        utils.string_to_index_procs,
+    )
+    assert(i.index == 0)
+    i, _ = utils.lookup_or_insert(&process_description_map, "command", utils.string_to_index_procs)
+    assert(i.index == 1)
+    utils.fix_key_to_index(process_description_map)
+
+    process_description_types := utils.arena_make(a, []Type, 2)
+    process_description_types[0] = .String
+    process_description_types[1] = .DynamicArrayOfStrings
+
+    assert(
+        .ProcessDescription ==
+        create_type(&out, StructType{process_description_map, utils.array_to_multi(process_description_types)}).type,
+    )
+
+    assert(
+        .ProcessDescriptionToInt ==
+        create_type(&out, FuncType{array_with_process_description, array_with_int_type}).type,
+    )
+
     return out
 }
 
 TypeValue :: struct {
+    created_at:  utils.CallStackOnDebug,
+    needs_scope: Maybe(bool),
     // aliases: [dynamic]string, // TODO
 
-    // Either `.unknown_type` or a simplification of the type
+    // Either `.Unknown` or a simplification of the type
     // Should only be a simplification of the type if the type is `GlobalType`
-    // or `GenericTypeValue`
-    type: Type,
+    // `GenericTypeValue`, or `ReplaceScoped`
+    type:        Type,
 }
 
 Types :: struct {
@@ -454,7 +529,11 @@ get_type :: proc(types: Types, t: Type, loc := #caller_location) -> GotType {
         utils.call(loc, "get_type", "")
     }
     if t > Type.MaxIndex {
-        return GotType{nil, TypeValue{}}
+        if t == Type.Scoped {
+            return GotType{nil, TypeValue{utils.get_call_stack_on_debug(), true, .Unknown}}
+        } else {
+            return GotType{nil, TypeValue{utils.get_call_stack_on_debug(), false, .Unknown}}
+        }
     }
     return GotType{types.m.keys[t].key, types.values.d[t]}
 }
@@ -466,7 +545,7 @@ CreatedType :: struct {
 }
 
 create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> CreatedType {
-    utils.call(loc, "create_type", "")
+    utils.call(loc, "create_type", "", enable_debug = true)
     utils.debug("value: %v", value)
     type, result := utils.lookup_or_insert(
         &types.m,
@@ -476,7 +555,7 @@ create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> C
     )
     if result == .Inserted {
         utils.resize_multi(&types.values, len(types.m.keys))
-        types.values.d[type.index] = TypeValue{.Unknown}
+        types.values.d[type.index] = TypeValue{utils.get_call_stack_on_debug(), nil, .Unknown}
     }
 
     out := CreatedType{Type(type.index), types.values.d[type.index], result}
@@ -484,8 +563,17 @@ create_type :: proc(types: ^Types, value: TypeKey, loc := #caller_location) -> C
     return out
 }
 
+create_unique_type :: proc(types: ^Types) -> Type {
+    t := Type(len(types.m.keys))
+    return create_type(types, UniqueType{t}).type
+}
+
 hash_type_value :: proc(value: TypeKey) -> u32 {
     switch v in value {
+    case UniqueType:
+        return u32(v.type)
+    case TypeScope:
+        return u32(v.contents)
     case ArrayType:
         length := v.length == nil ? max(u32) : v.length.(u32)
         return length ~ u32(v.item_type)
@@ -499,6 +587,8 @@ hash_type_value :: proc(value: TypeKey) -> u32 {
         return hash_func_type(v)
     case GenericTypeValue:
         return v.global.index ~ get_hash_of_array_of_types(v.generic_args)
+    case ReplaceScoped:
+        return u32(v.type) ~ u32(v.replace_with)
     case GlobalType:
         return u32(v.global.index)
     }
@@ -541,6 +631,15 @@ hash_func_type :: proc(value: FuncType) -> u32 {
 
 type_key_is_equal :: proc(a: TypeKey, b: TypeKey) -> bool {
     switch va in a {
+    case UniqueType:
+        vb, ok := b.(UniqueType)
+        return ok && va.type == vb.type
+    case ReplaceScoped:
+        vb, ok := b.(ReplaceScoped)
+        return ok && va.replace_with == vb.replace_with && va.type == vb.type
+    case TypeScope:
+        vb, ok := b.(TypeScope)
+        return ok && va.contents == vb.contents
     case OrderedHashMapType:
         vb, ok := b.(OrderedHashMapType)
         return ok && va.key_type == vb.key_type && va.value_type == vb.value_type

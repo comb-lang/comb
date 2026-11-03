@@ -1,6 +1,16 @@
+m = import "math.comb"
+
 // TODO: Include these utils in some standard library
 // TODO: Be able to iterate over the characters in a string like `for c in string { ... }`
 // You should not have to define these functions in every program you write that uses them
+
+branch[T] = |condition: Bool, on_true: T, on_false: T| -> T {
+	if condition {
+		return on_true
+	} else {
+		return on_false
+	}
+}
 
 swap[T] = |l: T[], a: Int, b: Int| -> T[] {
 	return l
@@ -35,12 +45,6 @@ quick_sort[T] = |l$: T[]| -> T[] {
 
 }
 
-uint_div = |a: UInt, b: UInt| -> UInt {
-	println(a.to_str & b.to_str)
-	subtract = a % b
-	return expect_uint((a - subtract) / b)
-}
-
 append[T] = |elem: T| -> (T[]) -> T[] {
 	return |array: T[]| -> T[] {
 		return array :: elem
@@ -68,25 +72,10 @@ assert_with_message = |cond: Bool, message: String| {
 	}
 }
 
-negate = |a: Float| -> Float {
-	return -a
-}
-
-pow = |a: Float, b$: UInt| -> Float {
-	re out$ = 1.0
-	while b$ > 0 {
-	    out$ = out$ * a
-		b$ = expect_uint(b$ - 1)
-	}
-	return out$
-}
-
 map[I, O] = |array: I[], func: (I) -> O| -> O[] {
-	re out$ = empty_array[O]()
-	for elem in array {
-		out$ = out$ :: func(elem)
-	}
-	return out$
+	return make[O](array.len, |i: UInt| -> O {
+		return func(array[i])
+	})
 }
 
 flat_map[I, O] = |array: I[], func: (I) -> O[]| -> O[] {
@@ -205,7 +194,7 @@ string_to_float = |str: String| -> Result[Float, String] {
 		return Err: "Empty string"
 	}
 	if str[0] == '-' {
-		return map_ok[Float, Float, String](string_to_float(str[1:str.len]), negate)
+		return map_ok[Float, Float, String](string_to_float(str[1:str.len]), m.negate)
 	}
 	if str[0] == '+' {
 		return string_to_float(str[1:str.len])
@@ -224,7 +213,7 @@ string_to_float = |str: String| -> Result[Float, String] {
 					return Err: e
 				}
 				Ok: fraction_part {
-					return Ok: whole_part + (fraction_part / pow(10, split.after.len))
+					return Ok: whole_part + (fraction_part / m.pow(10, split.after.len))
 				}
 			} 
 		}

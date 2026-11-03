@@ -1,0 +1,23 @@
+uint_div = |a: UInt, b: UInt| -> UInt {
+	println(a.to_str & b.to_str)
+	subtract = a % b
+	return expect_uint((a - subtract) / b)
+}
+
+negate = |a: Float| -> Float {
+	return -a
+}
+
+// TODO: Build `pow` into the language
+pow = |a: Float, b$: UInt| -> Float {
+	re out$ = 1.0
+	while b$ > 0 {
+	    out$ = out$ * a
+		b$ = expect_uint(b$ - 1)
+	}
+	return out$
+}
+
+sigmoid = |x: Float| -> Float {
+	return 1 / (1 + exp(-x))
+}

@@ -16,6 +16,7 @@ jobs:
     steps:
     - name: "Checkout code"
       uses: actions/checkout@v5
+    - run: echo -n "${{ github.event.head_commit.message }} (${{ github.event.head_commit.sha }})" > ./src/version
     - name: "Generate build artifact"
       run: ./docker-build.sh
     - name: "Possibly publish release"

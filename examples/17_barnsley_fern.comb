@@ -1,0 +1,101 @@
+u = import "std/utils.comb"
+
+Point = {x: Float, y: Float}
+Matrix = {top_left: Float, top_right: Float, bottom_left: Float, bottom_right: Float}
+AffineTransform = {scale: Matrix, translate: Point}
+
+affine_transform = |point: Point, t: AffineTransform| -> Point {
+	return {
+		x = (point.x * t.scale.top_left) + (point.y * t.scale.top_right) + t.translate.x,
+		y = (point.x * t.scale.bottom_left) + (point.y * t.scale.bottom_right) + t.translate.y,
+	}
+}
+
+get_affinte_transform = || -> AffineTransform {
+    p = random_float()
+	if p < 0.01 {
+		return {
+			scale = {top_left = 0, top_right = 0, bottom_left = 0, bottom_right = 0.16},
+			translate = {x = 0, y = 0},
+		}
+	} else if p < 0.86 {
+		return {
+			scale = {top_left = 0.85, top_right = 0.04, bottom_left = -0.04, bottom_right = 0.85},
+			translate = {x = 0, y = 1.6},
+		}
+	} else if p < 0.93 {
+		return {
+			scale = {top_left = 0.2, top_right = -0.26, bottom_left = 0.23, bottom_right = 0.22},
+			translate = {x = 0, y = 1.6},
+		}
+	} else {
+		return {
+			scale = {top_left = -0.15, top_right = 0.28, bottom_left = 0.26, bottom_right = 0.24},
+			translate = {x = 0, y = 0.44},
+		}
+	}
+}
+
+Image = Bool[500][500]
+// TODO: Be able to generate fixed size arrays with some kind of compile time `repeat` function
+initial_image_row = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, ]
+initial_image = [initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, initial_image_row, ]
+
+// TODO: Be able to write `to_int` in a cleaner way
+delta_truncate = |n: Float| -> Float {
+	if n < 0 {
+		return (-n) % 1
+	}
+	return -(n % 1)
+}
+to_int = |v: Float| -> Int {
+	whole = v + delta_truncate(v)
+	if whole < 0 {
+		return -(expect_uint(-whole))
+	} else {
+		return expect_uint(whole)
+	}
+}
+
+main = |p: (String) -> ()| -> Int {
+	re point$ = {x = 0.0, y = 0.0}
+	re image$ = u.as[Image](initial_image)
+	for _ in 1 ..= 50000 {
+		point$ = affine_transform(point$, get_affinte_transform())
+		x = to_int(point$.x * 50) + 250
+		y = to_int(point$.y * 50)
+		if 0 <= x and x < 500 and 0 <= y and y < 500 {
+			image$ = image$ ~ [y][x] = true
+		} else {
+			println("Out of range")
+		}
+	}
+	for row in image$ {
+		for cell in row {
+			if cell {
+				p("X")
+			} else {
+				p(" ")
+			}
+		}
+		println("")
+	}
+	return 0
+}
+
+file_path = #abs "gitignore_barnsly_fern.js"
+
+build = |c: Compiler| -> Int {
+	// TODO: Update the code emitted by `print` so it uses `process.stdout.write` when available to avoid printing newlines
+	code = c.emit_js_code(OrderedHashMap("f" = main), "f((str) => process.stdout.write(str))")
+	write_file(file_path, code)
+	return 0
+}
+
+run = |c: Compiler| -> Int {
+	status = build(c)
+	if status != 0 {
+		return status
+	}
+	return run_executable({working_dir = ".", command = ["bun", "run", file_path]})
+}

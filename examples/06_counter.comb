@@ -7,50 +7,36 @@ CounterState = {
 
 counter_initial_state = {count = 1}
 
-increment_count = |s: CounterState| -> CounterState {
-	return {count = s.count + 1}
+increment_count = |s: CounterState, g: h.EmptyGlobalState| -> h.State[CounterState, h.EmptyGlobalState] {
+	return {state = {count = s.count + 1}, global_state = g}
 }
 
-counter = |s: CounterState| -> h.UI[h.EmptyGlobalState] {
+counter = |s: CounterState, _g: h.EmptyGlobalState| -> h.UI[CounterState, h.EmptyGlobalState] {
     contents = [
         Button: {
             children = [Text: ("The count is " & s.count.to_str)],
-            onclick = {
-                global_state = h.empty_global_state,
-                other_state = counter2(increment_count(s)), // TODO: Cleanup syntax
-            },
+            onclick = increment_count,
         },
     ]
     return {
         page_title = "Counter",
         ui_contents = contents,
-        on_key_down = |_: h.Key| -> h.State[h.EmptyGlobalState] {
-            return {
-                global_state = h.empty_global_state,
-                other_state = counter2(s)
-            }
-        },
-    }
-}
-
-counter2 = |s: CounterState| -> h.StateWithoutGlobalState[h.EmptyGlobalState] {
-    return {
-        render = |_state: h.EmptyGlobalState, _info: h.RenderInfo| -> h.UI[h.EmptyGlobalState] {
-            return counter(s)
-        },
-        serialize = || -> String {
-            return serialize_to_json[CounterState](s)
-        },
     }
 }
 
 site = {
     initial_global_state = h.empty_global_state,
     pages = OrderedHashMap(
-        "/" = |old_state: String| -> h.StateWithoutGlobalState[h.EmptyGlobalState] {
-			state = deserialize_from_json[CounterState](old_state, counter_initial_state)
-            return counter2(state)
-        },
+        "/" = scope(h.Page[Scoped, h.EmptyGlobalState], CounterState, {
+            state = |s: String| -> CounterState {
+                return deserialize_from_json[CounterState](s, counter_initial_state)
+            },
+            serialize_state = |s: CounterState| -> String {
+                return serialize_to_json(to_typed[CounterState](s))
+            },
+            render = counter,
+            on_key_down = h.ignore_keypress[CounterState, h.EmptyGlobalState],
+        }),
     ),
 }
 

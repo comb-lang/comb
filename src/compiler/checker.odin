@@ -16,14 +16,29 @@ VariableRef :: struct {
     index:         uint,
 }
 
+BindingRef :: struct {
+    nesting_level: uint,
+    index:         uint,
+}
+
+LocalRef :: union {
+    VariableRef,
+    BindingRef,
+}
+
 ScopeVariable :: struct {
     type:            Type,
     is_reassignable: bool,
 }
 
+ScopeBinding :: struct {
+    type:  Type,
+    value: ExactValue,
+}
+
 Scope :: struct {
-    // The length of these arrays should be the same
     variables: #soa[dynamic]ScopeVariable,
+    bindings:  [dynamic]ScopeBinding,
 }
 
 ArrayType :: struct {
@@ -82,7 +97,7 @@ CheckerScopeState :: struct {
 
     // The following fields depend on which variables are in scope
     scopes:            [dynamic]Scope,
-    variables_map:     map[string]VariableRef,
+    locals_map:        map[string]LocalRef,
     labels_map:        map[string]LabelRef,
 }
 
@@ -108,8 +123,8 @@ CheckerState :: struct {
 }
 
 InlineFuncFields :: struct {
-    variables_from_outer_scope: map[string]VariableRef,
-    scope0:                     Scope,
+    locals_from_outer_scope: map[string]LocalRef,
+    scope0:                  Scope,
 }
 
 CheckedFunction :: struct {
@@ -205,10 +220,13 @@ UninitialisedOrderedHashMapType :: struct {}
 CastFunction :: struct {
     type: Type,
 }
-SerialiseToJsonFunc :: struct {
-    type: Type,
+MakeFunction :: struct {
+    return_type: Type,
 }
 DeserialiseFromJsonFunc :: struct {
+    type: Type,
+}
+ToTyped :: struct {
     type: Type,
 }
 ExactOrderedHashMap :: struct {
@@ -241,8 +259,9 @@ ExactValue :: union {
     Array(ExactValue),
     BuiltinFunction,
     CastFunction,
+    MakeFunction,
     DeserialiseFromJsonFunc,
-    SerialiseToJsonFunc,
+    ToTyped,
     StringValue,
     ExactOrderedHashMap,
     SumTypeInitialisation(^ExactValue),
@@ -263,10 +282,19 @@ ExactValue :: union {
     RuntimeFunc,
     SetWebSocketHandler,
     SendToWebSockets,
+    Typed,
 }
 
+Typed :: struct {
+    type:  Type,
+    value: ^ExactValue,
+}
+
+/*
 get_exact_value_type :: proc(checked_funcs: []CheckedFunction, value: ExactValue) -> Type {
     switch v in value {
+    case Typed:
+        return .Typed
     case Type, Import, GlobalValueWithGenericRef, UninitialisedOrderedHashMapType:
         panic("Unreachable")
     case f64:
@@ -302,6 +330,8 @@ get_exact_value_type :: proc(checked_funcs: []CheckedFunction, value: ExactValue
         panic("TODO")
     case CastFunction:
         panic("TODO")
+    case MakeFunction:
+        panic("TODO")
     case SerialiseToJsonFunc:
         panic("TODO")
     case DeserialiseFromJsonFunc:
@@ -318,6 +348,7 @@ get_exact_value_type :: proc(checked_funcs: []CheckedFunction, value: ExactValue
         panic("Unreachable")
     }
 }
+*/
 
 RuntimeFunc :: struct {
     ref:         CheckedFuncRef,
@@ -598,16 +629,13 @@ check_struct_type :: proc(
     return created.type
 }
 
-// Returns `FuncType{}, false` on failure
+// Returns `nil` on failure
 check_function_type :: proc(
     s: ^CheckerState,
     inputs: []Unit,
     output: Maybe(Unit), // if the function has no output, then `output` is `nil`
     generic_args: map[string]Type,
-) -> (
-    FuncType,
-    bool,
-) {
+) -> Maybe(FuncType) {
     get_outputs :: proc(output: Maybe(Unit)) -> []Unit {
         if output == nil {
             return nil
@@ -643,10 +671,10 @@ check_function_type :: proc(
     }
 
     if !ok {
-        return FuncType{}, false
+        return nil
     }
 
-    return FuncType{args, return_types}, true
+    return FuncType{args, return_types}
 }
 
 // Returns nil if there are errors in the type
@@ -983,8 +1011,11 @@ check_comptime_func_call :: proc(
                 GenericTypeValue{global, generic_args},
             ),
         )
-        s.types.values.d[type_value].type =
-            checked_value2.value == nil ? .Invalid : checked_value2.value.(ExactValue).(Type)
+        if checked_value2.value == nil {
+            s.types.values.d[type_value].type = .Invalid
+        } else {
+            s.types.values.d[type_value].type = checked_value2.value.(ExactValue).(Type)
+        }
     }
 
     return checked_value
@@ -1089,14 +1120,15 @@ simplify_type :: proc(s: ^CheckerState, type: Type, loc := #caller_location) -> 
     for {
         got := get_type(s.types, cur_type)
         #partial switch key in got.key {
-        case GenericTypeValue, GlobalType:
+        case GenericTypeValue, GlobalType, ReplaceScoped:
             cur_type = got.value.type
             assert(cur_type != .Unknown)
         case nil:
             return SimplifiedType{cur_type, nil}
         case:
             if got.value.type != .Unknown {
-                utils.panicf("got.value.type == %v", got.value.type)
+                str := type_to_string(s, got.value.type)
+                utils.panicf("got.value.type == %v == %s", got.value.type, str)
             }
             return SimplifiedType{cur_type, got.key}
         }
@@ -1250,6 +1282,11 @@ get_func_type :: proc(
     return nil
 }
 
+SubtypeSupertypePair :: struct {
+    subtype:   Type,
+    supertype: Type,
+}
+
 // Returns `nil` on success
 // Returns a writer that needs closing on failure
 expect_type_helper :: proc(
@@ -1257,6 +1294,7 @@ expect_type_helper :: proc(
     range: utils.Range,
     got_unsimplified: Type,
     expected_unsimplified: Type,
+    equal_unsimplified_types: utils.LinkedList(SubtypeSupertypePair),
     loc := #caller_location,
 ) -> (
     out: Maybe(io.Writer),
@@ -1280,8 +1318,25 @@ expect_type_helper :: proc(
             io.write_string(w, "`\n")
         }
     }
+    equal_unsimplified_types2 := equal_unsimplified_types
+    for equal_unsimplified_types2.c != nil {
+        if equal_unsimplified_types2.c.head.supertype == expected_unsimplified &&
+           equal_unsimplified_types2.c.head.subtype == got_unsimplified {
+            // Prevents infinite recursion
+            return
+        }
+        equal_unsimplified_types2 = equal_unsimplified_types2.c.tail
+    }
     got := simplify_type(s, got_unsimplified)
     expected := simplify_type(s, expected_unsimplified)
+    equal_unsimplified_types2 = equal_unsimplified_types
+    if got.type != got_unsimplified && expected.type != expected_unsimplified {
+        // Prevents infinite recursion
+        equal_unsimplified_types2 = utils.insert(
+            equal_unsimplified_types2,
+            SubtypeSupertypePair{got_unsimplified, expected_unsimplified},
+        )
+    }
     if got.type == expected.type {
         return
     }
@@ -1310,6 +1365,39 @@ expect_type_helper :: proc(
     case:
         out = s.r.diagnostic_header(s.r.data, range, .Error)
         return
+    case FuncType:
+        type_value, is_func_type := got.key.(FuncType)
+        if !is_func_type ||
+           len(type_value.args) != len(superset_value.args) ||
+           len(type_value.return_types) != len(superset_value.return_types) {
+            out = s.r.diagnostic_header(s.r.data, range, .Error)
+            return
+        }
+        for type_arg, i in type_value.args {
+            out = expect_type_helper(
+                s,
+                range,
+                type_arg,
+                superset_value.args[i],
+                equal_unsimplified_types2,
+            )
+            if out != nil {
+                return
+            }
+        }
+        for type_return, i in type_value.return_types {
+            out = expect_type_helper(
+                s,
+                range,
+                superset_value.return_types[i],
+                type_return,
+                equal_unsimplified_types2,
+            )
+            if out != nil {
+                return
+            }
+        }
+        return
     case OrderedHashMapType:
         if got.type == .EmptyOrderedHashMap {
             return
@@ -1324,11 +1412,18 @@ expect_type_helper :: proc(
             range,
             Type(type_value.key_type),
             Type(superset_value.key_type),
+            equal_unsimplified_types2,
         )
         if out != nil {
             return
         }
-        out = expect_type_helper(s, range, type_value.value_type, superset_value.value_type)
+        out = expect_type_helper(
+            s,
+            range,
+            type_value.value_type,
+            superset_value.value_type,
+            equal_unsimplified_types2,
+        )
         if out != nil {
             return
         }
@@ -1343,7 +1438,13 @@ expect_type_helper :: proc(
             return
         }
         if superset_value.length == nil || superset_value.length == type_value.length {
-            out = expect_type_helper(s, range, type_value.item_type, superset_value.item_type)
+            out = expect_type_helper(
+                s,
+                range,
+                type_value.item_type,
+                superset_value.item_type,
+                equal_unsimplified_types2,
+            )
             return
         }
         out = s.r.diagnostic_header(s.r.data, range, .Error)
@@ -1363,7 +1464,13 @@ expect_type_helper :: proc(
                 out = s.r.diagnostic_header(s.r.data, range, .Error)
                 return
             }
-            out = expect_type_helper(s, range, type_value.types.d[i], superset_value.types.d[i])
+            out = expect_type_helper(
+                s,
+                range,
+                type_value.types.d[i],
+                superset_value.types.d[i],
+                equal_unsimplified_types2,
+            )
             if out != nil {
                 return
             }
@@ -1389,7 +1496,13 @@ expect_type_helper :: proc(
             if !type_has_payload {
                 continue
             }
-            out = expect_type_helper(s, range, type_payload, superset_payload)
+            out = expect_type_helper(
+                s,
+                range,
+                type_payload,
+                superset_payload,
+                equal_unsimplified_types2,
+            )
             if out != nil {
                 return
             }
@@ -1509,7 +1622,7 @@ expect_type :: proc(
     loc := #caller_location,
 ) -> bool {
     utils.call(loc, "expect_type", "")
-    out := expect_type_helper(s, range, got, expected)
+    out := expect_type_helper(s, range, got, expected, utils.LinkedList(SubtypeSupertypePair){nil})
     if out == nil {
         return true
     }
@@ -1517,13 +1630,16 @@ expect_type :: proc(
     return false
 }
 
-get_variable_type :: proc(
-    s: ^CheckerState,
-    variable: VariableRef,
-    loc := #caller_location,
-) -> Type {
-    utils.call(loc, "get_variable_type", "")
-    return s.scopes[variable.nesting_level].variables[variable.index].type
+get_local_type :: proc(s: ^CheckerState, local: LocalRef, loc := #caller_location) -> Type {
+    utils.call(loc, "get_local_type", "")
+    switch l in local {
+    case VariableRef:
+        return s.scopes[l.nesting_level].variables[l.index].type
+    case BindingRef:
+        return s.scopes[l.nesting_level].bindings[l.index].type
+    case:
+        panic("Unreachable")
+    }
 }
 
 type_to_string :: proc(s: ^CheckerState, t: Type, loc := #caller_location) -> string {
@@ -1603,11 +1719,36 @@ build_type_string :: proc(
         strings.write_string(b, "ImportedFile")
     case .Type:
         strings.write_string(b, "Type")
+    case .Typed:
+        strings.write_string(b, "Typed")
+    case .Scoped:
+        strings.write_string(b, "Scoped")
     case .Any:
         strings.write_string(b, "Any")
     case:
         // TODO: For `GlobalType` and `StructType`, put the right namespace before the type
         switch tv in get_type(types, t).key {
+        case UniqueType:
+            // TODO: Better printing of unique types
+            strings.write_string(b, "unique type ")
+            strings.write_uint(b, uint(tv.type))
+        case ReplaceScoped:
+            strings.write_string(b, "ReplaceScoped[")
+            build_type_string(types, globals_without_generic, globals_with_generic, b, tv.type)
+            strings.write_string(b, ", ")
+            build_type_string(
+                types,
+                globals_without_generic,
+                globals_with_generic,
+                b,
+                tv.replace_with,
+            )
+            strings.write_byte(b, ']')
+
+        case TypeScope:
+            strings.write_string(b, "scope (")
+            build_type_string(types, globals_without_generic, globals_with_generic, b, tv.contents)
+            strings.write_byte(b, ')')
         case GlobalType:
             strings.write_string(b, globals_without_generic[tv.global.index].name)
         case StructType:
@@ -1717,7 +1858,7 @@ build_type_string :: proc(
             }
             strings.write_byte(b, ']')
         case nil:
-            panic("Unreachable")
+            utils.panicf("Unreachable (type is %v)", t)
         }
     }
 }
@@ -1725,11 +1866,20 @@ build_type_string :: proc(
 pop_scope :: proc(s: ^CheckerState, loc := #caller_location) {
     utils.call(loc, "pop_scope", "")
     pop(&s.scopes)
-    for var_name, var_ref in s.variables_map {
-        if var_ref.nesting_level == len(s.scopes) {
-            delete_key(&s.variables_map, var_name)
+    for local_name, local_ref in s.locals_map {
+        nesting_level: uint = ---
+        switch l in local_ref {
+        case BindingRef:
+            nesting_level = l.nesting_level
+        case VariableRef:
+            nesting_level = l.nesting_level
+        case:
+            panic("Unreachable")
+        }
+        if nesting_level == len(s.scopes) {
+            delete_key(&s.locals_map, local_name)
         } else {
-            assert(var_ref.nesting_level < len(s.scopes))
+            assert(nesting_level < len(s.scopes))
         }
     }
     for label_name, label_ref in s.labels_map {
@@ -1846,12 +1996,22 @@ check_mutation :: proc(
         return false
     }
     if !ident.has_re_before && ident.ident.has_dollar_at_end {
-        var_ref, ok := s.variables_map[ident.ident.ident]
+        local_ref, ok := s.locals_map[ident.ident.ident]
         if !ok {
             utils.diagnostic(
                 s.r,
                 split.before_split.range,
-                "The variable `%s` is not defined",
+                "The local `%s` is not defined",
+                ident.ident.ident,
+            )
+            return false
+        }
+        var_ref, is_variable := local_ref.(VariableRef)
+        if !is_variable {
+            utils.diagnostic(
+                s.r,
+                split.before_split.range,
+                "The local `%s` is a binding",
                 ident.ident.ident,
             )
             return false
@@ -2205,11 +2365,17 @@ check_block :: proc(
                         array_item_type,
                         IdentAndPos{value.variables[0].text, false, value.variables[0].pos},
                     )
-                    index_ref, index_ok := add_variable(
-                        s,
-                        .UInt,
-                        IdentAndPos{value.variables[1].text, false, value.variables[1].pos},
-                    )
+                    index_ref: VariableRef = ---
+                    index_ok: bool = ---
+                    if value.variables[1].text == "" {
+                        index_ref, index_ok = add_unnamed_variable(s, .UInt, false), true
+                    } else {
+                        index_ref, index_ok = add_variable(
+                            s,
+                            .UInt,
+                            IdentAndPos{value.variables[1].text, false, value.variables[1].pos},
+                        )
+                    }
                     if !elem_ok || !index_ok {
                         return nil, utils.to_debug_value(false)
                     }
@@ -2728,8 +2894,17 @@ check_var_ref_start :: proc(
         }
     }
     */
-    if var_ref, ok := s.variables_map[ident.ident]; ok {
-        return CheckValueResult{var_ref, get_variable_type(s, var_ref)}
+    if local_ref, ok := s.locals_map[ident.ident]; ok {
+        switch local_ref_value in local_ref {
+        case BindingRef:
+            binding := s.scopes[local_ref_value.nesting_level].bindings[local_ref_value.index]
+            return CheckValueResult{binding.value, binding.type}
+        case VariableRef:
+            variable := s.scopes[local_ref_value.nesting_level].variables[local_ref_value.index]
+            return CheckValueResult{local_ref_value, variable.type}
+        case:
+            panic("Unreachable")
+        }
     }
     return check_namespaced_var_ref(s, ident.pos.file, ident)
 }
@@ -3087,6 +3262,30 @@ check_value_with_marker :: proc(
     a: CheckValueArgs,
 ) -> CheckValueResult {
     switch marker.text {
+    case "abs":
+        value := check_initial_value(s, v, i, CheckValueArgs{a.body, a.generic_args, nil}).v
+        if value.value == nil {
+            return CheckValueResult{nil, .Invalid}
+        }
+        if !expect_type(s, get_segment(v, i^).range, .String, value.type) {
+            return CheckValueResult{nil, .Invalid}
+        }
+        comptime_value, is_comptime := value.value.(ExactValue)
+        if !is_comptime {
+            utils.diagnostic(s.r, get_segment(v, i^).range, "Expected a compile time known value")
+            return CheckValueResult{nil, .Invalid}
+        }
+
+        out, join_err := filepath.join(
+            []string{v.first.range.file.dir_path, string(comptime_value.(StringValue))},
+            context.allocator,
+        )
+        if join_err != nil {
+            utils.diagnostic(s.r, get_range(marker), "Failed to join paths: %v", join_err)
+            return CheckValueResult{nil, .Invalid}
+        }
+
+        return CheckValueResult{ExactValue(StringValue(out)), .String}
     case "load":
         value := check_initial_value(s, v, i, CheckValueArgs{a.body, a.generic_args, nil}).v
         if value.value == nil {
@@ -3106,7 +3305,7 @@ check_value_with_marker :: proc(
             context.allocator,
         )
         if join_err != nil {
-            utils.diagnostic(s.r, get_range(marker), "Failed to join strings: %v", join_err)
+            utils.diagnostic(s.r, get_range(marker), "Failed to join paths: %v", join_err)
             return CheckValueResult{nil, .Invalid}
         }
         data, data_err := os.read_entire_file(joined, context.allocator)
@@ -3202,7 +3401,7 @@ check_joined_unit_value :: proc(
             )
             return CheckValueResult{ExactValue(Type.Invalid), .Type}
         }
-        t, ok := check_function_type(s, tuple.elements, after, a.generic_args)
+        t, ok := check_function_type(s, tuple.elements, after, a.generic_args).(FuncType)
         if !ok {
             return CheckValueResult{nil, .Type}
         }
@@ -3441,6 +3640,7 @@ finish_checking_early_return_type :: proc(
     s: ^CheckerState,
     a: CheckValueArgs,
 ) -> utils.DebugValue(CheckValueResult) {
+    // TODO: Maybe parsing in false will cause problems
     out := ExactValue(create_type(&s.types, a.early_exit_if_value_is_type).type)
     return utils.to_debug_value(CheckValueResult{out, .Type})
 }
@@ -3904,6 +4104,109 @@ check_initial_value :: proc(
         i^ += 1
         return utils.to_debug_value(check_value_with_marker(s, value.marker, v, i, a))
 
+    case ScopeToken:
+        if is_last_segment(v, i^) {
+            utils.diagnostic(s.r, segment.range, "Expected another segment after `scope`")
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+        i^ += 1
+        segment := get_segment(v, i^)
+        contents, is_tuple := segment.contents.(Tuple)
+        if !is_tuple || (len(contents.elements) != 1 && len(contents.elements) != 3) {
+            utils.diagnostic(
+                s.r,
+                segment.range,
+                "After scope\nExpected `()` with 1 unit or 3 units inside",
+            )
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+        if len(contents.elements) == 3 {
+            return_type := check_type(s, contents.elements[0], a.generic_args)
+            scope_type := check_type(s, contents.elements[1], a.generic_args)
+            return_value := check_value(
+                s,
+                contents.elements[2],
+                CheckValueArgs{a.body, a.generic_args, nil},
+            )
+            if return_type == .Invalid || scope_type == .Invalid || return_value.v.value == nil {
+                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+            }
+            replaced := replace_scoped(s, return_type, scope_type)
+            if !expect_type(s, get_range(contents.elements[2]), replaced, return_value.v.type) {
+                return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+            }
+            return utils.to_debug_value(
+                CheckValueResult {
+                    return_value.v.value,
+                    create_type(&s.types, TypeScope{return_type}).type,
+                },
+            )
+        }
+        body := utils.to_debug_value([dynamic]CheckedStatement{})
+        initial := check_value(s, contents.elements[0], CheckValueArgs{&body, a.generic_args, nil})
+        if initial.v.value == nil {
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+        if expect_type(s, get_range(contents.elements[0]), .Type, initial.v.type) {
+            scope_contents := initial.v.value.(ExactValue).(Type)
+            scope_type := create_type(&s.types, TypeScope{scope_contents}).type
+            return utils.to_debug_value(CheckValueResult{ExactValue(scope_type), .Type})
+        }
+        return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+
+    case UnScopeToken:
+        if is_last_segment(v, i^) {
+            utils.diagnostic(s.r, segment.range, "Expected another segment after `unscope`")
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+        i^ += 1
+        segment := get_segment(v, i^)
+        contents, is_tuple := segment.contents.(Tuple)
+        if !is_tuple || len(contents.elements) != 2 {
+            utils.diagnostic(
+                s.r,
+                segment.range,
+                "After unscope\nExpected `()` with 2 units inside",
+            )
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+        checked_value := check_value(
+            s,
+            contents.elements[0],
+            CheckValueArgs{a.body, a.generic_args, nil},
+        )
+        if checked_value.v.value == nil {
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+        scope, is_scope := get_type(s.types, simplify_type(s, checked_value.v.type).type).key.(TypeScope)
+        if !is_scope {
+            utils.diagnostic(
+                s.r,
+                get_range(contents.elements[0]),
+                "Expected something like `scope (...)`\nGot the type %s",
+                type_to_string(s, checked_value.v.type),
+            )
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+
+        unique_identifier, is_ident := get_text_and_pos_from_unit(
+            s.r,
+            contents.elements[1],
+        ).(TextAndPos)
+        if !is_ident {
+            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+        }
+        unique_type := create_unique_type(&s.types)
+        type := replace_scoped(s, scope.contents, unique_type)
+        add_binding(
+            s,
+            .Type,
+            unique_type,
+            IdentAndPos{unique_identifier.text, false, unique_identifier.pos},
+        )
+
+        return utils.to_debug_value(CheckValueResult{checked_value.v.value, type})
+
     case Tuple:
         if len(value.elements) != 1 {
             utils.diagnostic(
@@ -4001,6 +4304,78 @@ check_initial_value :: proc(
     case Char:
         out := ExactValue(f64(value))
         return utils.to_debug_value(CheckValueResult{out, .Char})
+    }
+}
+
+replace_scoped :: proc(s: ^CheckerState, type: Type, replace_with: Type) -> Type {
+    if type > Type.MaxIndex {
+        if type == Type.Scoped {
+            return replace_with
+        }
+        return type
+    }
+
+    switch t in get_type(s.types, type).key {
+    case nil:
+        panic("Unreachable")
+    case:
+        panic("Unreachable")
+    case ReplaceScoped:
+        return type
+    case TypeScope:
+        return type
+    case UniqueType:
+        return type
+
+    case ArrayType:
+        item_type := replace_scoped(s, t.item_type, replace_with)
+        return create_type(&s.types, ArrayType{t.length, item_type}).type
+
+    case OrderedHashMapType:
+        value_type := replace_scoped(s, t.value_type, replace_with)
+        return create_type(&s.types, OrderedHashMapType{t.key_type, value_type}).type
+
+    case FuncType:
+        args := make([]Type, len(t.args))
+        for arg, i in t.args {
+            args[i] = replace_scoped(s, arg, replace_with)
+        }
+
+        return_types := make([]Type, len(t.return_types))
+        for return_type, i in t.return_types {
+            return_types[i] = replace_scoped(s, return_type, replace_with)
+        }
+
+        return create_type(&s.types, FuncType{args, return_types}).type
+
+    case SumType:
+        payloads := make(map[SumTag]Maybe(Type))
+        for tag, payload in t.payloads {
+            if p, has_payload := payload.(Type); has_payload {
+                payloads[tag] = replace_scoped(s, p, replace_with)
+            } else {
+                payloads[tag] = nil
+            }
+        }
+        return create_type(&s.types, SumType{payloads}).type
+
+    case StructType:
+        struct_fields := utils.arena_make_multi(s.a, utils.Multi(Type), len(t.m.keys))
+        for struct_field, i in utils.multi_to_array(t.types, len(t.m.keys)) {
+            struct_fields.d[i] = replace_scoped(s, struct_field, replace_with)
+        }
+        return create_type(&s.types, StructType{t.m, struct_fields}).type
+
+    case GlobalType, GenericTypeValue:
+        out := create_type(&s.types, ReplaceScoped{type, replace_with})
+        if out.result == .Inserted {
+            s.types.values.d[out.type].type = replace_scoped(
+                s,
+                s.types.values.d[type].type,
+                replace_with,
+            )
+        }
+        return out.type
     }
 }
 
@@ -4614,6 +4989,20 @@ check_value :: proc(
                     continue
                 case BuiltinFunction:
                     #partial switch comptime_value {
+                    case .to_typed:
+                        if len(checked_args) != 1 {
+                            argument_count_mismatch(s, res_range, len(checked_args), 1)
+                            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                        }
+                        args := make([]Type, 1)
+                        args[0] = checked_args[0]
+                        return_types := make([]Type, 1)
+                        return_types[0] = .Typed
+                        res = CheckValueResult {
+                            ExactValue(ToTyped{checked_args[0]}),
+                            create_type(&s.types, FuncType{args, return_types}).type,
+                        }
+                        continue
                     case .deserialize_from_json:
                         if len(checked_args) != 1 {
                             argument_count_mismatch(s, res_range, len(checked_args), 1)
@@ -4629,31 +5018,40 @@ check_value :: proc(
                             create_type(&s.types, FuncType{args, return_types}).type,
                         }
                         continue
-                    case .serialize_to_json:
-                        if len(checked_args) != 1 {
-                            argument_count_mismatch(s, res_range, len(checked_args), 1)
-                            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
-                        }
-                        args := make([]Type, 1)
-                        args[0] = checked_args[0]
-                        return_types := make([]Type, 1)
-                        return_types[0] = .String
-                        res = CheckValueResult {
-                            ExactValue(SerialiseToJsonFunc{checked_args[0]}),
-                            create_type(&s.types, FuncType{args, return_types}).type,
-                        }
-                        continue
                     case .cast_func:
                         if len(checked_args) != 1 {
                             argument_count_mismatch(s, res_range, len(checked_args), 1)
                             return utils.to_debug_value(CheckValueResult{nil, .Invalid})
                         }
                         args := make([]Type, 1)
-                        args[0] = .Any
+                        args[0] = .Typed
                         return_types := make([]Type, 1)
                         return_types[0] = checked_args[0]
                         res = CheckValueResult {
                             ExactValue(CastFunction{checked_args[0]}),
+                            create_type(&s.types, FuncType{args, return_types}).type,
+                        }
+                        continue
+                    case .make_func:
+                        if len(checked_args) != 1 {
+                            argument_count_mismatch(s, res_range, len(checked_args), 1)
+                            return utils.to_debug_value(CheckValueResult{nil, .Invalid})
+                        }
+
+                        array_with_uint := make([]Type, 1)
+                        array_with_uint[0] = .UInt
+
+                        args := make([]Type, 2)
+                        args[0] = .UInt
+                        args[1] =
+                            create_type(&s.types, FuncType{array_with_uint, checked_args[0:1]}).type
+
+                        return_types := make([]Type, 1)
+                        return_types[0] =
+                            create_type(&s.types, ArrayType{nil, checked_args[0]}).type
+
+                        res = CheckValueResult {
+                            ExactValue(MakeFunction{return_types[0]}),
                             create_type(&s.types, FuncType{args, return_types}).type,
                         }
                         continue
@@ -4666,9 +5064,10 @@ check_value :: proc(
                 if a.early_exit_if_value_is_type != nil {
                     return finish_checking_early_return_type(s, a)
                 }
+                item_type := res.value.(ExactValue).(Type)
                 array, ok := check_array_type(
                     s,
-                    res.value.(ExactValue).(Type),
+                    item_type,
                     contents.elements,
                     segment.range,
                     a.generic_args,
@@ -4749,28 +5148,39 @@ check_value :: proc(
 }
 
 get_inline_func_fields :: proc(s: ^CheckerState) -> (InlineFuncFields, utils.Multi(VariableRef)) {
-    if len(s.variables_map) == 0 {
+    if len(s.locals_map) == 0 {
         return InlineFuncFields{}, utils.Multi(VariableRef){nil}
     }
-    variables_from_outer_scope: map[string]VariableRef
+    locals_from_outer_scope: map[string]LocalRef
     scope0: Scope
     lambda_args := utils.arena_make_multi(s.a, utils.Multi(VariableRef), 0, resizable = true)
     defer utils.fix_resizable_multi(lambda_args)
 
-    for var_name, var_ref in s.variables_map {
-        variable := s.scopes[var_ref.nesting_level].variables[var_ref.index]
+    for local_name, local_ref in s.locals_map {
+        switch local_ref_value in local_ref {
+        case VariableRef:
+            variable := s.scopes[local_ref_value.nesting_level].variables[local_ref_value.index]
 
-        if variable.is_reassignable {
-            // Reassignable variables defined in an outer function are not accessible from an inline function
-            continue
+            if variable.is_reassignable {
+                // Reassignable variables defined in an outer function are not accessible from an inline function
+                continue
+            }
+
+            locals_from_outer_scope[local_name] = VariableRef{0, len(scope0.variables)}
+            utils.append_multi_dynamic(&lambda_args, len(scope0.variables), local_ref_value)
+            append(&scope0.variables, variable)
+        case BindingRef:
+            locals_from_outer_scope[local_name] = BindingRef{0, len(scope0.bindings)}
+            append(
+                &scope0.bindings,
+                s.scopes[local_ref_value.nesting_level].bindings[local_ref_value.index],
+            )
+        case:
+            panic("Unreachable")
         }
-
-        variables_from_outer_scope[var_name] = VariableRef{0, len(scope0.variables)}
-        utils.append_multi_dynamic(&lambda_args, len(scope0.variables), var_ref)
-        append(&scope0.variables, variable)
     }
 
-    return InlineFuncFields{variables_from_outer_scope, scope0}, lambda_args
+    return InlineFuncFields{locals_from_outer_scope, scope0}, lambda_args
 }
 
 // Returns `nil, Invalid` on failure
@@ -4789,7 +5199,7 @@ check_anonymous_func_head :: proc(
         func.inputs.value_type[:len(func.inputs)],
         func.output,
         generic_args,
-    )
+    ).(FuncType)
     if !ok {
         return nil, .Invalid
     }
@@ -4824,11 +5234,11 @@ check_anonymous_func_body :: proc(s: ^CheckerState, ref: CheckedFuncRef) -> bool
     s.loop_index = 0
     s.parent_loop_index = max(uint)
     assert(len(s.scopes) == 0)
-    assert(len(s.variables_map) == 0)
+    assert(len(s.locals_map) == 0)
     // We do not need to shallow clone
     // `checked_func.inline_stuff.variables_from_outer_scope` because we are the
     // only consumer of `checked_func.inline_stuff.variables_from_outer_scope`
-    s.variables_map = checked_func.inline_stuff.variables_from_outer_scope
+    s.locals_map = checked_func.inline_stuff.locals_from_outer_scope
     assert(len(s.labels_map) == 0)
     for return_type, i in func_type.return_types {
         s.return_types[i] = return_type
@@ -4950,6 +5360,7 @@ length_of_array :: proc(type: ArrayType, value: CheckedValue) -> CheckedValue {
 // Returns `nil, Type{}` if there was an error
 // The `CheckedValue` returned is the length of the array
 // The `Type` returned is the array's item_type
+// Errors if the type needs a scope
 check_array :: proc(
     s: ^CheckerState,
     range: utils.Range,
@@ -5063,6 +5474,11 @@ add_sum_type :: proc(
 
 // Never fails by returning `.Any`
 find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]struct{}) -> Type {
+    /*
+    for arg in args {
+        utils.assert_eq(get_type(s.types, arg).value.needs_scope, false)
+    }
+    */
     key, _ := utils.pop_map(args)
     if len(args) == 0 {
         return key
@@ -5089,6 +5505,23 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]struct{})
         return out
     }
     switch type in simplified.key {
+    case TypeScope:
+        contents := make(map[Type]struct{})
+        contents[type.contents] = struct{}{}
+        for arg in args {
+            type_scope, is_type_scope := get_type(s.types, arg).key.(TypeScope)
+            if !is_type_scope {
+                return .Any // TODO
+            }
+            contents[type_scope.contents] = struct{}{}
+        }
+        contents_most_specific_supertype := find_most_specific_supertype(s, &contents)
+        if contents_most_specific_supertype == .Any {
+            return .Any
+        }
+        return create_type(&s.types, TypeScope{contents_most_specific_supertype}).type
+    case UniqueType:
+        return .Any
     case SumType:
         variants := make(map[SumTag]Maybe(map[Type]struct{}))
         out, should_return := add_sum_type(s, &variants, type).(Type)
@@ -5207,7 +5640,7 @@ find_most_specific_supertype :: proc(s: ^CheckerState, args: ^map[Type]struct{})
             },
         )
         return out.type
-    case GlobalType, GenericTypeValue:
+    case GlobalType, GenericTypeValue, ReplaceScoped:
         panic("Unreachable (should be handled by `simplify_type`)")
     case:
         panic("Unreachable")

@@ -48,6 +48,8 @@ ElseToken :: struct {} // else
 ImportToken :: struct {} // import
 ReturnToken :: struct {} // return
 YieldToken :: struct {} // yield
+ScopeToken :: struct {} // scope
+UnScopeToken :: struct {} // unscope
 LoopControlFlowKind :: enum {
     Continue,
     Break,
@@ -115,6 +117,8 @@ TokenContents :: union {
     OrToken,
     MatchToken,
     ReToken,
+    ScopeToken,
+    UnScopeToken,
     CommentToken,
     StringToken,
     CharToken,
@@ -225,6 +229,10 @@ token_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
         fmt.wprint(fi.writer, "the keyword `match`")
     case ReToken:
         fmt.wprint(fi.writer, "the keyword `re`")
+    case ScopeToken:
+        fmt.wprint(fi.writer, "the keyword `scope`")
+    case UnScopeToken:
+        fmt.wprint(fi.writer, "the keyword `unscope`")
     case CommentToken:
         fmt.wprint(fi.writer, "a comment")
     case StringToken:
@@ -528,6 +536,10 @@ get_next_token :: proc(
             state.last_token = MatchToken{}
         case "re":
             state.last_token = ReToken{}
+        case "scope":
+            state.last_token = ScopeToken{}
+        case "unscope":
+            state.last_token = UnScopeToken{}
         case:
             if state.index < len(state.last_token_pos.file.code) &&
                state.last_token_pos.file.code[state.index] == '$' {

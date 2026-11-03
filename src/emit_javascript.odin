@@ -1,7 +1,6 @@
 package main
 
 import "compiler"
-import "core:fmt"
 import "core:strings"
 import "utils"
 
@@ -15,6 +14,14 @@ emit_js_func_call :: proc(s: ^GeneralEmitterState, c: compiler.CheckedFunctionCa
         }
     }
     strings.write_byte(&s.b, ')')
+}
+
+get_type_index :: proc(types: compiler.Types, type: compiler.Type) -> uint {
+    if type > compiler.Type.MaxIndex {
+        return uint(type)
+    } else {
+        return uint(types.m.keys[type].key_hash)
+    }
 }
 
 emit_js_exact_value :: proc(s: ^GeneralEmitterState, v: compiler.ExactValue) {
@@ -49,29 +56,39 @@ emit_js_exact_value :: proc(s: ^GeneralEmitterState, v: compiler.ExactValue) {
             strings.write_byte(&s.b, ')')
         }
     case compiler.CastFunction:
-        strings.write_string(&s.b, "/* TODO: Implement cast in JS emitter */ undefined")
+        strings.write_string(&s.b, "cast(")
+        strings.write_uint(&s.b, get_type_index(s.types, comptime.type))
+        strings.write_byte(&s.b, ')')
+    case compiler.Typed:
+        strings.write_string(&s.b, "{type: ")
+        strings.write_uint(&s.b, get_type_index(s.types, comptime.type))
+        strings.write_string(&s.b, ", value: ")
+        emit_js_value(s, comptime.value^)
+        strings.write_byte(&s.b, '}')
+    case compiler.ToTyped:
+        strings.write_string(&s.b, "((v) => {return {type: ")
+        strings.write_uint(&s.b, get_type_index(s.types, comptime.type))
+        strings.write_string(&s.b, ", value: v}})")
+    case compiler.MakeFunction:
+        strings.write_string(&s.b, "make")
     case compiler.DeserialiseFromJsonFunc:
         strings.write_string(&s.b, "deserialize_from_json(")
-        if comptime.type > compiler.Type.MaxIndex {
-            strings.write_uint(&s.b, uint(comptime.type))
-        } else {
-            strings.write_uint(&s.b, uint(s.types.m.keys[comptime.type].key_hash))
-        }
-        strings.write_byte(&s.b, ')')
-    case compiler.SerialiseToJsonFunc:
-        strings.write_string(&s.b, "serialize_to_json(")
-        if comptime.type > compiler.Type.MaxIndex {
-            strings.write_uint(&s.b, uint(comptime.type))
-        } else {
-            strings.write_uint(&s.b, uint(s.types.m.keys[comptime.type].key_hash))
-        }
+        strings.write_uint(&s.b, get_type_index(s.types, comptime.type))
         strings.write_byte(&s.b, ')')
     case compiler.BuiltinFunction:
         #partial switch comptime {
+        case .serialize_to_json:
+            strings.write_string(&s.b, "JSON.stringify")
+        case .exponential:
+            strings.write_string(&s.b, "Math.exp")
+        case .random_float:
+            strings.write_string(&s.b, "Math.random")
         case .print, .println:
             strings.write_string(&s.b, "console.log")
         case .eprint, .eprintln:
             strings.write_string(&s.b, "console.error")
+        case .expect_uint:
+            strings.write_string(&s.b, "expect_uint")
         case:
             strings.write_string(&s.b, "builtin")
             strings.write_uint(&s.b, uint(comptime))
@@ -397,6 +414,7 @@ emit_js_value :: proc(s: ^GeneralEmitterState, value: compiler.CheckedValue) {
     }
 }
 
+/*
 emit_js_global_type :: proc(s: ^GeneralEmitterState, index: int) {
     name := fmt.aprintf("Type%d", index)
     defer delete(name)
@@ -435,6 +453,7 @@ emit_js_global_type :: proc(s: ^GeneralEmitterState, index: int) {
         strings.write_string(&s.b, "}}")
     }
 }
+*/
 
 emit_js_block_body :: proc(
     s: ^GeneralEmitterState,
@@ -567,7 +586,14 @@ emit_javascript :: proc(
     // TODO: Be able to `deserialize_from_json` even when there's a type mismatch
     strings.write_string(
         &s.b,
-        "function builtin22(num) {" +
+        "function make(l, f) {" +
+        "  const out = [];" +
+        "  for (let i = 0; i < l; i += 1) {" +
+        "    out.push(f(i));" +
+        "  }" +
+        "  return out;" +
+        "}" +
+        "function expect_uint(num) {" +
         "  if (!Number.isInteger(num)) {" +
         "    throw new Error(\"Attempted to convert float to UInt\")" +
         "  }" +
@@ -576,7 +602,12 @@ emit_javascript :: proc(
         "  }" +
         "  return num" +
         "}" +
-        "const serialize_to_json = (type) => (value) => JSON.stringify({type, value});" +
+        "const cast = (type) => (value) => {" +
+        "  if (type != value.type) {" +
+        "    throw new Error(`Expected ${type}, got ${value.type}`)" +
+        "  }" +
+        "  return value.value" +
+        "};" +
         "const deserialize_from_json = (type) => (json, fallback) => {" +
         "  try {" +
         "    const parsed = JSON.parse(json);" +
@@ -613,9 +644,11 @@ emit_javascript :: proc(
     }
     strings.write_string(&s.b, "};")
 
+    /*
     for _, index in types.m.keys {
         emit_js_global_type(&s, index)
     }
+    */
 
     /*
     for _, i in c.types.values {

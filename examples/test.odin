@@ -760,6 +760,7 @@ example_12_lambda_functions :: proc(t: ^testing.T) {
 }
 
 utils_path :: #directory + "std/utils.comb"
+math_path :: #directory + "std/math.comb"
 
 @(test)
 invalid_example_03_constants_and_reassignables_with_same_name :: proc(t: ^testing.T) {
@@ -775,18 +776,19 @@ invalid_example_03_constants_and_reassignables_with_same_name :: proc(t: ^testin
     utils.expect_string(&e, "Reading `" + path + "`...\n")
     utils.expect_string(&e, "Parsing `" + path + "`...\n")
     utils.expect_string(&e, "Parsing `" + utils_path + "`...\n")
+    utils.expect_string(&e, "Parsing `" + math_path + "`...\n")
     utils.expect_string(&e, "Checking...\n")
     utils.expect_string(&e, "\n")
     utils.expect_string(&e, "Warning compiling `" + path + "` (7:2 - 7:6)\n")
     utils.expect_string(
         &e,
-        "Declaring variable called `hello` when variable called `hello$` is already declared\n",
+        "Declaring local called `hello` when local called `hello$` is already declared\n",
     )
     utils.expect_string(&e, "\n")
     utils.expect_string(&e, "Warning compiling `" + path + "` (13:5 - 13:7)\n")
     utils.expect_string(
         &e,
-        "Declaring variable called `hi$` when variable called `hi` is already declared\n",
+        "Declaring local called `hi$` when local called `hi` is already declared\n",
     )
     utils.expect_string(&e, "\n")
     utils.expect_string(&e, "Successfully checked with 0 errors and 2 warnings in ")
@@ -813,6 +815,7 @@ invalid_example_04_invalid_globals :: proc(t: ^testing.T) {
     utils.expect_string(&e, "Reading `" + path + "`...\n")
     utils.expect_string(&e, "Parsing `" + path + "`...\n")
     utils.expect_string(&e, "Parsing `" + utils_path + "`...\n")
+    utils.expect_string(&e, "Parsing `" + math_path + "`...\n")
     utils.expect_string(&e, "Checking...\n")
     utils.expect_done_message(&e)
     utils.expect_finished(&e)
@@ -1052,7 +1055,8 @@ example_15_compile_time_derivations :: proc(t: ^testing.T) {
     e := utils.TestingTextExpecter{0, ran.compiler.stdout, t}
     utils.expect_string(&e, "Reading `" + file + "`...\n")
     utils.expect_string(&e, "Parsing `" + file + "`...\n")
-    utils.expect_string(&e, "Parsing `" + #directory + "std/utils.comb`...\n")
+    utils.expect_string(&e, "Parsing `" + utils_path + "`...\n")
+    utils.expect_string(&e, "Parsing `" + math_path + "`...\n")
     utils.expect_string(&e, "Checking...\n")
     utils.expect_string(&e, "Successfully checked with 0 errors and 0 warnings in ")
     utils.expect_digits(&e)
@@ -1098,6 +1102,66 @@ example_11_http_server :: proc(t: ^testing.T) {
     testing.expect(t, ran.exit_code == 0)
     testing.expect(t, ran.compiler.stderr == "")
     testing.expect(t, ran.program.stdout == "Enter `serve` or `quit`: ")
+    testing.expect(t, ran.program.stderr == "")
+}
+
+@(test)
+example_16_scoped_generics :: proc(t: ^testing.T) {
+    // TODO: Better test
+    a: utils.Arena
+    file :: #directory + "16_scoped_generics.comb"
+    defer utils.cleanup_arena(&a, expect_empty = false)
+    ran := interpret_example(t, &a, src.FunctionRef{file, "main"}, "quit\n")
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.compiler.stderr == "")
+    testing.expect(t, ran.program.stderr == "")
+
+    e := utils.TestingTextExpecter{0, ran.program.stdout, t}
+    utils.expect_string(&e, "fibonacci: 1, 1\n")
+    utils.expect_string(&e, "factorial: 1\n")
+    utils.expect_string(&e, "faces: :)\n")
+    utils.expect_string(&e, "Enter the name of a sequence to expand or `quit` to quit: ")
+    utils.expect_finished(&e)
+
+    e = utils.TestingTextExpecter{0, ran.compiler.stdout, t}
+    utils.expect_string(&e, "Reading `" + file + "`...\n")
+    utils.expect_string(&e, "Parsing `" + file + "`...\n")
+    utils.expect_string(&e, "Parsing `" + utils_path + "`...\n")
+    utils.expect_string(&e, "Parsing `" + math_path + "`...\n")
+    utils.expect_string(&e, "Checking...\n\n")
+    utils.expect_string(&e, "Warning compiling `" + file + "` (90:13 - 90:21)\n")
+    utils.expect_string(&e, "This array access is not bounds checked\n")
+    utils.expect_string(&e, "TODO: Bounds checks\n\n")
+    utils.expect_string(&e, "Warning compiling `" + file + "` (90:26 - 90:34)\n")
+    utils.expect_string(&e, "This array access is not bounds checked\n")
+    utils.expect_string(&e, "TODO: Bounds checks\n\n")
+    utils.expect_string(&e, "Warning compiling `" + file + "` (97:13 - 97:21)\n")
+    utils.expect_string(&e, "This array access is not bounds checked\n")
+    utils.expect_string(&e, "TODO: Bounds checks\n\n")
+    utils.expect_string(&e, "Warning compiling `" + file + "` (110:13 - 110:23)\n")
+    utils.expect_string(&e, "This array access is not bounds checked\n")
+    utils.expect_string(&e, "TODO: Bounds checks\n\n")
+    utils.expect_string(&e, "Successfully checked with 0 errors and 4 warnings in ")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, ".")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, " ms\n")
+    utils.expect_string(&e, "Interpreting `main`...\n")
+    utils.expect_string(&e, "Done in ")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, ".")
+    utils.expect_digits(&e)
+    utils.expect_string(&e, " ms!\n")
+    utils.expect_finished(&e)
+}
+
+@(test)
+example_17_barnsley_fern :: proc(t: ^testing.T) {
+    a: utils.Arena
+    defer utils.cleanup_arena(&a, expect_empty = false)
+    ran := interpret_example(t, &a, src.FunctionRef{#directory + "17_barnsley_fern.comb", "build"})
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.compiler.stderr == "")
     testing.expect(t, ran.program.stderr == "")
 }
 

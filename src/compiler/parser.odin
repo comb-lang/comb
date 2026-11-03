@@ -270,7 +270,7 @@ should_continue_parsing_unit :: proc(
     next_token: TokenContents,
 ) -> bool {
     #partial switch _ in last_segment {
-    case Marker, UnitJoinMethod:
+    case Marker, UnitJoinMethod, ScopeToken, UnScopeToken:
         return true
     }
     _, is_join_method := get_join_method(next_token).(UnitJoinMethod)
@@ -592,6 +592,12 @@ parse_unit_segment_contents :: proc(
             return nil
         }
         return IdentNode{IdentAndPos{ident.ident, ident.has_dollar_at_end, ident_pos}, true}
+
+    case ScopeToken:
+        return ScopeToken{}
+
+    case UnScopeToken:
+        return UnScopeToken{}
 
     case MarkerToken:
         /*

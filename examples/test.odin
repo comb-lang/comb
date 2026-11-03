@@ -1155,6 +1155,16 @@ example_16_scoped_generics :: proc(t: ^testing.T) {
     utils.expect_finished(&e)
 }
 
+@(test)
+example_17_barnsley_fern :: proc(t: ^testing.T) {
+    a: utils.Arena
+    defer utils.cleanup_arena(&a, expect_empty = false)
+    ran := interpret_example(t, &a, src.FunctionRef{#directory + "17_barnsley_fern.comb", "build"})
+    testing.expect(t, ran.exit_code == 0)
+    testing.expect(t, ran.compiler.stderr == "")
+    testing.expect(t, ran.program.stderr == "")
+}
+
 // TODO: Add a fuzz test where the code that gets compiled never has any syntax errors
 
 // TODO: Add a fuzz test where the code that gets compiled has no invalid utf8 runes
